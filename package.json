@@ -9,13 +9,41 @@
   "categories": [
     "Other"
   ],
-  "activationEvents": [],
+  "activationEvents": [
+    "onStartupFinished"
+  ],
   "main": "./out/extension.js",
   "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "terminalContainer",
+          "title": "Secondary Terminal",
+          "icon": "$(terminal)"
+        }
+      ]
+    },
+    "views": {
+      "terminalContainer": [
+        {
+          "type": "webview",
+          "id": "terminalView",
+          "name": "Terminal",
+          "icon": "$(terminal)",
+          "when": "secondaryTerminal:enabled"
+        }
+      ]
+    },
     "commands": [
       {
-        "command": "secondary-terminal.helloWorld",
-        "title": "Hello World"
+        "command": "secondaryTerminal.focus",
+        "title": "Focus Terminal",
+        "category": "Secondary Terminal"
+      },
+      {
+        "command": "secondaryTerminal.clear",
+        "title": "Clear Terminal",
+        "category": "Secondary Terminal"
       }
     ]
   },
@@ -28,14 +56,19 @@
     "test": "vscode-test"
   },
   "devDependencies": {
-    "@types/vscode": "^1.101.0",
     "@types/mocha": "^10.0.10",
     "@types/node": "20.x",
+    "@types/vscode": "^1.101.0",
     "@typescript-eslint/eslint-plugin": "^8.31.1",
     "@typescript-eslint/parser": "^8.31.1",
-    "eslint": "^9.25.1",
-    "typescript": "^5.8.3",
     "@vscode/test-cli": "^0.0.10",
-    "@vscode/test-electron": "^2.5.2"
+    "@vscode/test-electron": "^2.5.2",
+    "electron-rebuild": "^3.2.9",
+    "eslint": "^9.25.1",
+    "typescript": "^5.8.3"
+  },
+  "dependencies": {
+    "@xterm/xterm": "^5.5.0",
+    "node-pty": "^1.0.0"
   }
 }
