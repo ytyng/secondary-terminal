@@ -42,7 +42,7 @@ export class TerminalProvider implements vscode.WebviewViewProvider {
                     case 'terminalReady':
                         console.log('Terminal ready');
                         this.sendToTerminal('Welcome to Secondary Terminal!\r\n');
-                        this.showPrompt();
+                        this.startPersistentShell();
                         break;
                     case 'resize':
                         console.log('Terminal resize:', message.cols, 'x', message.rows);
@@ -60,13 +60,37 @@ export class TerminalProvider implements vscode.WebviewViewProvider {
     }
 
     private handleInput(data: string) {
+        // Control-C (0x03)
+        if (data === '\u0003') {
+            console.log('Control-C pressed');
+            if (this._shellProcess && this._shellProcess.stdin) {
+                this._shellProcess.stdin.write('\u0003'); // SIGINT をシェルに送信
+            }
+            this._currentInput = '';
+            return;
+        }
+        
+        // Control-Z (0x1A)
+        if (data === '\u001a') {
+            console.log('Control-Z pressed');
+            if (this._shellProcess && this._shellProcess.stdin) {
+                this._shellProcess.stdin.write('\u001a'); // SIGTSTP をシェルに送信
+            }
+            return;
+        }
+        
         if (data === '\r') {
             // Enter が押された - コマンドを実行
             this.sendToTerminal('\r\n');
             if (this._currentInput.trim()) {
                 this.executeCommand(this._currentInput.trim());
             } else {
-                this.showPrompt();
+                // 空のコマンドでもシェルに送信（プロンプト表示のため）
+                if (this._shellProcess && this._shellProcess.stdin) {
+                    this._shellProcess.stdin.write('\n');
+                } else {
+                    this.showPrompt();
+                }
             }
             this._currentInput = '';
         } else if (data === '\u007f') {
@@ -85,43 +109,31 @@ export class TerminalProvider implements vscode.WebviewViewProvider {
     private executeCommand(command: string) {
         console.log('Executing command:', command);
         
-        // cd コマンドの特別処理
-        if (command.startsWith('cd ')) {
-            const newPath = command.substring(3).trim();
-            this.changeDirectory(newPath);
-            return;
+        // cd コマンドも永続シェルで処理（プロファイルのエイリアスなど反映のため）
+        // if (command.startsWith('cd ')) {
+        //     const newPath = command.substring(3).trim();
+        //     this.changeDirectory(newPath);
+        //     return;
+        // }
+        
+        // pwd コマンドも永続シェルで処理
+        // if (command === 'pwd') {
+        //     this.sendToTerminal(this._cwd + '\r\n');
+        //     this.showPrompt();
+        //     return;
+        // }
+        
+        // 永続的な zsh セッションにコマンドを送信
+        if (!this._shellProcess) {
+            this.startPersistentShell();
         }
         
-        // pwd コマンドの特別処理
-        if (command === 'pwd') {
-            this.sendToTerminal(this._cwd + '\r\n');
+        if (this._shellProcess && this._shellProcess.stdin) {
+            this._shellProcess.stdin.write(command + '\n');
+        } else {
+            this.sendToTerminal('Error: Shell process not available\r\n');
             this.showPrompt();
-            return;
         }
-        
-        // その他のコマンドを実行
-        child_process.exec(command, {
-            cwd: this._cwd,
-            env: process.env
-        }, (error, stdout, stderr) => {
-            if (error) {
-                this.sendToTerminal(`Error: ${error.message}\r\n`);
-            } else {
-                if (stdout) {
-                    // Unix の \n を \r\n に変換
-                    let output = stdout.replace(/\n/g, '\r\n');
-                    // 長い行を端末幅に合わせて折り返し
-                    output = this.wrapLines(output);
-                    this.sendToTerminal(output);
-                }
-                if (stderr) {
-                    // Unix の \n を \r\n に変換
-                    const output = stderr.replace(/\n/g, '\r\n');
-                    this.sendToTerminal(output);
-                }
-            }
-            this.showPrompt();
-        });
     }
     
     private changeDirectory(path: string) {
@@ -136,9 +148,69 @@ export class TerminalProvider implements vscode.WebviewViewProvider {
         this.showPrompt();
     }
     
+    private startPersistentShell() {
+        if (this._shellProcess) {
+            return; // 既に起動済み
+        }
+        
+        console.log('Starting persistent zsh shell with profile');
+        
+        // ログインシェルとして zsh を起動（プロファイル読み込み付き）
+        this._shellProcess = child_process.spawn('zsh', ['-l', '-i'], {
+            cwd: this._cwd,
+            env: {
+                ...process.env,
+                TERM: 'xterm-256color',
+                FORCE_COLOR: '1',
+                COLORTERM: 'truecolor'
+            },
+            stdio: 'pipe'
+        });
+
+        if (this._shellProcess.stdout) {
+            this._shellProcess.stdout.on('data', (data) => {
+                const output = data.toString().replace(/\n/g, '\r\n');
+                this.sendToTerminal(output);
+            });
+        }
+
+        if (this._shellProcess.stderr) {
+            this._shellProcess.stderr.on('data', (data) => {
+                const output = data.toString().replace(/\n/g, '\r\n');
+                this.sendToTerminal(output);
+            });
+        }
+
+        this._shellProcess.on('exit', (code) => {
+            console.log('Persistent shell exited with code:', code);
+            this._shellProcess = undefined;
+            this.sendToTerminal(`\r\nShell exited with code: ${code}\r\n`);
+            this.showPrompt();
+        });
+        
+        this._shellProcess.on('error', (error) => {
+            console.error('Shell process error:', error);
+            this.sendToTerminal(`Shell error: ${error.message}\r\n`);
+        });
+        
+        // 少し待ってから初期化コマンドを送信
+        setTimeout(() => {
+            if (this._shellProcess && this._shellProcess.stdin) {
+                // プロンプトを設定
+                this._shellProcess.stdin.write('export PS1="%F{green}%n@%m%f:%F{blue}%~%f $ "\n');
+                // 初期プロンプトを表示
+                this._shellProcess.stdin.write('echo -n ""\n');
+            }
+        }, 1000);
+    }
+
     private showPrompt() {
-        const prompt = `${this._cwd} $ `;
-        this.sendToTerminal(prompt);
+        // 永続シェルを使用している場合はプロンプト表示しない
+        // （シェル自体がプロンプトを表示する）
+        if (!this._shellProcess) {
+            const prompt = `${this._cwd} $ `;
+            this.sendToTerminal(prompt);
+        }
     }
     
     private wrapLines(text: string): string {
