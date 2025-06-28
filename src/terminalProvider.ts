@@ -241,7 +241,9 @@ if __name__ == '__main__':
                 ...process.env,
                 TERM: 'xterm-256color',
                 FORCE_COLOR: '1',
-                COLORTERM: 'truecolor'
+                COLORTERM: 'truecolor',
+                COLUMNS: this._terminalCols.toString(),
+                LINES: this._terminalRows.toString()
             },
             stdio: 'pipe'
         });
@@ -345,20 +347,34 @@ if __name__ == '__main__':
                 }
                 body {
                     width: 100%;
-                    height: 100%;
-                    min-height: 100vh;
-                    padding: 5px 0 0 5px;
+                    height: 100vh;
+                    padding: 0;
                     margin: 0;
-                    /*background-color: var(--vscode-editor-background);*/
                     background-color: #222;
                     color: var(--vscode-editor-foreground);
-                    /* font-family: var(--vscode-terminal-font-family), "RobotoMono Nerd Font", "Roboto Mono", Consolas, "Courier New", monospace; */
                     font-family: "RobotoMono Nerd Font Mono", "Roboto Mono", Consolas, "Courier New", monospace;
                     overflow: hidden;
                     display: flex;
                     flex-direction: column;
                 }
                 
+                .terminal-container {
+                    flex: 1;
+                    width: 100%;
+                    height: 100%;
+                    min-height: 0;
+                    display: flex;
+                    flex-direction: column;
+                }
+                
+                #terminal {
+                    flex: 1;
+                    width: 100%;
+                    height: 100%;
+                }
+                .terminal.xterm {
+                        padding: 5px 0 0 5px;
+                }
             </style>
         </head>
         <body>
@@ -396,70 +412,92 @@ if __name__ == '__main__':
                 
                 term.open(document.getElementById('terminal'));
                 
-                // 動的に高さを設定
+                // ターミナルサイズを動的に設定
                 function setTerminalSize() {
                     const container = document.querySelector('.terminal-container');
                     const terminal = document.getElementById('terminal');
                     
-                    // WebView の実際の高さを取得
-                    const viewportHeight = Math.max(window.innerHeight, 400);
-                    const viewportWidth = window.innerWidth;
+                    if (!container || !terminal) {
+                        console.warn('Terminal container not found');
+                        return;
+                    }
                     
-                    console.log('Viewport size:', viewportWidth, 'x', viewportHeight);
+                    // コンテナの実際のサイズを取得
+                    const containerRect = container.getBoundingClientRect();
+                    const availableWidth = Math.max(containerRect.width - 10, 300); // パディング考慮
+                    const availableHeight = Math.max(containerRect.height - 10, 200); // パディング考慮
+                    
+                    console.log('Container size:', availableWidth, 'x', availableHeight);
 
-                    // xterm.js のサイズを手動で計算して設定
-                    setTimeout(() => {
-                        // フォントサイズとマージンを考慮してサイズを計算
-                        const fontSize = 13;
-                        // const lineHeight = 20; // 20px
-                        const lineHeight = 20;
-                        // const charWidth = Math.floor(fontSize * 0.6); // 一般的な等幅フォントの幅
-                        // 小さくするほど左右幅は大きくなる
-                        const charWidth = Math.floor(fontSize * 0.65);
+                    // フォント情報から文字サイズを正確に計算
+                    const fontSize = 13;
+                    const lineHeight = 20;
+                    
+                    // 一時的な測定用エレメントを作成して文字幅を正確に測定
+                    const measurer = document.createElement('div');
+                    measurer.style.position = 'absolute';
+                    measurer.style.visibility = 'hidden';
+                    measurer.style.fontFamily = 'var(--vscode-terminal-font-family), "RobotoMono Nerd Font", "Roboto Mono", Consolas, "Courier New", monospace';
+                    measurer.style.fontSize = fontSize + 'px';
+                    measurer.style.lineHeight = lineHeight + 'px';
+                    measurer.style.whiteSpace = 'pre';
+                    measurer.textContent = 'M'.repeat(10); // 等幅フォントのM文字で測定
+                    
+                    document.body.appendChild(measurer);
+                    const charWidth = measurer.getBoundingClientRect().width / 10;
+                    const actualLineHeight = measurer.getBoundingClientRect().height;
+                    document.body.removeChild(measurer);
+                    
+                    // 列数と行数を計算
+                    const cols = Math.floor(availableWidth / charWidth);
+                    const rows = Math.floor(availableHeight / actualLineHeight);
+                    
+                    console.log('Font metrics - charWidth:', charWidth, 'lineHeight:', actualLineHeight);
+                    console.log('Calculated terminal size:', cols, 'x', rows);
+                    
+                    // 最小サイズを保証
+                    const finalCols = Math.max(cols, 20);
+                    const finalRows = Math.max(rows, 5);
+                    
+                    // ターミナルサイズを設定
+                    if (term.cols !== finalCols || term.rows !== finalRows) {
+                        term.resize(finalCols, finalRows);
                         
-                        // 利用可能な幅と高さを計算
-                        const availableWidth = viewportWidth - 5; // マージン考慮
-                        const availableHeight = viewportHeight - 5; // マージン考慮
-                        
-                        // 列数と行数を計算
-                        const cols = Math.floor(availableWidth / charWidth);
-                        const rows = Math.floor(availableHeight / lineHeight);
-                        
-                        console.log('Calculated terminal size:', cols, 'x', rows, 'font:', fontSize, 'px');
-                        
-                        // ターミナルサイズを明示的に設定
-                        term.resize(Math.max(cols, 20), Math.max(rows, 5));
-                        
-                        // その後 fit() を実行
-                        term.fit();
-                        
-                        // サイズ情報を送信
+                        // サイズ変更を VSCode に通知
                         vscode.postMessage({ 
                             type: 'resize', 
-                            cols: term.cols, 
-                            rows: term.rows 
+                            cols: finalCols, 
+                            rows: finalRows 
                         });
                         
-                        console.log('Final terminal size:', term.cols, 'x', term.rows);
-                    }, 100);
+                        console.log('Terminal resized to:', finalCols, 'x', finalRows);
+                    }
                 }
                 
                 // 初期サイズ設定
                 setTimeout(setTerminalSize, 100);
                 
-                // ウィンドウリサイズ時も再設定
-                window.addEventListener('resize', setTerminalSize);
+                // ウィンドウリサイズ時の処理
+                window.addEventListener('resize', () => {
+                    setTimeout(setTerminalSize, 50);
+                });
                 
-                // 定期的にサイズをチェック（VSCode の制約回避）
-                setInterval(() => {
-                    const currentHeight = parseInt(document.getElementById('terminal').style.height);
-                    const expectedHeight = Math.max(window.innerHeight, 400);
-                    
-                    if (Math.abs(currentHeight - expectedHeight) > 10) {
-                        console.log('Height mismatch detected, resizing...', currentHeight, '->', expectedHeight);
-                        setTerminalSize();
+                // ResizeObserver でコンテナサイズ変更を監視
+                const resizeObserver = new ResizeObserver((entries) => {
+                    for (const entry of entries) {
+                        console.log('Container resized:', entry.contentRect.width, 'x', entry.contentRect.height);
+                        setTimeout(setTerminalSize, 50);
                     }
-                }, 1000);
+                });
+                
+                // terminal-container を監視
+                const container = document.querySelector('.terminal-container');
+                if (container) {
+                    resizeObserver.observe(container);
+                }
+                
+                // 定期的なサイズチェック（VSCode の制約対応）
+                setInterval(setTerminalSize, 2000);
                 
                 let currentInput = '';
                 
@@ -483,11 +521,6 @@ if __name__ == '__main__':
                 });
                 
                 vscode.postMessage({ type: 'terminalReady' });
-                
-                const resizeObserver = new ResizeObserver(() => {
-                    setTerminalSize();
-                });
-                resizeObserver.observe(document.getElementById('terminal'));
                 
                 console.log('Terminal initialized successfully');
                 
