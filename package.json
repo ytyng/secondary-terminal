@@ -68,7 +68,6 @@
     "typescript": "^5.8.3"
   },
   "dependencies": {
-    "@xterm/xterm": "^5.5.0",
-    "node-pty": "^1.0.0"
+    "@xterm/xterm": "^5.5.0"
   }
 }

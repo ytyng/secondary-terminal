@@ -48,6 +48,12 @@ export class TerminalProvider implements vscode.WebviewViewProvider {
                         console.log('Terminal resize:', message.cols, 'x', message.rows);
                         this._terminalCols = message.cols || 80;
                         this._terminalRows = message.rows || 24;
+                        // Python PTY にサイズ情報を送信
+                        if (this._shellProcess && this._shellProcess.stdin) {
+                            // SIGWINCH シグナルを送信してターミナルサイズ変更を通知
+                            const resizeSeq = `\x1b[8;${this._terminalRows};${this._terminalCols}t`;
+                            this._shellProcess.stdin.write(resizeSeq, 'utf8');
+                        }
                         break;
                     case 'error':
                         console.error('WebView error:', message.error);
@@ -60,103 +66,176 @@ export class TerminalProvider implements vscode.WebviewViewProvider {
     }
 
     private handleInput(data: string) {
-        // Control-C (0x03)
-        if (data === '\u0003') {
-            console.log('Control-C pressed');
-            if (this._shellProcess && this._shellProcess.stdin) {
-                this._shellProcess.stdin.write('\u0003'); // SIGINT をシェルに送信
-            }
-            this._currentInput = '';
-            return;
-        }
-        
-        // Control-Z (0x1A)
-        if (data === '\u001a') {
-            console.log('Control-Z pressed');
-            if (this._shellProcess && this._shellProcess.stdin) {
-                this._shellProcess.stdin.write('\u001a'); // SIGTSTP をシェルに送信
-            }
-            return;
-        }
-        
-        if (data === '\r') {
-            // Enter が押された - コマンドを実行
-            this.sendToTerminal('\r\n');
-            if (this._currentInput.trim()) {
-                this.executeCommand(this._currentInput.trim());
-            } else {
-                // 空のコマンドでもシェルに送信（プロンプト表示のため）
-                if (this._shellProcess && this._shellProcess.stdin) {
-                    this._shellProcess.stdin.write('\n');
-                } else {
-                    this.showPrompt();
-                }
-            }
-            this._currentInput = '';
-        } else if (data === '\u007f') {
-            // Backspace
-            if (this._currentInput.length > 0) {
-                this._currentInput = this._currentInput.slice(0, -1);
-                this.sendToTerminal('\b \b');
-            }
-        } else {
-            // 通常の文字入力
-            this._currentInput += data;
-            this.sendToTerminal(data);
+        // Python PTY に直接入力を送信（UTF-8エンコーディング）
+        if (this._shellProcess && this._shellProcess.stdin) {
+            this._shellProcess.stdin.write(data, 'utf8');
         }
     }
 
-    private executeCommand(command: string) {
-        console.log('Executing command:', command);
-        
-        // cd コマンドも永続シェルで処理（プロファイルのエイリアスなど反映のため）
-        // if (command.startsWith('cd ')) {
-        //     const newPath = command.substring(3).trim();
-        //     this.changeDirectory(newPath);
-        //     return;
-        // }
-        
-        // pwd コマンドも永続シェルで処理
-        // if (command === 'pwd') {
-        //     this.sendToTerminal(this._cwd + '\r\n');
-        //     this.showPrompt();
-        //     return;
-        // }
-        
-        // 永続的な zsh セッションにコマンドを送信
-        if (!this._shellProcess) {
-            this.startPersistentShell();
-        }
-        
-        if (this._shellProcess && this._shellProcess.stdin) {
-            this._shellProcess.stdin.write(command + '\n');
-        } else {
-            this.sendToTerminal('Error: Shell process not available\r\n');
-            this.showPrompt();
-        }
-    }
-    
-    private changeDirectory(path: string) {
-        const newPath = path.startsWith('/') ? path : require('path').join(this._cwd, path);
-        try {
-            process.chdir(newPath);
-            this._cwd = process.cwd();
-            this.sendToTerminal('');
-        } catch (error) {
-            this.sendToTerminal(`cd: ${path}: No such file or directory\r\n`);
-        }
-        this.showPrompt();
-    }
     
     private startPersistentShell() {
         if (this._shellProcess) {
             return; // 既に起動済み
         }
         
-        console.log('Starting persistent zsh shell with profile');
+        console.log('Starting persistent shell with advanced Python PTY');
         
-        // ログインシェルとして zsh を起動（プロファイル読み込み付き）
-        this._shellProcess = child_process.spawn('zsh', ['-l', '-i'], {
+        // Node.js から制御する Python PTY
+        const pythonScript = `
+import pty
+import os
+import sys
+import subprocess
+import signal
+import struct
+import select
+import time
+
+def set_winsize(fd, rows, cols):
+    """ターミナルサイズを設定"""
+    try:
+        import termios
+        winsize = struct.pack('HHHH', rows, cols, 0, 0)
+        import fcntl
+        fcntl.ioctl(fd, termios.TIOCSWINSZ, winsize)
+    except (ImportError, OSError):
+        pass
+
+def main():
+    # 環境変数を設定
+    os.environ['TERM'] = 'xterm-256color'
+    os.environ['COLUMNS'] = str(${this._terminalCols})
+    os.environ['LINES'] = str(${this._terminalRows})
+    
+    # PTY を作成
+    master, slave = pty.openpty()
+    
+    # ターミナルサイズを設定
+    set_winsize(master, ${this._terminalRows}, ${this._terminalCols})
+    set_winsize(slave, ${this._terminalRows}, ${this._terminalCols})
+    
+    # シェルプロセスを起動
+    shell_cmd = [os.environ.get('SHELL', '/bin/zsh'), '-l', '-i']
+    try:
+        p = subprocess.Popen(
+            shell_cmd,
+            stdin=slave,
+            stdout=slave,
+            stderr=slave,
+            preexec_fn=os.setsid,
+            cwd='${this._cwd}'
+        )
+    except Exception as e:
+        # zsh が失敗した場合は bash にフォールバック
+        shell_cmd = ['/bin/bash', '-l', '-i']
+        p = subprocess.Popen(
+            shell_cmd,
+            stdin=slave,
+            stdout=slave,
+            stderr=slave,
+            preexec_fn=os.setsid,
+            cwd='${this._cwd}'
+        )
+    
+    os.close(slave)
+    
+    # 非ブロッキング I/O を設定
+    try:
+        import fcntl
+        # PTY マスターを非ブロッキングに設定
+        flags = fcntl.fcntl(master, fcntl.F_GETFL)
+        fcntl.fcntl(master, fcntl.F_SETFL, flags | os.O_NONBLOCK)
+        
+        # 標準入力も非ブロッキングに設定
+        stdin_flags = fcntl.fcntl(sys.stdin.fileno(), fcntl.F_GETFL)
+        fcntl.fcntl(sys.stdin.fileno(), fcntl.F_SETFL, stdin_flags | os.O_NONBLOCK)
+    except (ImportError, OSError):
+        pass
+    
+    # メイン I/O ループ
+    try:
+        while p.poll() is None:
+            # 標準入力から PTY マスターへの入力を処理
+            try:
+                ready, _, _ = select.select([sys.stdin, master], [], [], 0.1)
+                
+                if sys.stdin in ready:
+                    # Node.js からの入力を読み取り（非ブロッキング）
+                    try:
+                        # バイナリデータとして読み取り
+                        data = os.read(sys.stdin.fileno(), 1024)
+                        if data:
+                            try:
+                                # UTF-8でデコード
+                                text = data.decode('utf-8')
+                                # エスケープシーケンスでターミナルサイズ変更を検出
+                                if text.startswith('\\x1b[8;'):
+                                    # ターミナルサイズ変更シーケンス
+                                    try:
+                                        if 't' in text:
+                                            parts = text.split(';')
+                                            if len(parts) >= 3:
+                                                rows = int(parts[1])
+                                                cols = int(parts[2].rstrip('t'))
+                                                set_winsize(master, rows, cols)
+                                                os.environ['LINES'] = str(rows)
+                                                os.environ['COLUMNS'] = str(cols)
+                                                # SIGWINCH をシェルに送信
+                                                if p.pid:
+                                                    try:
+                                                        os.killpg(os.getpgid(p.pid), signal.SIGWINCH)
+                                                    except OSError:
+                                                        pass
+                                    except (ValueError, IndexError):
+                                        pass
+                                else:
+                                    # 通常の入力を PTY に送信
+                                    os.write(master, data)
+                            except UnicodeDecodeError:
+                                # デコードに失敗した場合はバイナリデータをそのまま送信
+                                os.write(master, data)
+                    except OSError:
+                        pass
+                
+                if master in ready:
+                    # PTY からの出力を読み取り
+                    try:
+                        data = os.read(master, 1024)
+                        if data:
+                            # バイナリデータをそのまま標準出力に送信
+                            sys.stdout.buffer.write(data)
+                            sys.stdout.buffer.flush()
+                    except OSError:
+                        pass
+                        
+            except (select.error, OSError):
+                time.sleep(0.01)
+                
+    except KeyboardInterrupt:
+        pass
+    finally:
+        # PTY を閉じる
+        try:
+            os.close(master)
+        except OSError:
+            pass
+        
+        # プロセスを終了
+        try:
+            if p.poll() is None:
+                os.killpg(os.getpgid(p.pid), signal.SIGTERM)
+                p.wait(timeout=2)
+        except (OSError, subprocess.TimeoutExpired):
+            try:
+                os.killpg(os.getpgid(p.pid), signal.SIGKILL)
+            except OSError:
+                pass
+
+if __name__ == '__main__':
+    main()
+        `;
+        
+        this._shellProcess = child_process.spawn('python3', ['-c', pythonScript], {
             cwd: this._cwd,
             env: {
                 ...process.env,
@@ -169,48 +248,41 @@ export class TerminalProvider implements vscode.WebviewViewProvider {
 
         if (this._shellProcess.stdout) {
             this._shellProcess.stdout.on('data', (data) => {
-                const output = data.toString().replace(/\n/g, '\r\n');
-                this.sendToTerminal(output);
+                // バイナリデータを UTF-8 でデコードして送信
+                try {
+                    this.sendToTerminal(data.toString('utf8'));
+                } catch (error) {
+                    // UTF-8 デコードに失敗した場合は latin1 でフォールバック
+                    this.sendToTerminal(data.toString('latin1'));
+                }
             });
         }
 
         if (this._shellProcess.stderr) {
             this._shellProcess.stderr.on('data', (data) => {
+                // エラー出力も改行変換
                 const output = data.toString().replace(/\n/g, '\r\n');
                 this.sendToTerminal(output);
             });
         }
 
         this._shellProcess.on('exit', (code) => {
-            console.log('Persistent shell exited with code:', code);
+            console.log('Python PTY process exited with code:', code);
             this._shellProcess = undefined;
             this.sendToTerminal(`\r\nShell exited with code: ${code}\r\n`);
-            this.showPrompt();
         });
         
         this._shellProcess.on('error', (error) => {
-            console.error('Shell process error:', error);
+            console.error('Python PTY process error:', error);
             this.sendToTerminal(`Shell error: ${error.message}\r\n`);
         });
         
-        // 少し待ってから初期化コマンドを送信
-        setTimeout(() => {
-            if (this._shellProcess && this._shellProcess.stdin) {
-                // プロンプトを設定
-                this._shellProcess.stdin.write('export PS1="%F{green}%n@%m%f:%F{blue}%~%f $ "\n');
-                // 初期プロンプトを表示
-                this._shellProcess.stdin.write('echo -n ""\n');
-            }
-        }, 1000);
+        console.log('Python PTY process started successfully');
     }
 
     private showPrompt() {
-        // 永続シェルを使用している場合はプロンプト表示しない
-        // （シェル自体がプロンプトを表示する）
-        if (!this._shellProcess) {
-            const prompt = `${this._cwd} $ `;
-            this.sendToTerminal(prompt);
-        }
+        // Python PTY を使用している場合はプロンプト表示不要
+        // （PTY 自体がプロンプトを表示する）
     }
     
     private wrapLines(text: string): string {
@@ -233,7 +305,10 @@ export class TerminalProvider implements vscode.WebviewViewProvider {
 
     public clearTerminal() {
         this._view?.webview.postMessage({ type: 'clear' });
-        this.showPrompt();
+        // Python PTY の場合は clear コマンドを送信
+        if (this._shellProcess && this._shellProcess.stdin) {
+            this._shellProcess.stdin.write('\x0C', 'utf8'); // Form Feed (Ctrl+L)
+        }
     }
 
     private sendToTerminal(text: string) {
