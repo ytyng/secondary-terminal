@@ -50,7 +50,7 @@ VSCode のサイドバーで動作する本格的なターミナル拡張機能�
 Developer: Install Extension from Location...
 ```
 
-を実行し、プロジェクトディレクトリのパス（例：`/Users/ytyng/workspace/secondary-terminal`）を指定してください。
+を実行し、プロジェクトディレクトリのパス（例：`/path/to/secondary-terminal`）を指定してください。
 
 ### シンボリックリンクでインストール
 
@@ -58,10 +58,10 @@ Developer: Install Extension from Location...
 
 ```bash
 # 通常の VSCode の場合
-ln -s /Users/ytyng/workspace/secondary-terminal ~/.vscode/extensions/secondary-terminal
+ln -s /path/to/secondary-terminal ~/.vscode/extensions/secondary-terminal
 
 # VSCode Insiders の場合
-ln -s /Users/ytyng/workspace/secondary-terminal ~/.vscode-insiders/extensions/secondary-terminal
+ln -s /path/to/secondary-terminal ~/.vscode-insiders/extensions/secondary-terminal
 ```
 
 その後、VSCode を再起動してください。
