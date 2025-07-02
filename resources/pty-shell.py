@@ -50,12 +50,22 @@ def check_claude_code_active(shell_pid):
                     continue
         
         # シェルプロセスの子孫を再帰的に検索
-        def find_descendants(parent_pid):
+        def find_descendants(parent_pid, visited=None):
+            if visited is None:
+                visited = set()
+            
+            # 循環参照を検出して回避
+            if parent_pid in visited:
+                return []
+            
+            visited.add(parent_pid)
             descendants = []
+            
             for pid, info in processes.items():
                 if info['ppid'] == parent_pid:
                     descendants.append(pid)
-                    descendants.extend(find_descendants(pid))  # 再帰的に子孫を検索
+                    descendants.extend(find_descendants(pid, visited))  # 再帰的に子孫を検索
+            
             return descendants
         
         descendants = find_descendants(shell_pid)
