@@ -1,5 +1,7 @@
 import * as vscode from 'vscode';
 import { TerminalProvider } from './terminalProvider';
+import { ShellProcessManager } from './shellProcessManager';
+import { TerminalSessionManager } from './terminalSessionManager';
 
 export function activate(context: vscode.ExtensionContext) {
     vscode.commands.executeCommand('setContext', 'secondaryTerminal:enabled', true);
@@ -26,4 +28,13 @@ export function activate(context: vscode.ExtensionContext) {
 
 export function deactivate() {
     vscode.commands.executeCommand('setContext', 'secondaryTerminal:enabled', false);
+    
+    // 拡張機能が非アクティブになったときに全てのリソースをクリーンアップ
+    const processManager = ShellProcessManager.getInstance();
+    processManager.terminateAllProcesses();
+    
+    const sessionManager = TerminalSessionManager.getInstance();
+    sessionManager.removeAllSessions();
+    
+    console.log('Secondary Terminal が無効化されました。');
 }
