@@ -7,6 +7,7 @@ import signal
 import struct
 import select
 import time
+import json
 
 def set_winsize(fd, rows, cols):
     """ターミナルサイズを設定"""
@@ -17,6 +18,76 @@ def set_winsize(fd, rows, cols):
         fcntl.ioctl(fd, termios.TIOCSWINSZ, winsize)
     except (ImportError, OSError):
         pass
+
+def check_claude_code_active(shell_pid):
+    """シェルプロセスでclaude codeがアクティブかチェック"""
+    try:
+        # プロセスツリーを取得して、シェルの子孫プロセスを調べる
+        ps_result = subprocess.run(
+            ['ps', '-eo', 'pid,ppid,comm,args'],
+            capture_output=True,
+            text=True,
+            timeout=2
+        )
+        
+        if ps_result.returncode != 0:
+            return False
+        
+        lines = ps_result.stdout.strip().split('\n')
+        
+        # プロセスツリーを構築
+        processes = {}
+        for line in lines[1:]:  # ヘッダー行をスキップ
+            parts = line.strip().split(None, 3)
+            if len(parts) >= 3:
+                try:
+                    pid = int(parts[0])
+                    ppid = int(parts[1])
+                    comm = parts[2]
+                    args = parts[3] if len(parts) >= 4 else comm
+                    processes[pid] = {'ppid': ppid, 'comm': comm, 'args': args}
+                except ValueError:
+                    continue
+        
+        # シェルプロセスの子孫を再帰的に検索
+        def find_descendants(parent_pid):
+            descendants = []
+            for pid, info in processes.items():
+                if info['ppid'] == parent_pid:
+                    descendants.append(pid)
+                    descendants.extend(find_descendants(pid))  # 再帰的に子孫を検索
+            return descendants
+        
+        descendants = find_descendants(shell_pid)
+        
+        # 子孫プロセスの中で claude を含むものを検索
+        for pid in descendants:
+            if pid in processes:
+                proc_info = processes[pid]
+                if 'claude' in proc_info['comm'].lower() or 'claude' in proc_info['args'].lower():
+                    return True
+        
+        return False
+        
+    except (subprocess.TimeoutExpired, subprocess.SubprocessError, FileNotFoundError):
+        return False
+
+def send_status_message(message_type, data):
+    """ステータスメッセージをフロントエンドに送信"""
+    try:
+        message = {
+            "type": message_type,
+            "data": data
+        }
+        # JSON メッセージを特別なエスケープシーケンスで送信
+        message_json = json.dumps(message)
+        # CSI シーケンスを使用してカスタムメッセージを送信
+        status_sequence = f'\x1b]777;{message_json}\x07'
+        sys.stdout.buffer.write(status_sequence.encode('utf-8'))
+        sys.stdout.buffer.flush()
+    except Exception:
+        pass
+
 
 def main():
     # コマンドライン引数から初期設定を取得
@@ -75,9 +146,23 @@ def main():
         except (ImportError, OSError):
             pass
         
+        # Claude Code 監視のための変数
+        last_claude_check = 0
+        claude_status = False
+        check_interval = 2.0  # 2秒間隔でチェック
+        
         # メイン I/O ループ
         try:
             while p.poll() is None:
+                # Claude Code アクティブチェック
+                current_time = time.time()
+                if current_time - last_claude_check >= check_interval:
+                    new_claude_status = check_claude_code_active(p.pid)
+                    if new_claude_status != claude_status:
+                        claude_status = new_claude_status
+                        send_status_message('claude_status', {'active': claude_status})
+                    last_claude_check = current_time
+                
                 # 標準入力から PTY マスターへの入力を処理
                 try:
                     ready, _, _ = select.select([sys.stdin, master], [], [], 0.1)

@@ -345,6 +345,76 @@ export class TerminalProvider implements vscode.WebviewViewProvider {
                 setInterval(setTerminalSize, 2000);
                 
                 let currentInput = '';
+                let claudeCodeActive = false; // Claude Code のアクティブ状態
+                
+                // ステータスメッセージの処理
+                function handleStatusMessage(data) {
+                    try {
+                        // CSI シーケンス ]777; で始まるメッセージを処理
+                        if (data.includes('\\x1b]777;')) {
+                            const match = data.match(/\\x1b\\]777;(.+?)\\x07/);
+                            if (match) {
+                                const messageJson = match[1];
+                                const message = JSON.parse(messageJson);
+                                
+                                if (message.type === 'claude_status') {
+                                    claudeCodeActive = message.data.active;
+                                    console.log('Claude Code active status changed:', claudeCodeActive);
+                                }
+                            }
+                        }
+                    } catch (error) {
+                        // JSON パースエラーは無視
+                    }
+                }
+                
+                // Shift + Enter を Alt + Enter に変換するキーハンドラー
+                try {
+                    if (typeof term.attachCustomKeyEventHandler === 'function') {
+                        console.log('Setting up custom key handler for Shift+Enter');
+                        
+                        term.attachCustomKeyEventHandler(function(event) {
+                            // Shift + Enter の場合（claude code が動作中のときのみ）
+                            if (event.type === 'keydown' && 
+                                event.key === 'Enter' && 
+                                event.shiftKey && 
+                                !event.ctrlKey && 
+                                !event.altKey && 
+                                !event.metaKey) {
+                                
+                                // Claude Code がアクティブの場合のみ Alt+Enter に変換
+                                if (claudeCodeActive) {
+                                    console.log('Shift+Enter detected (Claude Code active), sending Alt+Enter sequence');
+                                    
+                                    // Alt + Enter のエスケープシーケンス (ESC のみ) を送信
+                                    // String.fromCharCode() を使って安全にエンコード
+                                    var altEnterSequence = String.fromCharCode(27);
+                                    
+                                    vscode.postMessage({
+                                        type: 'terminalInput',
+                                        data: altEnterSequence
+                                    });
+                                    
+                                    // false を返してデフォルト処理を停止（xterm.js では false が停止、true が継続）
+                                    return false;
+                                } else {
+                                    // Claude Code がアクティブでない場合は通常の Enter として処理
+                                    console.log('Shift+Enter detected (Claude Code not active), processing as normal Enter');
+                                    return true;
+                                }
+                            }
+                            
+                            // その他のキーはデフォルト処理を継続
+                            return true;
+                        });
+                        
+                        console.log('Custom key handler attached successfully');
+                    } else {
+                        console.warn('attachCustomKeyEventHandler is not available');
+                    }
+                } catch (error) {
+                    console.error('Failed to attach custom key handler:', error);
+                }
                 
                 term.onData((data) => {
                     vscode.postMessage({
@@ -357,6 +427,9 @@ export class TerminalProvider implements vscode.WebviewViewProvider {
                     const message = event.data;
                     switch (message.type) {
                         case 'output':
+                            // ステータスメッセージをチェック
+                            handleStatusMessage(message.data);
+                            // 通常の出力として書き込み
                             term.write(message.data);
                             break;
                         case 'clear':
