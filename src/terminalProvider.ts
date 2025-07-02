@@ -183,7 +183,7 @@ export class TerminalProvider implements vscode.WebviewViewProvider {
                     height: 100vh;
                     padding: 0;
                     margin: 0;
-                    background-color: #222;
+                    background-color: var(--vscode-sideBar-background);
                     color: var(--vscode-editor-foreground);
                     font-family: "RobotoMono Nerd Font Mono", "Roboto Mono", Consolas, "Courier New", monospace;
                     overflow: hidden;
@@ -206,7 +206,20 @@ export class TerminalProvider implements vscode.WebviewViewProvider {
                     height: 100%;
                 }
                 .terminal.xterm {
-                        padding: 5px 0 0 5px;
+                    padding: 5px 0 0 5px;
+                }
+                
+                /* xterm.js のコンテナを透明に */
+                .xterm .xterm-viewport {
+                    background-color: transparent !important;
+                }
+                
+                .xterm .xterm-screen {
+                    background-color: transparent !important;
+                }
+                
+                .xterm .xterm-helper-textarea {
+                    background-color: transparent !important;
                 }
             </style>
         </head>
@@ -228,8 +241,7 @@ export class TerminalProvider implements vscode.WebviewViewProvider {
                     
                     const term = new Terminal({
                     theme: {
-                        // background: 'transparent',
-                        background: '#111',
+                        background: 'transparent',
                         foreground: 'var(--vscode-terminal-foreground)',
                         cursor: 'var(--vscode-terminal-cursor-foreground)',
                         selection: 'var(--vscode-terminal-selection-background)'
