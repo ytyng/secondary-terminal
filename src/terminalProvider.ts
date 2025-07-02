@@ -1,5 +1,7 @@
 import * as vscode from 'vscode';
 import * as os from 'os';
+import * as fs from 'fs';
+import * as path from 'path';
 import { ShellProcessManager } from './shellProcessManager';
 import { TerminalSessionManager } from './terminalSessionManager';
 
@@ -17,6 +19,23 @@ export class TerminalProvider implements vscode.WebviewViewProvider {
         this._cwd = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath || os.homedir();
         // ワークスペースキーはワークスペースフォルダのパスまたはホームディレクトリを使用
         this._workspaceKey = this._cwd;
+    }
+
+    private getVersionInfo(): { version: string; buildDate: string } {
+        try {
+            const versionPath = path.join(this._extensionContext.extensionPath, 'src', 'version.json');
+            const versionData = JSON.parse(fs.readFileSync(versionPath, 'utf8'));
+            return {
+                version: versionData.version || '0.1.0',
+                buildDate: versionData.buildDate || 'Unknown'
+            };
+        } catch (error) {
+            console.warn('Failed to read version info:', error);
+            return {
+                version: '0.1.0',
+                buildDate: 'Unknown'
+            };
+        }
     }
 
     public resolveWebviewView(
@@ -50,7 +69,9 @@ export class TerminalProvider implements vscode.WebviewViewProvider {
                         this._sessionManager.connectView(this._workspaceKey, webviewView);
                         // 既存のバッファがない場合のみウェルカムメッセージを表示
                         if (!this._sessionManager.getBuffer(this._workspaceKey)) {
-                            this._sessionManager.addOutput(this._workspaceKey, 'Welcome to Secondary Terminal!\r\n');
+                            const versionInfo = this.getVersionInfo();
+                            const welcomeMessage = `Welcome to Secondary Terminal v${versionInfo.version} (${versionInfo.buildDate}).\r\n`;
+                            this._sessionManager.addOutput(this._workspaceKey, welcomeMessage);
                         }
                         this.startShell();
                         break;

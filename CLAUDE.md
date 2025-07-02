@@ -173,6 +173,50 @@ Developer: Install Extension from Location...
    - コンソールログで動作確認
    - `console.log()` をコードに追加してデバッグ
 
+### バージョン管理とリリースワークフロー
+
+#### バージョン番号管理
+- **現在のバージョン**: `package.json` の `version` フィールドで管理
+- **ビルド情報**: `src/version.json` でバージョン番号とビルド日時を記録
+- **自動更新**: ビルド時に自動的にビルド日時が更新される
+
+#### バージョンアップ手順
+1. **パッチバージョンアップ** (自動インクリメント):
+   ```bash
+   npm run increment-version
+   ```
+   - package.json のバージョンを自動で 0.0.1 増加
+   - src/version.json のバージョンとビルド日時を自動更新
+
+2. **手動バージョン更新**:
+   ```bash
+   # package.json のバージョンを手動変更後
+   npm run update-version
+   ```
+
+3. **リリース準備**:
+   ```bash
+   npm run increment-version  # バージョンアップ
+   npm run compile           # ビルド
+   git add .
+   git commit -m "バージョン X.X.X リリース"
+   git push origin main
+   ```
+
+#### バージョン管理ルール
+- **コミットごと**: 毎回のコミット前に `npm run increment-version` を実行
+- **ビルドごと**: `npm run compile` 実行時に自動でビルド日時が更新
+- **リリース**: 機能追加・修正完了時にバージョンアップしてコミット
+
+#### ファイル構成（バージョン管理関連）
+```
+secondary-terminal/
+├── package.json              # メインバージョン番号
+├── src/version.json          # バージョン + ビルド日時
+├── scripts/update-version.js # バージョン情報更新スクリプト
+└── out/                      # コンパイル済み（バージョン情報含む）
+```
+
 ### よくある開発作業
 
 #### Python PTY スクリプトの修正
