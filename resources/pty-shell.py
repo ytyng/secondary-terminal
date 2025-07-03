@@ -27,7 +27,9 @@ def check_claude_code_active(shell_pid):
             ['ps', '-eo', 'pid,ppid,comm,args'],
             capture_output=True,
             text=True,
-            timeout=2
+            timeout=2,
+            encoding='utf-8',
+            errors='replace'
         )
         
         if ps_result.returncode != 0:
