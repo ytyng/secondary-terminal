@@ -115,10 +115,10 @@ export class TerminalProvider implements vscode.WebviewViewProvider {
         this._processManager.sendToProcess(this._workspaceKey, data);
     }
 
-    
+
     private startShell() {
         console.log('Connecting to shell process');
-        
+
         // プロセスマネージャーからプロセスを取得または作成
         this._processManager.getOrCreateProcess(
             this._workspaceKey,
@@ -127,7 +127,7 @@ export class TerminalProvider implements vscode.WebviewViewProvider {
             this._terminalCols,
             this._terminalRows
         );
-        
+
         console.log('Connected to shell process successfully');
     }
 
@@ -135,11 +135,11 @@ export class TerminalProvider implements vscode.WebviewViewProvider {
         // Python PTY を使用している場合はプロンプト表示不要
         // （PTY 自体がプロンプトを表示する）
     }
-    
+
     private wrapLines(text: string): string {
         const lines = text.split('\r\n');
         const wrappedLines: string[] = [];
-        
+
         for (const line of lines) {
             if (line.length <= this._terminalCols) {
                 wrappedLines.push(line);
@@ -150,7 +150,7 @@ export class TerminalProvider implements vscode.WebviewViewProvider {
                 }
             }
         }
-        
+
         return wrappedLines.join('\r\n');
     }
 
@@ -178,7 +178,7 @@ export class TerminalProvider implements vscode.WebviewViewProvider {
     private _getHtmlForWebview(webview: vscode.Webview) {
         const xtermCssUri = webview.asWebviewUri(vscode.Uri.joinPath(this._extensionContext.extensionUri, 'resources', 'xterm.css'));
         const xtermJsUri = webview.asWebviewUri(vscode.Uri.joinPath(this._extensionContext.extensionUri, 'resources', 'xterm.js'));
-        
+
         return `<!DOCTYPE html>
         <html lang="en">
         <head>
@@ -211,7 +211,7 @@ export class TerminalProvider implements vscode.WebviewViewProvider {
                     display: flex;
                     flex-direction: column;
                 }
-                
+
                 .terminal-container {
                     flex: 1;
                     width: 100%;
@@ -220,7 +220,7 @@ export class TerminalProvider implements vscode.WebviewViewProvider {
                     display: flex;
                     flex-direction: column;
                 }
-                
+
                 #terminal {
                     flex: 1;
                     width: 100%;
@@ -229,16 +229,16 @@ export class TerminalProvider implements vscode.WebviewViewProvider {
                 .terminal.xterm {
                     padding: 5px 0 0 5px;
                 }
-                
+
                 /* xterm.js のコンテナを透明に */
                 .xterm .xterm-viewport {
                     background-color: transparent !important;
                 }
-                
+
                 .xterm .xterm-screen {
                     background-color: transparent !important;
                 }
-                
+
                 .xterm .xterm-helper-textarea {
                     background-color: transparent !important;
                 }
@@ -248,18 +248,18 @@ export class TerminalProvider implements vscode.WebviewViewProvider {
             <div class="terminal-container">
                 <div id="terminal"></div>
             </div>
-            
+
             <script src="${xtermJsUri}"></script>
             <script>
                 const vscode = acquireVsCodeApi();
-                
+
                 try {
                     console.log('Initializing terminal...');
-                    
+
                     if (typeof Terminal === 'undefined') {
                         throw new Error('Terminal is not defined. xterm.js may not have loaded.');
                     }
-                    
+
                     const term = new Terminal({
                     theme: {
                         background: 'transparent',
@@ -275,30 +275,30 @@ export class TerminalProvider implements vscode.WebviewViewProvider {
                     convertEol: true,
                     allowProposedApi: true
                 });
-                
+
                 term.open(document.getElementById('terminal'));
-                
+
                 // ターミナルサイズを動的に設定
                 function setTerminalSize() {
                     const container = document.querySelector('.terminal-container');
                     const terminal = document.getElementById('terminal');
-                    
+
                     if (!container || !terminal) {
                         console.warn('Terminal container not found');
                         return;
                     }
-                    
+
                     // コンテナの実際のサイズを取得
                     const containerRect = container.getBoundingClientRect();
-                    const availableWidth = Math.max(containerRect.width - 10, 300); // パディング考慮
-                    const availableHeight = Math.max(containerRect.height - 10, 200); // パディング考慮
-                    
+                    const availableWidth = Math.max(containerRect.width - 20, 300); // パディング考慮
+                    const availableHeight = Math.max(containerRect.height - 20, 200); // パディング考慮
+
                     console.log('Container size:', availableWidth, 'x', availableHeight);
 
                     // フォント情報から文字サイズを正確に計算
                     const fontSize = 13;
                     const lineHeight = 20;
-                    
+
                     // 一時的な測定用エレメントを作成して文字幅を正確に測定
                     const measurer = document.createElement('div');
                     measurer.style.position = 'absolute';
@@ -308,46 +308,46 @@ export class TerminalProvider implements vscode.WebviewViewProvider {
                     measurer.style.lineHeight = lineHeight + 'px';
                     measurer.style.whiteSpace = 'pre';
                     measurer.textContent = 'M'.repeat(10); // 等幅フォントのM文字で測定
-                    
+
                     document.body.appendChild(measurer);
                     const charWidth = measurer.getBoundingClientRect().width / 10;
                     const actualLineHeight = measurer.getBoundingClientRect().height;
                     document.body.removeChild(measurer);
-                    
+
                     // 列数と行数を計算
                     const cols = Math.floor(availableWidth / charWidth);
                     const rows = Math.floor(availableHeight / actualLineHeight);
-                    
+
                     console.log('Font metrics - charWidth:', charWidth, 'lineHeight:', actualLineHeight);
                     console.log('Calculated terminal size:', cols, 'x', rows);
-                    
+
                     // 最小サイズを保証
                     const finalCols = Math.max(cols, 20);
                     const finalRows = Math.max(rows, 5);
-                    
+
                     // ターミナルサイズを設定
                     if (term.cols !== finalCols || term.rows !== finalRows) {
                         term.resize(finalCols, finalRows);
-                        
+
                         // サイズ変更を VSCode に通知
-                        vscode.postMessage({ 
-                            type: 'resize', 
-                            cols: finalCols, 
-                            rows: finalRows 
+                        vscode.postMessage({
+                            type: 'resize',
+                            cols: finalCols,
+                            rows: finalRows
                         });
-                        
+
                         console.log('Terminal resized to:', finalCols, 'x', finalRows);
                     }
                 }
-                
+
                 // 初期サイズ設定
                 setTimeout(setTerminalSize, 100);
-                
+
                 // ウィンドウリサイズ時の処理
                 window.addEventListener('resize', () => {
                     setTimeout(setTerminalSize, 50);
                 });
-                
+
                 // ResizeObserver でコンテナサイズ変更を監視
                 const resizeObserver = new ResizeObserver((entries) => {
                     for (const entry of entries) {
@@ -355,19 +355,19 @@ export class TerminalProvider implements vscode.WebviewViewProvider {
                         setTimeout(setTerminalSize, 50);
                     }
                 });
-                
+
                 // terminal-container を監視
                 const container = document.querySelector('.terminal-container');
                 if (container) {
                     resizeObserver.observe(container);
                 }
-                
+
                 // 定期的なサイズチェック（VSCode の制約対応）
                 setInterval(setTerminalSize, 2000);
-                
+
                 let currentInput = '';
                 let claudeCodeActive = false; // Claude Code のアクティブ状態
-                
+
                 // ステータスメッセージの処理
                 function handleStatusMessage(data) {
                     try {
@@ -377,7 +377,7 @@ export class TerminalProvider implements vscode.WebviewViewProvider {
                             if (match) {
                                 const messageJson = match[1];
                                 const message = JSON.parse(messageJson);
-                                
+
                                 if (message.type === 'claude_status') {
                                     claudeCodeActive = message.data.active;
                                     console.log('Claude Code active status changed:', claudeCodeActive);
@@ -388,34 +388,34 @@ export class TerminalProvider implements vscode.WebviewViewProvider {
                         // JSON パースエラーは無視
                     }
                 }
-                
+
                 // Shift + Enter を Alt + Enter に変換するキーハンドラー
                 try {
                     if (typeof term.attachCustomKeyEventHandler === 'function') {
                         console.log('Setting up custom key handler for Shift+Enter');
-                        
+
                         term.attachCustomKeyEventHandler(function(event) {
                             // Shift + Enter の場合（claude code が動作中のときのみ）
-                            if (event.type === 'keydown' && 
-                                event.key === 'Enter' && 
-                                event.shiftKey && 
-                                !event.ctrlKey && 
-                                !event.altKey && 
+                            if (event.type === 'keydown' &&
+                                event.key === 'Enter' &&
+                                event.shiftKey &&
+                                !event.ctrlKey &&
+                                !event.altKey &&
                                 !event.metaKey) {
-                                
+
                                 // Claude Code がアクティブの場合のみ Alt+Enter に変換
                                 if (claudeCodeActive) {
                                     console.log('Shift+Enter detected (Claude Code active), sending Alt+Enter sequence');
-                                    
+
                                     // Alt + Enter のエスケープシーケンス (ESC のみ) を送信
                                     // String.fromCharCode() を使って安全にエンコード
                                     var altEnterSequence = String.fromCharCode(27);
-                                    
+
                                     vscode.postMessage({
                                         type: 'terminalInput',
                                         data: altEnterSequence
                                     });
-                                    
+
                                     // false を返してデフォルト処理を停止（xterm.js では false が停止、true が継続）
                                     return false;
                                 } else {
@@ -424,11 +424,11 @@ export class TerminalProvider implements vscode.WebviewViewProvider {
                                     return true;
                                 }
                             }
-                            
+
                             // その他のキーはデフォルト処理を継続
                             return true;
                         });
-                        
+
                         console.log('Custom key handler attached successfully');
                     } else {
                         console.warn('attachCustomKeyEventHandler is not available');
@@ -436,14 +436,14 @@ export class TerminalProvider implements vscode.WebviewViewProvider {
                 } catch (error) {
                     console.error('Failed to attach custom key handler:', error);
                 }
-                
+
                 term.onData((data) => {
                     vscode.postMessage({
                         type: 'terminalInput',
                         data: data
                     });
                 });
-                
+
                 window.addEventListener('message', event => {
                     const message = event.data;
                     switch (message.type) {
@@ -458,11 +458,11 @@ export class TerminalProvider implements vscode.WebviewViewProvider {
                             break;
                     }
                 });
-                
+
                 vscode.postMessage({ type: 'terminalReady' });
-                
+
                 console.log('Terminal initialized successfully');
-                
+
                 } catch (error) {
                     console.error('Error initializing terminal:', error);
                     vscode.postMessage({ type: 'error', error: error.message });
