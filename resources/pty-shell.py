@@ -9,15 +9,19 @@ import select
 import time
 import json
 
+
 def set_winsize(fd, rows, cols):
     """ターミナルサイズを設定"""
     try:
         import termios
+
         winsize = struct.pack('HHHH', rows, cols, 0, 0)
         import fcntl
+
         fcntl.ioctl(fd, termios.TIOCSWINSZ, winsize)
     except (ImportError, OSError):
         pass
+
 
 def check_claude_code_active(shell_pid):
     """シェルプロセスでclaude codeがアクティブかチェック"""
@@ -29,14 +33,14 @@ def check_claude_code_active(shell_pid):
             text=True,
             timeout=2,
             encoding='utf-8',
-            errors='replace'
+            errors='replace',
         )
-        
+
         if ps_result.returncode != 0:
             return False
-        
+
         lines = ps_result.stdout.strip().split('\n')
-        
+
         # プロセスツリーを構築
         processes = {}
         for line in lines[1:]:  # ヘッダー行をスキップ
@@ -50,53 +54,60 @@ def check_claude_code_active(shell_pid):
                     processes[pid] = {'ppid': ppid, 'comm': comm, 'args': args}
                 except ValueError:
                     continue
-        
+
         # シェルプロセスの子孫を再帰的に検索
         def find_descendants(parent_pid, visited=None, depth=0):
             if visited is None:
                 visited = set()
-            
+
             # 最大再帰深度を制限
             if depth > 50:
                 return []
-            
+
             # 循環参照を検出して回避
             if parent_pid in visited:
                 return []
-            
+
             visited.add(parent_pid)
             descendants = []
-            
+
             for pid, info in processes.items():
                 if info['ppid'] == parent_pid and pid not in visited:
                     descendants.append(pid)
                     # 新しいvisitedセットを作成して再帰的に子孫を検索
-                    child_descendants = find_descendants(pid, visited.copy(), depth + 1)
+                    child_descendants = find_descendants(
+                        pid, visited.copy(), depth + 1
+                    )
                     descendants.extend(child_descendants)
-            
+
             return descendants
-        
+
         descendants = find_descendants(shell_pid)
-        
+
         # 子孫プロセスの中で claude を含むものを検索
         for pid in descendants:
             if pid in processes:
                 proc_info = processes[pid]
-                if 'claude' in proc_info['comm'].lower() or 'claude' in proc_info['args'].lower():
+                if (
+                    'claude' in proc_info['comm'].lower()
+                    or 'claude' in proc_info['args'].lower()
+                ):
                     return True
-        
+
         return False
-        
-    except (subprocess.TimeoutExpired, subprocess.SubprocessError, FileNotFoundError):
+
+    except (
+        subprocess.TimeoutExpired,
+        subprocess.SubprocessError,
+        FileNotFoundError,
+    ):
         return False
+
 
 def send_status_message(message_type, data):
     """ステータスメッセージをフロントエンドに送信"""
     try:
-        message = {
-            "type": message_type,
-            "data": data
-        }
+        message = {"type": message_type, "data": data}
         # JSON メッセージを特別なエスケープシーケンスで送信
         message_json = json.dumps(message)
         # CSI シーケンスを使用してカスタムメッセージを送信
@@ -112,20 +123,20 @@ def main():
     initial_cols = int(sys.argv[1]) if len(sys.argv) > 1 else 80
     initial_rows = int(sys.argv[2]) if len(sys.argv) > 2 else 24
     cwd = sys.argv[3] if len(sys.argv) > 3 else os.getcwd()
-    
+
     while True:  # シェルプロセスが終了したら再起動するループ
         # 環境変数を設定
         os.environ['TERM'] = 'xterm-256color'
         os.environ['COLUMNS'] = str(initial_cols)
         os.environ['LINES'] = str(initial_rows)
-        
+
         # PTY を作成
         master, slave = pty.openpty()
-        
+
         # ターミナルサイズを設定
         set_winsize(master, initial_rows, initial_cols)
         set_winsize(slave, initial_rows, initial_cols)
-        
+
         # シェルプロセスを起動
         shell_cmd = [os.environ.get('SHELL', '/bin/zsh'), '-l', '-i']
         try:
@@ -135,7 +146,7 @@ def main():
                 stdout=slave,
                 stderr=slave,
                 preexec_fn=os.setsid,
-                cwd=cwd
+                cwd=cwd,
             )
         except Exception as e:
             # zsh が失敗した場合は bash にフォールバック
@@ -146,29 +157,32 @@ def main():
                 stdout=slave,
                 stderr=slave,
                 preexec_fn=os.setsid,
-                cwd=cwd
+                cwd=cwd,
             )
-        
+
         os.close(slave)
-        
+
         # 非ブロッキング I/O を設定
         try:
             import fcntl
+
             # PTY マスターを非ブロッキングに設定
             flags = fcntl.fcntl(master, fcntl.F_GETFL)
             fcntl.fcntl(master, fcntl.F_SETFL, flags | os.O_NONBLOCK)
-            
+
             # 標準入力も非ブロッキングに設定
             stdin_flags = fcntl.fcntl(sys.stdin.fileno(), fcntl.F_GETFL)
-            fcntl.fcntl(sys.stdin.fileno(), fcntl.F_SETFL, stdin_flags | os.O_NONBLOCK)
+            fcntl.fcntl(
+                sys.stdin.fileno(), fcntl.F_SETFL, stdin_flags | os.O_NONBLOCK
+            )
         except (ImportError, OSError):
             pass
-        
+
         # Claude Code 監視のための変数
         last_claude_check = 0
         claude_status = False
         check_interval = 2.0  # 2秒間隔でチェック
-        
+
         # メイン I/O ループ
         try:
             while p.poll() is None:
@@ -178,13 +192,17 @@ def main():
                     new_claude_status = check_claude_code_active(p.pid)
                     if new_claude_status != claude_status:
                         claude_status = new_claude_status
-                        send_status_message('claude_status', {'active': claude_status})
+                        send_status_message(
+                            'claude_status', {'active': claude_status}
+                        )
                     last_claude_check = current_time
-                
+
                 # 標準入力から PTY マスターへの入力を処理
                 try:
-                    ready, _, _ = select.select([sys.stdin, master], [], [], 0.1)
-                    
+                    ready, _, _ = select.select(
+                        [sys.stdin, master], [], [], 0.1
+                    )
+
                     if sys.stdin in ready:
                         # Node.js からの入力を読み取り（非ブロッキング）
                         try:
@@ -202,14 +220,27 @@ def main():
                                                 parts = text.split(';')
                                                 if len(parts) >= 3:
                                                     rows = int(parts[1])
-                                                    cols = int(parts[2].rstrip('t'))
-                                                    set_winsize(master, rows, cols)
-                                                    os.environ['LINES'] = str(rows)
-                                                    os.environ['COLUMNS'] = str(cols)
+                                                    cols = int(
+                                                        parts[2].rstrip('t')
+                                                    )
+                                                    set_winsize(
+                                                        master, rows, cols
+                                                    )
+                                                    os.environ['LINES'] = str(
+                                                        rows
+                                                    )
+                                                    os.environ['COLUMNS'] = (
+                                                        str(cols)
+                                                    )
                                                     # SIGWINCH をシェルに送信
                                                     if p.pid:
                                                         try:
-                                                            os.killpg(os.getpgid(p.pid), signal.SIGWINCH)
+                                                            os.killpg(
+                                                                os.getpgid(
+                                                                    p.pid
+                                                                ),
+                                                                signal.SIGWINCH,
+                                                            )
                                                         except OSError:
                                                             pass
                                         except (ValueError, IndexError):
@@ -222,7 +253,7 @@ def main():
                                     os.write(master, data)
                         except OSError:
                             pass
-                    
+
                     if master in ready:
                         # PTY からの出力を読み取り
                         try:
@@ -233,10 +264,10 @@ def main():
                                 sys.stdout.buffer.flush()
                         except OSError:
                             pass
-                            
+
                 except (select.error, OSError):
                     time.sleep(0.01)
-                    
+
         except KeyboardInterrupt:
             break  # Ctrl+C でループを抜ける
         finally:
@@ -245,7 +276,7 @@ def main():
                 os.close(master)
             except OSError:
                 pass
-            
+
             # プロセスを終了
             try:
                 if p.poll() is None:
@@ -256,14 +287,17 @@ def main():
                     os.killpg(os.getpgid(p.pid), signal.SIGKILL)
                 except OSError:
                     pass
-        
+
         # シェルが終了した場合、少し待ってから再起動
         if p.poll() is not None:
-            sys.stdout.buffer.write(b'\r\n[Shell terminated. Restarting...]\r\n')
+            sys.stdout.buffer.write(
+                b'\r\n[Shell terminated. Restarting...]\r\n'
+            )
             sys.stdout.buffer.flush()
             time.sleep(1)
         else:
             break  # 正常終了の場合はループを抜ける
+
 
 if __name__ == '__main__':
     main()

@@ -196,9 +196,9 @@
         // ステータスメッセージの処理
         function handleStatusMessage(data) {
             try {
-                // CSI シーケンス ]777; で始まるメッセージを処理
-                if (data.includes('\\x1b]777;')) {
-                    const match = data.match(/\\x1b\\]777;(.+?)\\x07/);
+                // CSI シーケンス ]777; で始まるメッセージを処理（実際のESC文字を検索）
+                if (data.includes('\x1b]777;')) {
+                    const match = data.match(/\x1b\]777;(.+?)\x07/);
                     if (match) {
                         const messageJson = match[1];
                         const message = JSON.parse(messageJson);
@@ -211,6 +211,7 @@
                 }
             } catch (error) {
                 // JSON パースエラーは無視
+                console.debug('Status message parse error:', error);
             }
         }
 
@@ -232,9 +233,9 @@
                         if (claudeCodeActive) {
                             console.log('Shift+Enter detected (Claude Code active), sending Alt+Enter sequence');
 
-                            // Alt + Enter のエスケープシーケンス (ESC のみ) を送信
+                            // Alt + Enter のエスケープシーケンス (ESC + Enter) を送信
                             // String.fromCharCode() を使って安全にエンコード
-                            var altEnterSequence = String.fromCharCode(27);
+                            var altEnterSequence = String.fromCharCode(27) + String.fromCharCode(13);
 
                             vscode.postMessage({
                                 type: 'terminalInput',
