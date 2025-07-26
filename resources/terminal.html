@@ -96,7 +96,7 @@
             fontFamily: '"RobotoMono Nerd Font Mono", "RobotoMono Nerd Font", "Roboto Mono", Consolas, "Courier New", monospace', // Nerd Font 優先
             fontSize: 13,
             letterSpacing: 0, // レタースペースを0に
-            lineHeight: 1.5, // シンプルな行間
+            lineHeight: 1.2, // 行間を短縮（はみ出し防止）
             cursorBlink: true,
             convertEol: true,
             allowProposedApi: true,
@@ -131,10 +131,10 @@
             // 初期サイズ設定
             setTerminalSize();
             console.log('Terminal initialized with DOM renderer');
-            
+
             // DOM レンダラーで安定化後、Canvas レンダラーを慎重に導入
             console.log('DOM renderer initialized, preparing Canvas renderer...');
-            
+
             // フォントの読み込み完了を待つ
             const waitForFonts = async () => {
                 if (document.fonts && document.fonts.ready) {
@@ -144,7 +144,7 @@
                 }
                 return true;
             };
-            
+
             // フォント読み込み待機後に Canvas アドオンを追加
             waitForFonts().then(() => {
                 setTimeout(() => {
@@ -154,48 +154,48 @@
                         console.log('Terminal dimensions confirmed, loading Canvas addon...');
                         console.log('Current terminal size:', term.cols, 'x', term.rows);
                         console.log('Terminal element size:', term.element.offsetWidth, 'x', term.element.offsetHeight);
-                        
+
                         // Canvas アドオンにオプションを渡してみる
                         const canvasAddon = new CanvasAddon.CanvasAddon();
-                        
+
                         // Canvas 読み込み前に一度レンダリングを停止
                         console.log('Loading Canvas addon with font validation...');
-                        
+
                         // Nerd Font が確実に読み込まれているかテスト
                         const testCanvas = document.createElement('canvas');
                         const testCtx = testCanvas.getContext('2d');
-                        
+
                         // 複数のフォントでテスト
                         const fontTests = [
                             '"RobotoMono Nerd Font Mono"',
-                            '"RobotoMono Nerd Font"', 
+                            '"RobotoMono Nerd Font"',
                             '"Roboto Mono"',
                             'Consolas'
                         ];
-                        
+
                         let bestFont = 'Consolas'; // フォールバック
                         let maxWidth = 0;
-                        
+
                         for (const font of fontTests) {
                             testCtx.font = `13px ${font}, monospace`;
                             const metrics = testCtx.measureText('M');
                             console.log(`Font test - ${font}: width=${metrics.width}`);
-                            
+
                             if (metrics.width > maxWidth && metrics.width > 0) {
                                 maxWidth = metrics.width;
                                 bestFont = font;
                             }
                         }
-                        
+
                         console.log('Best font detected:', bestFont, 'width:', maxWidth);
-                        
+
                         if (maxWidth > 0) {
                             term.loadAddon(canvasAddon);
                             console.log('Canvas renderer loaded successfully with font:', bestFont);
                         } else {
                             console.warn('No valid font detected, staying with DOM renderer');
                         }
-                        
+
                     } catch (canvasError) {
                         console.warn('Canvas renderer failed, staying with DOM renderer:', canvasError);
                     }
@@ -225,28 +225,36 @@
 
             // フォント情報から文字サイズを正確に計算
             const fontSize = 13;
-            const lineHeight = 20;
+            const targetLineHeight = 1.2; // Terminal設定と同じ行間
 
             // 一時的な測定用エレメントを作成して文字幅を正確に測定
             const measurer = document.createElement('div');
             measurer.style.position = 'absolute';
             measurer.style.visibility = 'hidden';
-            measurer.style.fontFamily = 'var(--vscode-terminal-font-family), "RobotoMono Nerd Font", "Roboto Mono", Consolas, "Courier New", monospace';
+            measurer.style.fontFamily = '"RobotoMono Nerd Font Mono", "RobotoMono Nerd Font", "Roboto Mono", Consolas, "Courier New", monospace';
             measurer.style.fontSize = fontSize + 'px';
-            measurer.style.lineHeight = lineHeight + 'px';
+            measurer.style.lineHeight = targetLineHeight; // 数値で指定
             measurer.style.whiteSpace = 'pre';
             measurer.textContent = 'M'.repeat(10); // 等幅フォントのM文字で測定
 
             document.body.appendChild(measurer);
-            const charWidth = measurer.getBoundingClientRect().width / 10;
-            const actualLineHeight = measurer.getBoundingClientRect().height;
+            const rawCharWidth = measurer.getBoundingClientRect().width / 10;
+            const rawLineHeight = measurer.getBoundingClientRect().height;
             document.body.removeChild(measurer);
 
-            // 列数と行数を計算
-            const cols = Math.floor(availableWidth / charWidth);
-            const rows = Math.floor(availableHeight / actualLineHeight);
+            // サイズ調整係数（微調整用） 増やすと小さくなる。
+            const widthAdjustment = 0.88; // 横幅を少し詰める（右余白を減らす）
+            const heightAdjustment = 1.34; // 縦幅を少し詰める（はみ出し防止）
 
-            console.log('Font metrics - charWidth:', charWidth, 'lineHeight:', actualLineHeight);
+            const adjustedCharWidth = rawCharWidth * widthAdjustment;
+            const adjustedLineHeight = rawLineHeight * heightAdjustment;
+
+            // 列数と行数を計算
+            const cols = Math.floor(availableWidth / adjustedCharWidth);
+            const rows = Math.floor(availableHeight / adjustedLineHeight);
+
+            console.log('Font metrics - rawCharWidth:', rawCharWidth, 'rawLineHeight:', rawLineHeight);
+            console.log('Adjusted metrics - charWidth:', adjustedCharWidth, 'lineHeight:', adjustedLineHeight);
             console.log('Calculated terminal size:', cols, 'x', rows);
 
             // 最小サイズを保証
