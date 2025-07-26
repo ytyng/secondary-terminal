@@ -123,6 +123,14 @@ def main():
     initial_cols = int(sys.argv[1]) if len(sys.argv) > 1 else 80
     initial_rows = int(sys.argv[2]) if len(sys.argv) > 2 else 24
     cwd = sys.argv[3] if len(sys.argv) > 3 else os.getcwd()
+    
+    # startup commands を取得
+    startup_commands = []
+    if len(sys.argv) > 4 and sys.argv[4] == '--startup-commands':
+        try:
+            startup_commands = json.loads(sys.argv[5])
+        except (IndexError, json.JSONDecodeError):
+            startup_commands = []
 
     while True:  # シェルプロセスが終了したら再起動するループ
         # 環境変数を設定
@@ -183,11 +191,26 @@ def main():
         claude_status = False
         check_interval = 2.0  # 2秒間隔でチェック
 
+        # startup commands を実行
+        startup_commands_executed = False
+        startup_delay_time = time.time() + 1.0  # 1秒後に実行
+
         # メイン I/O ループ
         try:
             while p.poll() is None:
-                # Claude Code アクティブチェック
                 current_time = time.time()
+                
+                # startup commands を実行（シェル起動から1秒後）
+                if not startup_commands_executed and current_time >= startup_delay_time and startup_commands:
+                    startup_commands_executed = True
+                    for command in startup_commands:
+                        if command.strip():
+                            # コマンドを PTY に送信
+                            command_with_newline = command + '\n'
+                            os.write(master, command_with_newline.encode('utf-8'))
+                            time.sleep(0.1)  # コマンド間に少し間隔を空ける
+                
+                # Claude Code アクティブチェック
                 if current_time - last_claude_check >= check_interval:
                     new_claude_status = check_claude_code_active(p.pid)
                     if new_claude_status != claude_status:

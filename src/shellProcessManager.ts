@@ -69,12 +69,23 @@ export class ShellProcessManager {
 
         const pythonScriptPath = path.join(extensionPath, 'resources', 'pty-shell.py');
         
-        const shellProcess = child_process.spawn('python3', [
+        // VSCode 設定から startup commands を取得
+        const config = vscode.workspace.getConfiguration('secondaryTerminal');
+        const startupCommands: string[] = config.get('startupCommands', []);
+        
+        const args = [
             pythonScriptPath,
             cols.toString(),
             rows.toString(),
             cwd
-        ], {
+        ];
+        
+        // startup commands が設定されている場合は引数に追加
+        if (startupCommands.length > 0) {
+            args.push('--startup-commands', JSON.stringify(startupCommands));
+        }
+        
+        const shellProcess = child_process.spawn('python3', args, {
             cwd: cwd,
             env: {
                 ...process.env,

@@ -45,7 +45,20 @@
         "title": "Clear Terminal",
         "category": "Secondary Terminal"
       }
-    ]
+    ],
+    "configuration": {
+      "title": "Secondary Terminal",
+      "properties": {
+        "secondaryTerminal.startupCommands": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [],
+          "description": "ターミナル起動時に自動実行するコマンド一覧"
+        }
+      }
+    }
   },
   "scripts": {
     "vscode:prepublish": "npm run update-version && npm run compile",
