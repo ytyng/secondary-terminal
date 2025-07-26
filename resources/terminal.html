@@ -45,12 +45,6 @@
             width: 100%;
             height: 100%;
         }
-        .terminal{
-            /* 1文字単位で文章を選択できない。
-             * 試しに user-select を入れてみたが変わらず。
-             */
-            user-select: all;
-        }
         .terminal.xterm {
             padding: 5px 0 0 5px;
         }
@@ -93,16 +87,15 @@
                 cursor: 'var(--vscode-terminal-cursor-foreground)',
                 selection: 'var(--vscode-terminal-selection-background)'
             },
-            fontFamily: '"RobotoMono Nerd Font Mono", "RobotoMono Nerd Font", "Roboto Mono", Consolas, "Courier New", monospace', // Nerd Font 優先
+            fontFamily: '"RobotoMono Nerd Font Mono", "RobotoMono Nerd Font", "Roboto Mono", Consolas, "Courier New", monospace',
             fontSize: 13,
-            letterSpacing: 0, // レタースペースを0に
-            lineHeight: 1.2, // 行間を短縮（はみ出し防止）
+            letterSpacing: 0,
+            lineHeight: 1.2,
             cursorBlink: true,
             convertEol: true,
             allowProposedApi: true,
-            // Canvas アドオン向けの設定
-            allowTransparency: false, // 透明度を無効化
-            minimumContrastRatio: 1 // コントラスト比を最小に
+            allowTransparency: false,
+            minimumContrastRatio: 1
         });
 
         const terminalElement = document.getElementById('terminal');
@@ -123,8 +116,6 @@
                 checkSize();
             });
         }
-
-        // まずは DOM レンダラーのみで動作確認（Fit アドオンは使わない）
 
         // サイズ確定後に初期設定
         waitForSize().then(() => {
@@ -155,45 +146,22 @@
                         console.log('Current terminal size:', term.cols, 'x', term.rows);
                         console.log('Terminal element size:', term.element.offsetWidth, 'x', term.element.offsetHeight);
 
-                        // Canvas アドオンにオプションを渡してみる
-                        const canvasAddon = new CanvasAddon.CanvasAddon();
-
-                        // Canvas 読み込み前に一度レンダリングを停止
                         console.log('Loading Canvas addon with font validation...');
 
-                        // Nerd Font が確実に読み込まれているかテスト
+                        // フォントが利用可能か簡単にテスト
                         const testCanvas = document.createElement('canvas');
                         const testCtx = testCanvas.getContext('2d');
+                        testCtx.font = '13px "RobotoMono Nerd Font Mono", "Roboto Mono", Consolas, monospace';
+                        const metrics = testCtx.measureText('M');
+                        
+                        console.log('Font metrics test:', metrics.width);
 
-                        // 複数のフォントでテスト
-                        const fontTests = [
-                            '"RobotoMono Nerd Font Mono"',
-                            '"RobotoMono Nerd Font"',
-                            '"Roboto Mono"',
-                            'Consolas'
-                        ];
-
-                        let bestFont = 'Consolas'; // フォールバック
-                        let maxWidth = 0;
-
-                        for (const font of fontTests) {
-                            testCtx.font = `13px ${font}, monospace`;
-                            const metrics = testCtx.measureText('M');
-                            console.log(`Font test - ${font}: width=${metrics.width}`);
-
-                            if (metrics.width > maxWidth && metrics.width > 0) {
-                                maxWidth = metrics.width;
-                                bestFont = font;
-                            }
-                        }
-
-                        console.log('Best font detected:', bestFont, 'width:', maxWidth);
-
-                        if (maxWidth > 0) {
+                        if (metrics.width > 0) {
+                            const canvasAddon = new CanvasAddon.CanvasAddon();
                             term.loadAddon(canvasAddon);
-                            console.log('Canvas renderer loaded successfully with font:', bestFont);
+                            console.log('Canvas renderer loaded successfully');
                         } else {
-                            console.warn('No valid font detected, staying with DOM renderer');
+                            console.warn('Font validation failed, staying with DOM renderer');
                         }
 
                     } catch (canvasError) {
@@ -242,7 +210,7 @@
             const rawLineHeight = measurer.getBoundingClientRect().height;
             document.body.removeChild(measurer);
 
-            // サイズ調整係数（微調整用） 増やすと小さくなる。
+            // サイズ調整係数（微調整用）
             const widthAdjustment = 0.88; // 横幅を少し詰める（右余白を減らす）
             const heightAdjustment = 1.34; // 縦幅を少し詰める（はみ出し防止）
 
@@ -298,7 +266,6 @@
         // 定期的なサイズチェック（VSCode の制約対応）
         setInterval(setTerminalSize, 2000);
 
-        let currentInput = '';
         let claudeCodeActive = false; // Claude Code のアクティブ状態
 
         // ステータスメッセージの処理

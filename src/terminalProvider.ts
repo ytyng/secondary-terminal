@@ -131,34 +131,6 @@ export class TerminalProvider implements vscode.WebviewViewProvider {
         console.log('Connected to shell process successfully');
     }
 
-    private showPrompt() {
-        // Python PTY を使用している場合はプロンプト表示不要
-        // （PTY 自体がプロンプトを表示する）
-    }
-
-    private wrapLines(text: string): string {
-        const lines = text.split('\r\n');
-        const wrappedLines: string[] = [];
-
-        for (const line of lines) {
-            if (line.length <= this._terminalCols) {
-                wrappedLines.push(line);
-            } else {
-                // 長い行を端末幅で折り返し
-                for (let i = 0; i < line.length; i += this._terminalCols) {
-                    wrappedLines.push(line.substring(i, i + this._terminalCols));
-                }
-            }
-        }
-
-        return wrappedLines.join('\r\n');
-    }
-
-    private terminateShell() {
-        // 個別のターミナルビューでは終了処理を行わない
-        // プロセスはグローバルに管理される
-        console.log('TerminalProvider terminateShell called, but process is managed globally');
-    }
 
     public clearTerminal() {
         // セッションバッファをクリア
@@ -169,11 +141,6 @@ export class TerminalProvider implements vscode.WebviewViewProvider {
         this._processManager.sendToProcess(this._workspaceKey, '\x0C'); // Form Feed (Ctrl+L)
     }
 
-    private sendToTerminal(text: string) {
-        console.log('Sending to terminal:', JSON.stringify(text));
-        // セッションマネージャーを経由して出力を管理
-        this._sessionManager.addOutput(this._workspaceKey, text);
-    }
 
     private _getHtmlForWebview(webview: vscode.Webview) {
         const xtermCssUri = webview.asWebviewUri(vscode.Uri.joinPath(this._extensionContext.extensionUri, 'resources', 'xterm.css'));
