@@ -45,12 +45,6 @@
             width: 100%;
             height: 100%;
         }
-        .terminal{
-            /* 1文字単位で文章を選択できない。
-             * 試しに user-select を入れてみたが変わらず。
-             */
-            user-select: all;
-        }
         .terminal.xterm {
             padding: 5px 0 0 5px;
         }
@@ -75,6 +69,7 @@
     </div>
 
     <script src="{{XTERM_JS_URI}}"></script>
+    <script src="{{XTERM_CANVAS_JS_URI}}"></script>
     <script>
         const vscode = acquireVsCodeApi();
 
@@ -92,18 +87,94 @@
                 cursor: 'var(--vscode-terminal-cursor-foreground)',
                 selection: 'var(--vscode-terminal-selection-background)'
             },
-            fontFamily: 'var(--vscode-terminal-font-family), "RobotoMono Nerd Font", "Roboto Mono", Consolas, "Courier New", monospace',
+            fontFamily: '"RobotoMono Nerd Font Mono", "RobotoMono Nerd Font", "Roboto Mono", Consolas, "Courier New", monospace',
             fontSize: 13,
-            letterSpacing: '-2px',
-            lineHeight: 22 / 13, // 22px ÷ 13px = 約1.69
+            letterSpacing: 0,
+            lineHeight: 1.2,
             cursorBlink: true,
             convertEol: true,
-            allowProposedApi: true
+            allowProposedApi: true,
+            allowTransparency: false,
+            minimumContrastRatio: 1
         });
 
-        term.open(document.getElementById('terminal'));
+        const terminalElement = document.getElementById('terminal');
+        term.open(terminalElement);
 
-        // ターミナルサイズを動的に設定
+        // ターミナル要素のサイズが確定するまで待機
+        function waitForSize() {
+            return new Promise((resolve) => {
+                const checkSize = () => {
+                    const rect = terminalElement.getBoundingClientRect();
+                    if (rect.width > 0 && rect.height > 0) {
+                        console.log('Terminal element size confirmed:', rect.width, 'x', rect.height);
+                        resolve();
+                    } else {
+                        setTimeout(checkSize, 10);
+                    }
+                };
+                checkSize();
+            });
+        }
+
+        // サイズ確定後に初期設定
+        waitForSize().then(() => {
+            // 初期サイズ設定
+            setTerminalSize();
+            console.log('Terminal initialized with DOM renderer');
+
+            // DOM レンダラーで安定化後、Canvas レンダラーを慎重に導入
+            console.log('DOM renderer initialized, preparing Canvas renderer...');
+
+            // フォントの読み込み完了を待つ
+            const waitForFonts = async () => {
+                if (document.fonts && document.fonts.ready) {
+                    console.log('Waiting for fonts to load...');
+                    await document.fonts.ready;
+                    console.log('Fonts loaded successfully');
+                }
+                return true;
+            };
+
+            // フォント読み込み待機後に Canvas アドオンを追加
+            waitForFonts().then(() => {
+                setTimeout(() => {
+                // ターミナルが完全に準備できているかチェック
+                if (term.element && term.element.offsetWidth > 0 && term.element.offsetHeight > 0) {
+                    try {
+                        console.log('Terminal dimensions confirmed, loading Canvas addon...');
+                        console.log('Current terminal size:', term.cols, 'x', term.rows);
+                        console.log('Terminal element size:', term.element.offsetWidth, 'x', term.element.offsetHeight);
+
+                        console.log('Loading Canvas addon with font validation...');
+
+                        // フォントが利用可能か簡単にテスト
+                        const testCanvas = document.createElement('canvas');
+                        const testCtx = testCanvas.getContext('2d');
+                        testCtx.font = '13px "RobotoMono Nerd Font Mono", "Roboto Mono", Consolas, monospace';
+                        const metrics = testCtx.measureText('M');
+                        
+                        console.log('Font metrics test:', metrics.width);
+
+                        if (metrics.width > 0) {
+                            const canvasAddon = new CanvasAddon.CanvasAddon();
+                            term.loadAddon(canvasAddon);
+                            console.log('Canvas renderer loaded successfully');
+                        } else {
+                            console.warn('Font validation failed, staying with DOM renderer');
+                        }
+
+                    } catch (canvasError) {
+                        console.warn('Canvas renderer failed, staying with DOM renderer:', canvasError);
+                    }
+                } else {
+                    console.warn('Terminal not ready for Canvas addon, staying with DOM renderer');
+                }
+                }, 1000); // フォント読み込み後1秒待機
+            });
+        });
+
+        // ターミナルサイズを動的に設定（元の手動計算方式）
         function setTerminalSize() {
             const container = document.querySelector('.terminal-container');
             const terminal = document.getElementById('terminal');
@@ -122,28 +193,36 @@
 
             // フォント情報から文字サイズを正確に計算
             const fontSize = 13;
-            const lineHeight = 20;
+            const targetLineHeight = 1.2; // Terminal設定と同じ行間
 
             // 一時的な測定用エレメントを作成して文字幅を正確に測定
             const measurer = document.createElement('div');
             measurer.style.position = 'absolute';
             measurer.style.visibility = 'hidden';
-            measurer.style.fontFamily = 'var(--vscode-terminal-font-family), "RobotoMono Nerd Font", "Roboto Mono", Consolas, "Courier New", monospace';
+            measurer.style.fontFamily = '"RobotoMono Nerd Font Mono", "RobotoMono Nerd Font", "Roboto Mono", Consolas, "Courier New", monospace';
             measurer.style.fontSize = fontSize + 'px';
-            measurer.style.lineHeight = lineHeight + 'px';
+            measurer.style.lineHeight = targetLineHeight; // 数値で指定
             measurer.style.whiteSpace = 'pre';
             measurer.textContent = 'M'.repeat(10); // 等幅フォントのM文字で測定
 
             document.body.appendChild(measurer);
-            const charWidth = measurer.getBoundingClientRect().width / 10;
-            const actualLineHeight = measurer.getBoundingClientRect().height;
+            const rawCharWidth = measurer.getBoundingClientRect().width / 10;
+            const rawLineHeight = measurer.getBoundingClientRect().height;
             document.body.removeChild(measurer);
 
-            // 列数と行数を計算
-            const cols = Math.floor(availableWidth / charWidth);
-            const rows = Math.floor(availableHeight / actualLineHeight);
+            // サイズ調整係数（微調整用）
+            const widthAdjustment = 0.88; // 横幅を少し詰める（右余白を減らす）
+            const heightAdjustment = 1.34; // 縦幅を少し詰める（はみ出し防止）
 
-            console.log('Font metrics - charWidth:', charWidth, 'lineHeight:', actualLineHeight);
+            const adjustedCharWidth = rawCharWidth * widthAdjustment;
+            const adjustedLineHeight = rawLineHeight * heightAdjustment;
+
+            // 列数と行数を計算
+            const cols = Math.floor(availableWidth / adjustedCharWidth);
+            const rows = Math.floor(availableHeight / adjustedLineHeight);
+
+            console.log('Font metrics - rawCharWidth:', rawCharWidth, 'rawLineHeight:', rawLineHeight);
+            console.log('Adjusted metrics - charWidth:', adjustedCharWidth, 'lineHeight:', adjustedLineHeight);
             console.log('Calculated terminal size:', cols, 'x', rows);
 
             // 最小サイズを保証
@@ -164,9 +243,6 @@
                 console.log('Terminal resized to:', finalCols, 'x', finalRows);
             }
         }
-
-        // 初期サイズ設定
-        setTimeout(setTerminalSize, 100);
 
         // ウィンドウリサイズ時の処理
         window.addEventListener('resize', () => {
@@ -190,7 +266,6 @@
         // 定期的なサイズチェック（VSCode の制約対応）
         setInterval(setTerminalSize, 2000);
 
-        let currentInput = '';
         let claudeCodeActive = false; // Claude Code のアクティブ状態
 
         // ステータスメッセージの処理
