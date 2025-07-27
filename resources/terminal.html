@@ -81,42 +81,6 @@
                 throw new Error('Terminal is not defined. xterm.js may not have loaded.');
             }
 
-            // 独自の wcwidth 関数を定義（基本的な文字幅計算）
-            const customWcwidth = (codepoint) => {
-                // 絵文字の範囲
-                if ((codepoint >= 0x1F300 && codepoint <= 0x1F9FF) || // Emoticons, symbols
-                    (codepoint >= 0x2600 && codepoint <= 0x26FF) ||   // Miscellaneous Symbols
-                    (codepoint >= 0x2700 && codepoint <= 0x27BF) ||   // Dingbats
-                    (codepoint >= 0x1F000 && codepoint <= 0x1F02F) || // Mahjong tiles, dominos
-                    (codepoint >= 0x1F0A0 && codepoint <= 0x1F0FF) || // Playing cards
-                    (codepoint >= 0x1F100 && codepoint <= 0x1F1FF) || // Enclosed characters
-                    (codepoint >= 0x1F200 && codepoint <= 0x1F2FF) || // Enclosed ideographs
-                    (codepoint >= 0x1F600 && codepoint <= 0x1F64F) || // Emoticons
-                    (codepoint >= 0x1F680 && codepoint <= 0x1F6FF) || // Transport symbols
-                    (codepoint >= 0x1F900 && codepoint <= 0x1F9FF) || // Supplemental symbols
-                    (codepoint >= 0x1F1E6 && codepoint <= 0x1F1FF)) { // Regional indicator symbols (flags)
-                    return 2; // 全角幅
-                }
-                
-                // 日本語などの全角文字
-                if ((codepoint >= 0x3000 && codepoint <= 0x303F) || // CJK symbols
-                    (codepoint >= 0x3040 && codepoint <= 0x309F) || // Hiragana
-                    (codepoint >= 0x30A0 && codepoint <= 0x30FF) || // Katakana
-                    (codepoint >= 0x4E00 && codepoint <= 0x9FFF) || // CJK ideographs
-                    (codepoint >= 0xFF00 && codepoint <= 0xFFEF)) { // Halfwidth/Fullwidth
-                    return 2; // 全角幅
-                }
-                
-                // ゼロ幅文字
-                if ((codepoint >= 0x200B && codepoint <= 0x200F) || // Zero width characters
-                    (codepoint >= 0x2028 && codepoint <= 0x202E) || // Line/paragraph separator
-                    (codepoint >= 0x2060 && codepoint <= 0x2064)) { // Word joiner, etc.
-                    return 0;
-                }
-                
-                return 1; // デフォルトは半角幅
-            };
-
             const term = new Terminal({
             theme: {
                 background: 'transparent',
@@ -132,9 +96,7 @@
             convertEol: true,
             allowProposedApi: true,
             allowTransparency: false,
-            minimumContrastRatio: 1,
-            // 独自の wcwidth 関数を使用
-            wcwidth: customWcwidth
+            minimumContrastRatio: 1
         });
 
         const terminalElement = document.getElementById('terminal');
