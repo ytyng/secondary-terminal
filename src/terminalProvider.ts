@@ -146,20 +146,22 @@ export class TerminalProvider implements vscode.WebviewViewProvider {
         const xtermCssUri = webview.asWebviewUri(vscode.Uri.joinPath(this._extensionContext.extensionUri, 'resources', 'xterm.css'));
         const xtermJsUri = webview.asWebviewUri(vscode.Uri.joinPath(this._extensionContext.extensionUri, 'resources', 'xterm.js'));
         
-        // Canvas アドオンの URI を生成
+        // アドオンの URI を生成
         const xtermCanvasJsUri = webview.asWebviewUri(vscode.Uri.joinPath(this._extensionContext.extensionUri, 'node_modules', '@xterm', 'addon-canvas', 'lib', 'addon-canvas.js'));
+        const xtermUnicode11JsUri = webview.asWebviewUri(vscode.Uri.joinPath(this._extensionContext.extensionUri, 'node_modules', '@xterm', 'addon-unicode11', 'lib', 'addon-unicode11.js'));
 
         // HTMLテンプレートファイルを読み込み
         try {
             const htmlTemplatePath = path.join(this._extensionContext.extensionPath, 'resources', 'terminal.html');
             let htmlContent = fs.readFileSync(htmlTemplatePath, 'utf8');
 
-            // プレースホルダーを実際の値に置換（Canvas アドオン追加）
+            // プレースホルダーを実際の値に置換
             htmlContent = htmlContent
                 .replace(/{{CSP_SOURCE}}/g, webview.cspSource)
                 .replace(/{{XTERM_CSS_URI}}/g, xtermCssUri.toString())
                 .replace(/{{XTERM_JS_URI}}/g, xtermJsUri.toString())
-                .replace(/{{XTERM_CANVAS_JS_URI}}/g, xtermCanvasJsUri.toString());
+                .replace(/{{XTERM_CANVAS_JS_URI}}/g, xtermCanvasJsUri.toString())
+                .replace(/{{XTERM_UNICODE11_JS_URI}}/g, xtermUnicode11JsUri.toString());
 
             return htmlContent;
         } catch (error) {

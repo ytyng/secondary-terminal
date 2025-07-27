@@ -69,6 +69,7 @@
     </div>
 
     <script src="{{XTERM_JS_URI}}"></script>
+    <script src="{{XTERM_UNICODE11_JS_URI}}"></script>
     <script src="{{XTERM_CANVAS_JS_URI}}"></script>
     <script>
         const vscode = acquireVsCodeApi();
@@ -79,6 +80,47 @@
             if (typeof Terminal === 'undefined') {
                 throw new Error('Terminal is not defined. xterm.js may not have loaded.');
             }
+
+            // アドオンの可用性をチェック
+            console.log('Checking addons availability:');
+            console.log('Unicode11Addon available:', typeof Unicode11Addon !== 'undefined');
+            console.log('CanvasAddon available:', typeof CanvasAddon !== 'undefined');
+
+            // 独自の wcwidth 関数を定義
+            const customWcwidth = (codepoint) => {
+                // 絵文字の範囲
+                if ((codepoint >= 0x1F300 && codepoint <= 0x1F9FF) || // Emoticons, symbols
+                    (codepoint >= 0x2600 && codepoint <= 0x26FF) ||   // Miscellaneous Symbols
+                    (codepoint >= 0x2700 && codepoint <= 0x27BF) ||   // Dingbats
+                    (codepoint >= 0x1F000 && codepoint <= 0x1F02F) || // Mahjong tiles, dominos
+                    (codepoint >= 0x1F0A0 && codepoint <= 0x1F0FF) || // Playing cards
+                    (codepoint >= 0x1F100 && codepoint <= 0x1F1FF) || // Enclosed characters
+                    (codepoint >= 0x1F200 && codepoint <= 0x1F2FF) || // Enclosed ideographs
+                    (codepoint >= 0x1F600 && codepoint <= 0x1F64F) || // Emoticons
+                    (codepoint >= 0x1F680 && codepoint <= 0x1F6FF) || // Transport symbols
+                    (codepoint >= 0x1F900 && codepoint <= 0x1F9FF) || // Supplemental symbols
+                    (codepoint >= 0x1F1E6 && codepoint <= 0x1F1FF)) { // Regional indicator symbols (flags)
+                    return 2; // 全角幅
+                }
+                
+                // 日本語などの全角文字
+                if ((codepoint >= 0x3000 && codepoint <= 0x303F) || // CJK symbols
+                    (codepoint >= 0x3040 && codepoint <= 0x309F) || // Hiragana
+                    (codepoint >= 0x30A0 && codepoint <= 0x30FF) || // Katakana
+                    (codepoint >= 0x4E00 && codepoint <= 0x9FFF) || // CJK ideographs
+                    (codepoint >= 0xFF00 && codepoint <= 0xFFEF)) { // Halfwidth/Fullwidth
+                    return 2; // 全角幅
+                }
+                
+                // ゼロ幅文字
+                if ((codepoint >= 0x200B && codepoint <= 0x200F) || // Zero width characters
+                    (codepoint >= 0x2028 && codepoint <= 0x202E) || // Line/paragraph separator
+                    (codepoint >= 0x2060 && codepoint <= 0x2064)) { // Word joiner, etc.
+                    return 0;
+                }
+                
+                return 1; // デフォルトは半角幅
+            };
 
             const term = new Terminal({
             theme: {
@@ -95,11 +137,96 @@
             convertEol: true,
             allowProposedApi: true,
             allowTransparency: false,
-            minimumContrastRatio: 1
+            minimumContrastRatio: 1,
+            // VSCode 互換の設定
+            rescaleOverlappingGlyphs: true, // 重複するグリフをリスケール
+            customGlyphs: true, // カスタムグリフを有効化
+            // 独自の wcwidth 関数を使用
+            wcwidth: customWcwidth
         });
 
         const terminalElement = document.getElementById('terminal');
         term.open(terminalElement);
+
+        // ターミナル初期化後に wcwidth を直接設定
+        console.log('Setting up custom wcwidth...');
+        if (term.unicode) {
+            console.log('Terminal unicode object exists:', term.unicode);
+            // Unicode 11 アドオンの wcwidth を上書き
+            const originalWcwidth = term.unicode.wcwidth;
+            term.unicode.wcwidth = customWcwidth;
+            console.log('Custom wcwidth function set');
+        } else {
+            console.warn('Terminal unicode object not available');
+        }
+
+        // Unicode 11 アドオンをロード
+        if (typeof Unicode11Addon !== 'undefined') {
+            console.log('Loading Unicode 11 addon...');
+            try {
+                const unicode11 = new Unicode11Addon.Unicode11Addon();
+                term.loadAddon(unicode11);
+                console.log('Unicode 11 addon loaded');
+                
+                // ターミナルが開かれた後に activate
+                setTimeout(() => {
+                    try {
+                        unicode11.activate(term);
+                        console.log('Unicode 11 addon activated successfully');
+                        console.log('Terminal unicode object:', term.unicode);
+                        
+                        // Unicode 11 アドオンの wcwidth を上書き
+                        if (term.unicode) {
+                            term.unicode.wcwidth = customWcwidth;
+                            console.log('Unicode 11 wcwidth overridden with custom function');
+                        }
+                        
+                        // Canvas レンダラーの文字幅計算を修正
+                        if (term._core && term._core._renderService) {
+                            console.log('Attempting to fix Canvas renderer character width...');
+                            const originalMeasureText = term._core._renderService._charAtlas ? 
+                                term._core._renderService._charAtlas._ctx?.measureText : null;
+                            
+                            if (originalMeasureText) {
+                                console.log('Overriding Canvas measureText for emoji width...');
+                            }
+                        }
+                        
+                        // 絵文字幅テストを再実行
+                        window.testEmojiWidth();
+                    } catch (activateError) {
+                        console.error('Failed to activate Unicode 11 addon:', activateError);
+                    }
+                }, 500);
+            } catch (error) {
+                console.error('Failed to load Unicode 11 addon:', error);
+            }
+        } else {
+            console.error('Unicode11Addon is not available - check if script loaded correctly');
+        }
+
+        // Canvas アドオンをロード（絵文字表示のため）
+        if (typeof CanvasAddon !== 'undefined') {
+            console.log('Loading Canvas addon...');
+            try {
+                const canvas = new CanvasAddon.CanvasAddon();
+                term.loadAddon(canvas);
+                console.log('Canvas addon loaded successfully');
+                
+                // Canvas アドオンが正しく文字幅を計算するように設定
+                setTimeout(() => {
+                    if (term._core && term._core._charSizeService) {
+                        console.log('Configuring Canvas character size measurement...');
+                        // Canvas の文字幅測定を強制的に更新
+                        term._core._charSizeService.measure();
+                    }
+                }, 1000);
+            } catch (error) {
+                console.error('Failed to load Canvas addon:', error);
+            }
+        } else {
+            console.error('CanvasAddon is not available - check if script loaded correctly');
+        }
 
         // ターミナル要素のサイズが確定するまで待機
         function waitForSize() {
@@ -123,55 +250,7 @@
             setTerminalSize();
             console.log('Terminal initialized with DOM renderer');
 
-            // DOM レンダラーで安定化後、Canvas レンダラーを慎重に導入
-            console.log('DOM renderer initialized, preparing Canvas renderer...');
-
-            // フォントの読み込み完了を待つ
-            const waitForFonts = async () => {
-                if (document.fonts && document.fonts.ready) {
-                    console.log('Waiting for fonts to load...');
-                    await document.fonts.ready;
-                    console.log('Fonts loaded successfully');
-                }
-                return true;
-            };
-
-            // フォント読み込み待機後に Canvas アドオンを追加
-            waitForFonts().then(() => {
-                setTimeout(() => {
-                // ターミナルが完全に準備できているかチェック
-                if (term.element && term.element.offsetWidth > 0 && term.element.offsetHeight > 0) {
-                    try {
-                        console.log('Terminal dimensions confirmed, loading Canvas addon...');
-                        console.log('Current terminal size:', term.cols, 'x', term.rows);
-                        console.log('Terminal element size:', term.element.offsetWidth, 'x', term.element.offsetHeight);
-
-                        console.log('Loading Canvas addon with font validation...');
-
-                        // フォントが利用可能か簡単にテスト
-                        const testCanvas = document.createElement('canvas');
-                        const testCtx = testCanvas.getContext('2d');
-                        testCtx.font = '13px "RobotoMono Nerd Font Mono", "Roboto Mono", Consolas, monospace';
-                        const metrics = testCtx.measureText('M');
-                        
-                        console.log('Font metrics test:', metrics.width);
-
-                        if (metrics.width > 0) {
-                            const canvasAddon = new CanvasAddon.CanvasAddon();
-                            term.loadAddon(canvasAddon);
-                            console.log('Canvas renderer loaded successfully');
-                        } else {
-                            console.warn('Font validation failed, staying with DOM renderer');
-                        }
-
-                    } catch (canvasError) {
-                        console.warn('Canvas renderer failed, staying with DOM renderer:', canvasError);
-                    }
-                } else {
-                    console.warn('Terminal not ready for Canvas addon, staying with DOM renderer');
-                }
-                }, 1000); // フォント読み込み後1秒待機
-            });
+            console.log('Terminal initialized with addons');
         });
 
         // ターミナルサイズを動的に設定（元の手動計算方式）
@@ -363,6 +442,25 @@
                     break;
             }
         });
+
+        // 絵文字の幅テスト関数
+        window.testEmojiWidth = function() {
+            console.log('Testing emoji width calculation...');
+            const testEmojis = ['😀', '🎉', '👩🏼‍💻', '🇯🇵'];
+            testEmojis.forEach(emoji => {
+                const codepoint = emoji.codePointAt(0);
+                const customWidth = customWcwidth(codepoint);
+                console.log(`Emoji ${emoji} (U+${codepoint.toString(16).toUpperCase()}): custom width = ${customWidth}`);
+                
+                // ターミナル内部の wcwidth もテスト
+                if (term.unicode && term.unicode.wcwidth) {
+                    const terminalWidth = term.unicode.wcwidth(codepoint);
+                    console.log(`  Terminal width = ${terminalWidth}`);
+                } else {
+                    console.log(`  Terminal Unicode wcwidth not available`);
+                }
+            });
+        };
 
         vscode.postMessage({ type: 'terminalReady' });
 
