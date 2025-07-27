@@ -81,12 +81,7 @@
                 throw new Error('Terminal is not defined. xterm.js may not have loaded.');
             }
 
-            // アドオンの可用性をチェック
-            console.log('Checking addons availability:');
-            console.log('Unicode11Addon available:', typeof Unicode11Addon !== 'undefined');
-            console.log('CanvasAddon available:', typeof CanvasAddon !== 'undefined');
-
-            // 独自の wcwidth 関数を定義
+            // 独自の wcwidth 関数を定義（基本的な文字幅計算）
             const customWcwidth = (codepoint) => {
                 // 絵文字の範囲
                 if ((codepoint >= 0x1F300 && codepoint <= 0x1F9FF) || // Emoticons, symbols
@@ -138,9 +133,6 @@
             allowProposedApi: true,
             allowTransparency: false,
             minimumContrastRatio: 1,
-            // VSCode 互換の設定
-            rescaleOverlappingGlyphs: true, // 重複するグリフをリスケール
-            customGlyphs: true, // カスタムグリフを有効化
             // 独自の wcwidth 関数を使用
             wcwidth: customWcwidth
         });
@@ -148,84 +140,27 @@
         const terminalElement = document.getElementById('terminal');
         term.open(terminalElement);
 
-        // ターミナル初期化後に wcwidth を直接設定
-        console.log('Setting up custom wcwidth...');
-        if (term.unicode) {
-            console.log('Terminal unicode object exists:', term.unicode);
-            // Unicode 11 アドオンの wcwidth を上書き
-            const originalWcwidth = term.unicode.wcwidth;
-            term.unicode.wcwidth = customWcwidth;
-            console.log('Custom wcwidth function set');
-        } else {
-            console.warn('Terminal unicode object not available');
-        }
-
         // Unicode 11 アドオンをロード
         if (typeof Unicode11Addon !== 'undefined') {
-            console.log('Loading Unicode 11 addon...');
             try {
                 const unicode11 = new Unicode11Addon.Unicode11Addon();
                 term.loadAddon(unicode11);
-                console.log('Unicode 11 addon loaded');
-                
-                // ターミナルが開かれた後に activate
-                setTimeout(() => {
-                    try {
-                        unicode11.activate(term);
-                        console.log('Unicode 11 addon activated successfully');
-                        console.log('Terminal unicode object:', term.unicode);
-                        
-                        // Unicode 11 アドオンの wcwidth を上書き
-                        if (term.unicode) {
-                            term.unicode.wcwidth = customWcwidth;
-                            console.log('Unicode 11 wcwidth overridden with custom function');
-                        }
-                        
-                        // Canvas レンダラーの文字幅計算を修正
-                        if (term._core && term._core._renderService) {
-                            console.log('Attempting to fix Canvas renderer character width...');
-                            const originalMeasureText = term._core._renderService._charAtlas ? 
-                                term._core._renderService._charAtlas._ctx?.measureText : null;
-                            
-                            if (originalMeasureText) {
-                                console.log('Overriding Canvas measureText for emoji width...');
-                            }
-                        }
-                        
-                        // 絵文字幅テストを再実行
-                        window.testEmojiWidth();
-                    } catch (activateError) {
-                        console.error('Failed to activate Unicode 11 addon:', activateError);
-                    }
-                }, 500);
+                unicode11.activate(term);
+                console.log('Unicode 11 addon loaded and activated');
             } catch (error) {
                 console.error('Failed to load Unicode 11 addon:', error);
             }
-        } else {
-            console.error('Unicode11Addon is not available - check if script loaded correctly');
         }
 
-        // Canvas アドオンをロード（絵文字表示のため）
+        // Canvas アドオンをロード
         if (typeof CanvasAddon !== 'undefined') {
-            console.log('Loading Canvas addon...');
             try {
                 const canvas = new CanvasAddon.CanvasAddon();
                 term.loadAddon(canvas);
-                console.log('Canvas addon loaded successfully');
-                
-                // Canvas アドオンが正しく文字幅を計算するように設定
-                setTimeout(() => {
-                    if (term._core && term._core._charSizeService) {
-                        console.log('Configuring Canvas character size measurement...');
-                        // Canvas の文字幅測定を強制的に更新
-                        term._core._charSizeService.measure();
-                    }
-                }, 1000);
+                console.log('Canvas addon loaded');
             } catch (error) {
                 console.error('Failed to load Canvas addon:', error);
             }
-        } else {
-            console.error('CanvasAddon is not available - check if script loaded correctly');
         }
 
         // ターミナル要素のサイズが確定するまで待機
@@ -443,24 +378,6 @@
             }
         });
 
-        // 絵文字の幅テスト関数
-        window.testEmojiWidth = function() {
-            console.log('Testing emoji width calculation...');
-            const testEmojis = ['😀', '🎉', '👩🏼‍💻', '🇯🇵'];
-            testEmojis.forEach(emoji => {
-                const codepoint = emoji.codePointAt(0);
-                const customWidth = customWcwidth(codepoint);
-                console.log(`Emoji ${emoji} (U+${codepoint.toString(16).toUpperCase()}): custom width = ${customWidth}`);
-                
-                // ターミナル内部の wcwidth もテスト
-                if (term.unicode && term.unicode.wcwidth) {
-                    const terminalWidth = term.unicode.wcwidth(codepoint);
-                    console.log(`  Terminal width = ${terminalWidth}`);
-                } else {
-                    console.log(`  Terminal Unicode wcwidth not available`);
-                }
-            });
-        };
 
         vscode.postMessage({ type: 'terminalReady' });
 
