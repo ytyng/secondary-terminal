@@ -1,10 +1,10 @@
-import * as child_process from 'child_process';
+import * as childProcess from 'child_process';
 import * as path from 'path';
 import * as vscode from 'vscode';
 import { TerminalSessionManager } from './terminalSessionManager';
 
 interface ShellProcessInfo {
-    process: child_process.ChildProcess;
+    process: childProcess.ChildProcess;
     cols: number;
     rows: number;
     cwd: string;
@@ -38,7 +38,7 @@ export class ShellProcessManager {
         cwd: string,
         cols: number,
         rows: number
-    ): child_process.ChildProcess {
+    ): childProcess.ChildProcess {
         let processInfo = this.processes.get(workspaceKey);
 
         if (!processInfo || !processInfo.process || processInfo.process.killed) {
@@ -85,7 +85,10 @@ export class ShellProcessManager {
             args.push('--startup-commands', JSON.stringify(startupCommands));
         }
         
-        const shellProcess = child_process.spawn('python3', args, {
+        // Python実行パスを動的に決定
+        const pythonCommand = this.findPythonCommand();
+        
+        const shellProcess = childProcess.spawn(pythonCommand, args, {
             cwd: cwd,
             env: {
                 ...process.env,
@@ -191,6 +194,34 @@ export class ShellProcessManager {
             }
             this.processes.delete(workspaceKey);
         }
+    }
+
+    /**
+     * Python コマンドを動的に検索
+     */
+    private findPythonCommand(): string {
+        const candidates = ['python3', 'python', 'python3.exe', 'python.exe'];
+        
+        for (const cmd of candidates) {
+            try {
+                // which コマンドでパスを確認
+                const result = childProcess.execSync(`which ${cmd}`, { 
+                    encoding: 'utf8', 
+                    stdio: 'pipe' 
+                });
+                if (result.trim()) {
+                    console.log(`Using Python command: ${cmd}`);
+                    return cmd;
+                }
+            } catch {
+                // このコマンドは見つからなかった
+                continue;
+            }
+        }
+        
+        // フォールバック
+        console.warn('Python not found, falling back to python3');
+        return 'python3';
     }
 
     /**
