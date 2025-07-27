@@ -257,8 +257,60 @@ npm run compile
 - [Python pty module](https://docs.python.org/3/library/pty.html)
 - [Linux PTY documentation](https://man7.org/linux/man-pages/man7/pty.7.html)
 
+## 絵文字表示幅問題の調査結果
+
+### 問題の概要
+- ターミナルで絵文字が半角幅でしか表示されない（VSCode 標準ターミナルでは全角幅で正常表示）
+- xterm.js の `wcwidth` パラメーターが Canvas レンダラーで無視される
+
+### 調査した解決方法と結果
+
+#### 1. `wcwidth` パラメーターによる文字幅指定
+```javascript
+// ❌ 効果なし
+wcwidth: (codepoint) => {
+    // 絵文字を全角幅(2)として指定
+    if (/* 絵文字の範囲 */) return 2;
+    return 1;
+}
+```
+**結果**: Canvas レンダラーでは完全に無視される
+
+#### 2. Unicode 11 アドオンの使用
+```javascript
+// ❌ 部分的効果のみ
+const unicode11 = new Unicode11Addon.Unicode11Addon();
+term.loadAddon(unicode11);
+unicode11.activate(term);
+```
+**結果**: アドオンは読み込まれるが、Canvas レンダラーの文字幅計算には影響しない
+
+#### 3. VSCode 互換設定
+```javascript
+// ❌ 効果なし
+rescaleOverlappingGlyphs: true,
+customGlyphs: true
+```
+**結果**: xterm.js v5.5.0 ではこれらのオプションが認識されない
+
+### 問題の根本原因
+- xterm.js v5.5.0 + Canvas レンダラーは独自の文字幅計算を使用
+- `wcwidth` オプションやアドオンによる文字幅指定を無視
+- Canvas レンダラーは DOM レンダラーと異なる文字幅処理を実装
+
+### 今後の解決方向性
+1. **Canvas レンダラーの内部 API ハック**: `_charAtlas._ctx.measureText` 等の内部実装を直接操作
+2. **DOM レンダラーへの切り替え**: パフォーマンスを犠牲にして文字幅精度を優先
+3. **xterm.js のバージョン変更**: 絵文字対応が改善されたバージョンへの更新
+4. **代替ライブラリの検討**: xterm.js 以外のターミナルエミュレーターライブラリの採用
+
+### 保持したもの
+- Unicode 11 アドオンのインストールと基本設定
+- Canvas アドオンの読み込み
+- 将来の解決に向けた基盤コード
+
 ---
 
 **開発者**: ytyng  
 **作成日**: 2025年6月28日  
-**最終更新**: 2025年6月28日
+**最終更新**: 2025年7月27日

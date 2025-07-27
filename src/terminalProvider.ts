@@ -7,7 +7,6 @@ import { TerminalSessionManager } from './terminalSessionManager';
 
 export class TerminalProvider implements vscode.WebviewViewProvider {
     private _view?: vscode.WebviewView;
-    private _currentInput: string = '';
     private _cwd: string;
     private _terminalCols: number = 80;
     private _terminalRows: number = 24;
@@ -40,7 +39,7 @@ export class TerminalProvider implements vscode.WebviewViewProvider {
 
     public resolveWebviewView(
         webviewView: vscode.WebviewView,
-        context: vscode.WebviewViewResolveContext,
+        _context: vscode.WebviewViewResolveContext,
         _token: vscode.CancellationToken,
     ) {
         this._view = webviewView;
@@ -55,9 +54,25 @@ export class TerminalProvider implements vscode.WebviewViewProvider {
 
         webviewView.webview.html = this._getHtmlForWebview(webviewView.webview);
 
+        // WebView メッセージの型定義
+        interface WebViewMessage {
+            type: 'terminalInput' | 'terminalReady' | 'resize' | 'error';
+            data?: string;
+            cols?: number;
+            rows?: number;
+            error?: string;
+        }
+
         webviewView.webview.onDidReceiveMessage(
-            message => {
+            (message: WebViewMessage) => {
                 console.log('Received message from webview:', message);
+                
+                // 型ガード関数
+                if (!message || typeof message.type !== 'string') {
+                    console.warn('Invalid message received:', message);
+                    return;
+                }
+                
                 switch (message.type) {
                     case 'terminalInput':
                         console.log('Terminal input received:', JSON.stringify(message.data));
@@ -110,9 +125,23 @@ export class TerminalProvider implements vscode.WebviewViewProvider {
         }, null, this._extensionContext.subscriptions);
     }
 
-    private handleInput(data: string) {
-        // プロセスマネージャー経由でデータを送信
-        this._processManager.sendToProcess(this._workspaceKey, data);
+    private handleInput(data: string | undefined) {
+        if (typeof data !== 'string') {
+            console.warn('Invalid input data received:', data);
+            return;
+        }
+        
+        try {
+            // プロセスマネージャー経由でデータを送信
+            this._processManager.sendToProcess(this._workspaceKey, data);
+        } catch (error) {
+            console.error('Failed to send input to process:', error);
+            // エラーをWebViewに通知
+            this._view?.webview.postMessage({
+                type: 'output',
+                data: `\r\nError: Failed to send input - ${error}\r\n`
+            });
+        }
     }
 
 
@@ -146,29 +175,41 @@ export class TerminalProvider implements vscode.WebviewViewProvider {
         const xtermCssUri = webview.asWebviewUri(vscode.Uri.joinPath(this._extensionContext.extensionUri, 'resources', 'xterm.css'));
         const xtermJsUri = webview.asWebviewUri(vscode.Uri.joinPath(this._extensionContext.extensionUri, 'resources', 'xterm.js'));
         
-        // Canvas アドオンの URI を生成
+        // アドオンの URI を生成
         const xtermCanvasJsUri = webview.asWebviewUri(vscode.Uri.joinPath(this._extensionContext.extensionUri, 'node_modules', '@xterm', 'addon-canvas', 'lib', 'addon-canvas.js'));
+        const xtermUnicode11JsUri = webview.asWebviewUri(vscode.Uri.joinPath(this._extensionContext.extensionUri, 'node_modules', '@xterm', 'addon-unicode11', 'lib', 'addon-unicode11.js'));
 
         // HTMLテンプレートファイルを読み込み
         try {
             const htmlTemplatePath = path.join(this._extensionContext.extensionPath, 'resources', 'terminal.html');
             let htmlContent = fs.readFileSync(htmlTemplatePath, 'utf8');
 
-            // プレースホルダーを実際の値に置換（Canvas アドオン追加）
+            // プレースホルダーを実際の値に置換
             htmlContent = htmlContent
                 .replace(/{{CSP_SOURCE}}/g, webview.cspSource)
                 .replace(/{{XTERM_CSS_URI}}/g, xtermCssUri.toString())
                 .replace(/{{XTERM_JS_URI}}/g, xtermJsUri.toString())
-                .replace(/{{XTERM_CANVAS_JS_URI}}/g, xtermCanvasJsUri.toString());
+                .replace(/{{XTERM_CANVAS_JS_URI}}/g, xtermCanvasJsUri.toString())
+                .replace(/{{XTERM_UNICODE11_JS_URI}}/g, xtermUnicode11JsUri.toString());
 
             return htmlContent;
         } catch (error) {
             console.error('Failed to load HTML template:', error);
-            // フォールバック: エラー時はシンプルなHTMLを返す
+            // フォールバック: エラー時はセキュアなHTMLを返す
+            const escapeMap: { [key: string]: string } = {
+                '<': '&lt;',
+                '>': '&gt;',
+                '&': '&amp;',
+                '"': '&quot;',
+                "'": '&#39;'
+            };
+            const escapedError = String(error).replace(/[<>&"']/g, (char) => {
+                return escapeMap[char] || char;
+            });
             return `<!DOCTYPE html>
             <html>
             <head><title>Terminal Error</title></head>
-            <body><p style="color: red;">Failed to load terminal template: ${error}</p></body>
+            <body><p style="color: red;">Failed to load terminal template: ${escapedError}</p></body>
             </html>`;
         }
     }

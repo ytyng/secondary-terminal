@@ -69,6 +69,7 @@
     </div>
 
     <script src="{{XTERM_JS_URI}}"></script>
+    <script src="{{XTERM_UNICODE11_JS_URI}}"></script>
     <script src="{{XTERM_CANVAS_JS_URI}}"></script>
     <script>
         const vscode = acquireVsCodeApi();
@@ -101,6 +102,29 @@
         const terminalElement = document.getElementById('terminal');
         term.open(terminalElement);
 
+        // Unicode 11 アドオンをロード
+        if (typeof Unicode11Addon !== 'undefined') {
+            try {
+                const unicode11 = new Unicode11Addon.Unicode11Addon();
+                term.loadAddon(unicode11);
+                unicode11.activate(term);
+                console.log('Unicode 11 addon loaded and activated');
+            } catch (error) {
+                console.error('Failed to load Unicode 11 addon:', error);
+            }
+        }
+
+        // Canvas アドオンをロード
+        if (typeof CanvasAddon !== 'undefined') {
+            try {
+                const canvas = new CanvasAddon.CanvasAddon();
+                term.loadAddon(canvas);
+                console.log('Canvas addon loaded');
+            } catch (error) {
+                console.error('Failed to load Canvas addon:', error);
+            }
+        }
+
         // ターミナル要素のサイズが確定するまで待機
         function waitForSize() {
             return new Promise((resolve) => {
@@ -123,55 +147,7 @@
             setTerminalSize();
             console.log('Terminal initialized with DOM renderer');
 
-            // DOM レンダラーで安定化後、Canvas レンダラーを慎重に導入
-            console.log('DOM renderer initialized, preparing Canvas renderer...');
-
-            // フォントの読み込み完了を待つ
-            const waitForFonts = async () => {
-                if (document.fonts && document.fonts.ready) {
-                    console.log('Waiting for fonts to load...');
-                    await document.fonts.ready;
-                    console.log('Fonts loaded successfully');
-                }
-                return true;
-            };
-
-            // フォント読み込み待機後に Canvas アドオンを追加
-            waitForFonts().then(() => {
-                setTimeout(() => {
-                // ターミナルが完全に準備できているかチェック
-                if (term.element && term.element.offsetWidth > 0 && term.element.offsetHeight > 0) {
-                    try {
-                        console.log('Terminal dimensions confirmed, loading Canvas addon...');
-                        console.log('Current terminal size:', term.cols, 'x', term.rows);
-                        console.log('Terminal element size:', term.element.offsetWidth, 'x', term.element.offsetHeight);
-
-                        console.log('Loading Canvas addon with font validation...');
-
-                        // フォントが利用可能か簡単にテスト
-                        const testCanvas = document.createElement('canvas');
-                        const testCtx = testCanvas.getContext('2d');
-                        testCtx.font = '13px "RobotoMono Nerd Font Mono", "Roboto Mono", Consolas, monospace';
-                        const metrics = testCtx.measureText('M');
-                        
-                        console.log('Font metrics test:', metrics.width);
-
-                        if (metrics.width > 0) {
-                            const canvasAddon = new CanvasAddon.CanvasAddon();
-                            term.loadAddon(canvasAddon);
-                            console.log('Canvas renderer loaded successfully');
-                        } else {
-                            console.warn('Font validation failed, staying with DOM renderer');
-                        }
-
-                    } catch (canvasError) {
-                        console.warn('Canvas renderer failed, staying with DOM renderer:', canvasError);
-                    }
-                } else {
-                    console.warn('Terminal not ready for Canvas addon, staying with DOM renderer');
-                }
-                }, 1000); // フォント読み込み後1秒待機
-            });
+            console.log('Terminal initialized with addons');
         });
 
         // ターミナルサイズを動的に設定（元の手動計算方式）
@@ -363,6 +339,7 @@
                     break;
             }
         });
+
 
         vscode.postMessage({ type: 'terminalReady' });
 

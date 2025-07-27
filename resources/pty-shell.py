@@ -124,12 +124,20 @@ def main():
     initial_rows = int(sys.argv[2]) if len(sys.argv) > 2 else 24
     cwd = sys.argv[3] if len(sys.argv) > 3 else os.getcwd()
     
-    # startup commands を取得
+    # startup commands を安全に取得
     startup_commands = []
     if len(sys.argv) > 4 and sys.argv[4] == '--startup-commands':
         try:
             startup_commands = json.loads(sys.argv[5])
-        except (IndexError, json.JSONDecodeError):
+            # セキュリティチェック: 配列であることを確認
+            if not isinstance(startup_commands, list):
+                print(f"Warning: Invalid startup commands format, ignoring", file=sys.stderr)
+                startup_commands = []
+            else:
+                # 各コマンドが文字列であることを確認
+                startup_commands = [cmd for cmd in startup_commands if isinstance(cmd, str)]
+        except (IndexError, json.JSONDecodeError) as e:
+            print(f"Warning: Failed to parse startup commands: {e}", file=sys.stderr)
             startup_commands = []
 
     while True:  # シェルプロセスが終了したら再起動するループ

@@ -3,7 +3,7 @@ import * as vscode from 'vscode';
 interface TerminalSession {
     workspaceKey: string;
     outputBuffer: string;
-    currentView?: vscode.WebviewView;
+    currentView: vscode.WebviewView | undefined;
     isConnected: boolean;
     maxBufferSize: number;
 }
@@ -12,10 +12,16 @@ interface TerminalSession {
  * ターミナルセッションの状態を管理するシングルトンクラス
  * WebView が再作成されても状態を維持する
  */
+// 定数定義
+const TERMINAL_CONSTANTS = {
+    MAX_BUFFER_SIZE: 100000, // 100KB のバッファサイズ
+    BUFFER_TRIM_RATIO: 0.8,  // バッファ削除時に残す割合
+} as const;
+
 export class TerminalSessionManager {
     private static instance: TerminalSessionManager;
     private sessions: Map<string, TerminalSession> = new Map();
-    private readonly MAX_BUFFER_SIZE = 100000; // 100KB のバッファサイズ
+    private readonly MAX_BUFFER_SIZE = TERMINAL_CONSTANTS.MAX_BUFFER_SIZE;
 
     private constructor() {}
 
@@ -30,21 +36,23 @@ export class TerminalSessionManager {
      * セッションを取得または作成
      */
     public getOrCreateSession(workspaceKey: string): TerminalSession {
-        let session = this.sessions.get(workspaceKey);
+        const existingSession = this.sessions.get(workspaceKey);
         
-        if (!session) {
-            session = {
-                workspaceKey,
-                outputBuffer: '',
-                currentView: undefined,
-                isConnected: false,
-                maxBufferSize: this.MAX_BUFFER_SIZE
-            };
-            this.sessions.set(workspaceKey, session);
-            console.log(`Created new terminal session for workspace: ${workspaceKey}`);
+        if (existingSession) {
+            return existingSession;
         }
         
-        return session;
+        const newSession: TerminalSession = {
+            workspaceKey,
+            outputBuffer: '',
+            currentView: undefined,
+            isConnected: false,
+            maxBufferSize: this.MAX_BUFFER_SIZE
+        };
+        
+        this.sessions.set(workspaceKey, newSession);
+        console.log(`Created new terminal session for workspace: ${workspaceKey}`);
+        return newSession;
     }
 
     /**
@@ -97,12 +105,21 @@ export class TerminalSessionManager {
         // バッファにデータを追加
         session.outputBuffer += data;
         
-        // バッファサイズ制限
+        // バッファサイズ制限（効率的なトリミング）
         if (session.outputBuffer.length > session.maxBufferSize) {
-            // 前半を削除して後半を保持
-            const excess = session.outputBuffer.length - session.maxBufferSize;
-            session.outputBuffer = session.outputBuffer.substring(excess);
-            console.log(`Buffer trimmed for workspace: ${workspaceKey}`);
+            // 適切な改行位置を見つけてトリミング
+            const targetSize = Math.floor(session.maxBufferSize * TERMINAL_CONSTANTS.BUFFER_TRIM_RATIO);
+            const trimPoint = session.outputBuffer.lastIndexOf('\n', session.outputBuffer.length - targetSize);
+            
+            if (trimPoint > 0) {
+                // 改行位置でトリミング（コマンド実行の途中で切れることを防ぐ）
+                session.outputBuffer = session.outputBuffer.substring(trimPoint + 1);
+            } else {
+                // 改行が見つからない場合は強制的にトリミング
+                const excess = session.outputBuffer.length - targetSize;
+                session.outputBuffer = session.outputBuffer.substring(excess);
+            }
+            console.log(`Buffer trimmed for workspace: ${workspaceKey} (new size: ${session.outputBuffer.length})`);
         }
 
         // 接続されているビューに送信
