@@ -1,5 +1,5 @@
 ---
-description: VSCode Side Launcher のローカルリリースを実行
+description: VSCode Extension のローカルリリースを実行
 allowed-tools: Bash, Edit, Read
 ---
 
