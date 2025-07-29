@@ -44,6 +44,18 @@
         "command": "secondaryTerminal.clear",
         "title": "Clear Terminal",
         "category": "Secondary Terminal"
+      },
+      {
+        "command": "secondaryTerminal.sendSelection",
+        "title": "Send Selection to Secondary Terminal",
+        "category": "Secondary Terminal"
+      }
+    ],
+    "keybindings": [
+      {
+        "command": "secondaryTerminal.sendSelection",
+        "key": "cmd+l",
+        "when": "editorTextFocus"
       }
     ],
     "configuration": {

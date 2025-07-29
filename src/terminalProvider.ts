@@ -56,7 +56,7 @@ export class TerminalProvider implements vscode.WebviewViewProvider {
 
         // WebView メッセージの型定義
         interface WebViewMessage {
-            type: 'terminalInput' | 'terminalReady' | 'resize' | 'error';
+            type: 'terminalInput' | 'terminalReady' | 'resize' | 'error' | 'buttonSendSelection';
             data?: string;
             cols?: number;
             rows?: number;
@@ -66,13 +66,13 @@ export class TerminalProvider implements vscode.WebviewViewProvider {
         webviewView.webview.onDidReceiveMessage(
             (message: WebViewMessage) => {
                 console.log('Received message from webview:', message);
-                
+
                 // 型ガード関数
                 if (!message || typeof message.type !== 'string') {
                     console.warn('Invalid message received:', message);
                     return;
                 }
-                
+
                 switch (message.type) {
                     case 'terminalInput':
                         console.log('Terminal input received:', JSON.stringify(message.data));
@@ -104,6 +104,9 @@ export class TerminalProvider implements vscode.WebviewViewProvider {
                     case 'error':
                         console.error('WebView error:', message.error);
                         break;
+                    case 'buttonSendSelection':
+                        this.handleButtonSendSelection();
+                        break;
                 }
             },
             undefined,
@@ -130,7 +133,7 @@ export class TerminalProvider implements vscode.WebviewViewProvider {
             console.warn('Invalid input data received:', data);
             return;
         }
-        
+
         try {
             // プロセスマネージャー経由でデータを送信
             this._processManager.sendToProcess(this._workspaceKey, data);
@@ -170,11 +173,55 @@ export class TerminalProvider implements vscode.WebviewViewProvider {
         this._processManager.sendToProcess(this._workspaceKey, '\x0C'); // Form Feed (Ctrl+L)
     }
 
+    public sendTextToTerminal(text: string) {
+        if (!text) {
+            return;
+        }
+
+        try {
+            // プロセスマネージャー経由でテキストを送信
+            this._processManager.sendToProcess(this._workspaceKey, text);
+        } catch (error) {
+            console.error('Failed to send text to terminal:', error);
+            // エラーをWebViewに通知
+            this._view?.webview.postMessage({
+                type: 'output',
+                data: `\r\nError: Failed to send text - ${error}\r\n`
+            });
+        }
+    }
+
+    private handleButtonSendSelection() {
+        const editor = vscode.window.activeTextEditor;
+        if (!editor) {
+            vscode.window.showWarningMessage('アクティブなエディターがありません');
+            return;
+        }
+
+        const document = editor.document;
+        const selection = editor.selection;
+        const fileName = document.fileName;
+        const selectedText = document.getText(selection);
+
+        if (selectedText) {
+            // 選択されたテキストがある場合：ファイル名、行範囲、選択テキストを送信
+            const startLine = selection.start.line + 1;
+            const endLine = selection.end.line + 1;
+            const lineInfo = startLine === endLine ? `line ${startLine}` : `lines ${startLine}-${endLine}`;
+            const message = `# ${fileName} (${lineInfo})\n${selectedText}\n`;
+            this.sendTextToTerminal(message);
+        } else {
+            // 選択されたテキストがない場合：ファイル名と現在の行番号を送信
+            const currentLine = selection.start.line + 1;
+            const message = `# ${fileName} (line ${currentLine})\n`;
+            this.sendTextToTerminal(message);
+        }
+    }
 
     private _getHtmlForWebview(webview: vscode.Webview) {
         const xtermCssUri = webview.asWebviewUri(vscode.Uri.joinPath(this._extensionContext.extensionUri, 'resources', 'xterm.css'));
         const xtermJsUri = webview.asWebviewUri(vscode.Uri.joinPath(this._extensionContext.extensionUri, 'resources', 'xterm.js'));
-        
+
         // アドオンの URI を生成
         const xtermCanvasJsUri = webview.asWebviewUri(vscode.Uri.joinPath(this._extensionContext.extensionUri, 'node_modules', '@xterm', 'addon-canvas', 'lib', 'addon-canvas.js'));
         const xtermUnicode11JsUri = webview.asWebviewUri(vscode.Uri.joinPath(this._extensionContext.extensionUri, 'node_modules', '@xterm', 'addon-unicode11', 'lib', 'addon-unicode11.js'));
