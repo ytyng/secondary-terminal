@@ -4,6 +4,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { ShellProcessManager } from './shellProcessManager';
 import { TerminalSessionManager } from './terminalSessionManager';
+import { createContextTextForSelectedText } from './utils';
 
 export class TerminalProvider implements vscode.WebviewViewProvider {
     private _view?: vscode.WebviewView;
@@ -197,25 +198,7 @@ export class TerminalProvider implements vscode.WebviewViewProvider {
             vscode.window.showWarningMessage('アクティブなエディターがありません');
             return;
         }
-
-        const document = editor.document;
-        const selection = editor.selection;
-        const fileName = document.fileName;
-        const selectedText = document.getText(selection);
-
-        if (selectedText) {
-            // 選択されたテキストがある場合：ファイル名、行範囲、選択テキストを送信
-            const startLine = selection.start.line + 1;
-            const endLine = selection.end.line + 1;
-            const lineInfo = startLine === endLine ? `line ${startLine}` : `lines ${startLine}-${endLine}`;
-            const message = `# ${fileName} (${lineInfo})\n${selectedText}\n`;
-            this.sendTextToTerminal(message);
-        } else {
-            // 選択されたテキストがない場合：ファイル名と現在の行番号を送信
-            const currentLine = selection.start.line + 1;
-            const message = `# ${fileName} (line ${currentLine})\n`;
-            this.sendTextToTerminal(message);
-        }
+        this.sendTextToTerminal(createContextTextForSelectedText(editor));
     }
 
     private _getHtmlForWebview(webview: vscode.Webview) {
