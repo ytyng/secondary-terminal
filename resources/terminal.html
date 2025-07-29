@@ -64,15 +64,15 @@
             background-color: transparent !important;
         }
 
-        /* Claude Code アクティブ表示 */
-        .claude-indicator {
+        /* CLI エージェントアクティブ表示 */
+        .cli-agent-indicator {
             color: #888;
             font-size: 12px;
             transition: opacity 0.3s ease;
             opacity: 0;
         }
 
-        .claude-indicator.active {
+        .cli-agent-indicator.active {
             opacity: 1;
         }
 
@@ -132,9 +132,9 @@
             </button>
         </div>
             <div class="control-panel-right-controls">
-                <!-- Claude インジケーター -->
-                <div class="claude-indicator" id="claude-indicator"
-                  title="Claude is active - Shift+Enter inputs a newline">Claude</div>
+                <!-- CLI エージェントインジケーター -->
+                <div class="cli-agent-indicator" id="cli-agent-indicator"
+                  title="CLI Agent is active - Shift+Enter inputs a newline">CLI Agent</div>
             </div>
         </div>
     </div>
@@ -319,16 +319,29 @@
         // 定期的なサイズチェック（VSCode の制約対応）
         setInterval(setTerminalSize, 2000);
 
-        let claudeCodeActive = false; // Claude Code のアクティブ状態
+        let cliAgentState = {active: false, agent_type: null}; // CLI エージェントの状態
 
-        // Claude インジケーターの表示更新
-        function updateClaudeIndicator() {
-            const indicator = document.getElementById('claude-indicator');
+        // CLI エージェントインジケーターの表示更新
+        function updateCliAgentIndicator() {
+            const indicator = document.getElementById('cli-agent-indicator');
             if (indicator) {
-                if (claudeCodeActive) {
+                if (cliAgentState.active) {
                     indicator.classList.add('active');
+                    // エージェント種別に応じたラベル表示
+                    if (cliAgentState.agent_type === 'claude') {
+                        indicator.textContent = 'Claude';
+                        indicator.title = 'Claude is active - Shift+Enter inputs a newline';
+                    } else if (cliAgentState.agent_type === 'gemini') {
+                        indicator.textContent = 'Gemini';
+                        indicator.title = 'Gemini is active - Shift+Enter inputs a newline';
+                    } else {
+                        indicator.textContent = 'CLI Agent';
+                        indicator.title = 'CLI Agent is active - Shift+Enter inputs a newline';
+                    }
                 } else {
                     indicator.classList.remove('active');
+                    indicator.textContent = 'CLI Agent';
+                    indicator.title = 'CLI Agent is active - Shift+Enter inputs a newline';
                 }
             }
         }
@@ -343,10 +356,10 @@
                         const messageJson = match[1];
                         const message = JSON.parse(messageJson);
 
-                        if (message.type === 'claude_status') {
-                            claudeCodeActive = message.data.active;
-                            console.log('Claude Code active status changed:', claudeCodeActive);
-                            updateClaudeIndicator(); // インジケーター表示を更新
+                        if (message.type === 'cli_agent_status') {
+                            cliAgentState = message.data;
+                            console.log('CLI Agent status changed:', cliAgentState);
+                            updateCliAgentIndicator(); // インジケーター表示を更新
                         }
                     }
                 }
@@ -362,7 +375,7 @@
                 console.log('Setting up custom key handler for Shift+Enter');
 
                 term.attachCustomKeyEventHandler(function(event) {
-                    // Shift + Enter の場合（claude code が動作中のときのみ）
+                    // Shift + Enter の場合（CLI エージェントが動作中のときのみ）
                     if (event.type === 'keydown' &&
                         event.key === 'Enter' &&
                         event.shiftKey &&
@@ -370,9 +383,10 @@
                         !event.altKey &&
                         !event.metaKey) {
 
-                        // Claude Code がアクティブの場合のみ Alt+Enter に変換
-                        if (claudeCodeActive) {
-                            console.log('Shift+Enter detected (Claude Code active), sending Alt+Enter sequence');
+                        // CLI エージェント（Claude/Gemini）がアクティブの場合のみ Alt+Enter に変換
+                        if (cliAgentState.active) {
+                            const agentType = cliAgentState.agent_type || 'CLI Agent';
+                            console.log(`Shift+Enter detected (${agentType} active), sending Alt+Enter sequence`);
 
                             // ブラウザのデフォルト動作を完全に停止
                             event.preventDefault();
@@ -390,8 +404,8 @@
                             // false を返してデフォルト処理を完全に停止
                             return false;
                         } else {
-                            // Claude Code がアクティブでない場合は通常の Enter として処理
-                            console.log('Shift+Enter detected (Claude Code not active), processing as normal Enter');
+                            // CLI エージェントがアクティブでない場合は通常の Enter として処理
+                            console.log('Shift+Enter detected (CLI Agent not active), processing as normal Enter');
                             return true;
                         }
                     }

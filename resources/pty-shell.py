@@ -23,8 +23,8 @@ def set_winsize(fd, rows, cols):
         pass
 
 
-def check_claude_code_active(shell_pid):
-    """シェルプロセスでclaude codeがアクティブかチェック"""
+def check_cli_agent_active(shell_pid):
+    """シェルプロセスでCLIエージェント（Claude、Gemini）がアクティブかチェック"""
     try:
         # プロセスツリーを取得して、シェルの子孫プロセスを調べる
         ps_result = subprocess.run(
@@ -37,7 +37,7 @@ def check_claude_code_active(shell_pid):
         )
 
         if ps_result.returncode != 0:
-            return False
+            return None
 
         lines = ps_result.stdout.strip().split('\n')
 
@@ -84,24 +84,29 @@ def check_claude_code_active(shell_pid):
 
         descendants = find_descendants(shell_pid)
 
-        # 子孫プロセスの中で claude を含むものを検索
+        # 子孫プロセスの中でCLIエージェントを検索
         for pid in descendants:
             if pid in processes:
                 proc_info = processes[pid]
-                if (
-                    'claude' in proc_info['comm'].lower()
-                    or 'claude' in proc_info['args'].lower()
-                ):
-                    return True
+                comm_lower = proc_info['comm'].lower()
+                args_lower = proc_info['args'].lower()
+                
+                # Claude の検出
+                if 'claude' in comm_lower or 'claude' in args_lower:
+                    return {'active': True, 'agent_type': 'claude'}
+                
+                # Gemini の検出
+                if 'gemini' in comm_lower or 'gemini' in args_lower:
+                    return {'active': True, 'agent_type': 'gemini'}
 
-        return False
+        return {'active': False, 'agent_type': None}
 
     except (
         subprocess.TimeoutExpired,
         subprocess.SubprocessError,
         FileNotFoundError,
     ):
-        return False
+        return {'active': False, 'agent_type': None}
 
 
 def send_status_message(message_type, data):
@@ -194,9 +199,9 @@ def main():
         except (ImportError, OSError):
             pass
 
-        # Claude Code 監視のための変数
-        last_claude_check = 0
-        claude_status = False
+        # CLI エージェント監視のための変数
+        last_agent_check = 0
+        current_agent_state = {'active': False, 'agent_type': None}
         check_interval = 2.0  # 2秒間隔でチェック
 
         # startup commands を実行
@@ -218,15 +223,15 @@ def main():
                             os.write(master, command_with_newline.encode('utf-8'))
                             time.sleep(0.1)  # コマンド間に少し間隔を空ける
                 
-                # Claude Code アクティブチェック
-                if current_time - last_claude_check >= check_interval:
-                    new_claude_status = check_claude_code_active(p.pid)
-                    if new_claude_status != claude_status:
-                        claude_status = new_claude_status
+                # CLI エージェントアクティブチェック
+                if current_time - last_agent_check >= check_interval:
+                    new_agent_state = check_cli_agent_active(p.pid)
+                    if new_agent_state and new_agent_state != current_agent_state:
+                        current_agent_state = new_agent_state
                         send_status_message(
-                            'claude_status', {'active': claude_status}
+                            'cli_agent_status', current_agent_state
                         )
-                    last_claude_check = current_time
+                    last_agent_check = current_time
 
                 # 標準入力から PTY マスターへの入力を処理
                 try:
