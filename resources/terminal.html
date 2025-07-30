@@ -121,7 +121,7 @@
     </style>
 </head>
 <body>
-    <div class="terminal-container">
+    <div class="terminal-container" id="terminal-container">
 
         <div id="terminal"></div>
         <!-- 下部コントロールパネル -->
@@ -461,6 +461,33 @@
             vscode.postMessage({ type: 'error', error: error.message });
             document.getElementById('terminal').innerHTML = '<p style="color: red;">Error loading terminal: ' + error.message + '</p>';
         }
+
+        // ターミナルの背景色をコンテナの背景色に適用させる
+        (function () {
+            const terminalContainer = document.getElementById('terminal-container');
+            const textLayer = document.querySelector('#terminal canvas.xterm-text-layer')
+            const ctx = textLayer.getContext('2d');
+
+            function applyBackgroundColor() {
+
+                // 左上の1ピクセルの色データを取得
+                const imageData = ctx.getImageData(0, 0, 1, 1);
+                const data = imageData.data;
+                const rgba = `rgba(${data[0]}, ${data[1]}, ${data[2]},
+                ${data[3]/255})`;
+                // console.log('Applying background color:', rgba);
+
+                terminalContainer.style.backgroundColor = rgba;
+            }
+            applyBackgroundColor();
+            setInterval(() => {
+                if (textLayer && textLayer.getContext) {
+                    applyBackgroundColor();
+                }
+            }, 3000);
+        })();
+
+
     </script>
 </body>
 </html>
