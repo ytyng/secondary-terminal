@@ -448,6 +448,8 @@
         // ボタンイベントの設定
         document.getElementById('btn-send-selection').addEventListener('click', () => {
             vscode.postMessage({ type: 'buttonSendSelection' });
+            // ボタンクリック後にターミナルにフォーカスを移動
+            term.focus();
         });
 
         vscode.postMessage({ type: 'terminalReady' });
