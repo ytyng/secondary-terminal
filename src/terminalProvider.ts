@@ -27,7 +27,7 @@ export class TerminalProvider implements vscode.WebviewViewProvider {
             const versionData = JSON.parse(fs.readFileSync(versionPath, 'utf8'));
             return {
                 version: versionData.version || '0.1.0',
-                buildDate: versionData.buildDate || 'Unknown'
+                buildDate: versionData.updatedAt || versionData.buildDate || 'Unknown'
             };
         } catch (error) {
             console.warn('Failed to read version info:', error);
