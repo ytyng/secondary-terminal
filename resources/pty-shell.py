@@ -8,6 +8,7 @@ import struct
 import select
 import time
 import json
+import atexit
 
 
 def set_winsize(fd, rows, cols):
@@ -145,6 +146,48 @@ def main():
             print(f"Warning: Failed to parse startup commands: {e}", file=sys.stderr)
             startup_commands = []
 
+    # グローバル変数でプロセス参照を保持
+    global current_shell_process, current_master
+    current_shell_process = None
+    current_master = None
+    
+    def cleanup_handler():
+        """プロセス終了時のクリーンアップ処理"""
+        try:
+            if current_shell_process and current_shell_process.poll() is None:
+                # シェルプロセスとそのプロセスグループを終了
+                try:
+                    os.killpg(os.getpgid(current_shell_process.pid), signal.SIGTERM)
+                    # 少し待って強制終了
+                    time.sleep(0.5)
+                    if current_shell_process.poll() is None:
+                        os.killpg(os.getpgid(current_shell_process.pid), signal.SIGKILL)
+                except (OSError, ProcessLookupError):
+                    pass
+            
+            if current_master:
+                try:
+                    os.close(current_master)
+                except OSError:
+                    pass
+                    
+        except Exception as e:
+            print(f"Error during cleanup: {e}", file=sys.stderr)
+    
+    def signal_handler(signum, frame):
+        """シグナルハンドラー"""
+        print(f"Received signal {signum}, cleaning up...", file=sys.stderr)
+        cleanup_handler()
+        sys.exit(0)
+    
+    # シグナルハンドラーを設定
+    signal.signal(signal.SIGTERM, signal_handler)
+    signal.signal(signal.SIGINT, signal_handler)
+    signal.signal(signal.SIGHUP, signal_handler)
+    
+    # atexit でクリーンアップを保証
+    atexit.register(cleanup_handler)
+
     while True:  # シェルプロセスが終了したら再起動するループ
         # 環境変数を設定
         os.environ['TERM'] = 'xterm-256color'
@@ -153,6 +196,7 @@ def main():
 
         # PTY を作成
         master, slave = pty.openpty()
+        current_master = master  # グローバル変数に保存
 
         # ターミナルサイズを設定
         set_winsize(master, initial_rows, initial_cols)
@@ -169,6 +213,7 @@ def main():
                 preexec_fn=os.setsid,
                 cwd=cwd,
             )
+            current_shell_process = p  # グローバル変数に保存
         except Exception as e:
             # zsh が失敗した場合は bash にフォールバック
             shell_cmd = ['/bin/bash', '-l', '-i']
@@ -180,6 +225,7 @@ def main():
                 preexec_fn=os.setsid,
                 cwd=cwd,
             )
+            current_shell_process = p  # グローバル変数に保存
 
         os.close(slave)
 
@@ -309,20 +355,25 @@ def main():
         finally:
             # PTY を閉じる
             try:
-                os.close(master)
+                if current_master:
+                    os.close(current_master)
+                    current_master = None
             except OSError:
                 pass
 
             # プロセスを終了
             try:
-                if p.poll() is None:
-                    os.killpg(os.getpgid(p.pid), signal.SIGTERM)
-                    p.wait(timeout=2)
+                if current_shell_process and current_shell_process.poll() is None:
+                    os.killpg(os.getpgid(current_shell_process.pid), signal.SIGTERM)
+                    current_shell_process.wait(timeout=2)
             except (OSError, subprocess.TimeoutExpired):
                 try:
-                    os.killpg(os.getpgid(p.pid), signal.SIGKILL)
+                    if current_shell_process:
+                        os.killpg(os.getpgid(current_shell_process.pid), signal.SIGKILL)
                 except OSError:
                     pass
+            finally:
+                current_shell_process = None
 
         # シェルが終了した場合、少し待ってから再起動
         if p.poll() is not None:

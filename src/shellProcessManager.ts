@@ -183,16 +183,55 @@ export class ShellProcessManager {
         if (processInfo && processInfo.process) {
             console.log(`Terminating shell process for workspace: ${workspaceKey}`);
             try {
-                processInfo.process.kill('SIGTERM');
-                setTimeout(() => {
-                    if (processInfo.process && !processInfo.process.killed) {
-                        processInfo.process.kill('SIGKILL');
+                const process = processInfo.process;
+                
+                // プロセスがまだ生きているかチェック
+                if (process.killed || process.exitCode !== null) {
+                    this.processes.delete(workspaceKey);
+                    return;
+                }
+                
+                // stdin を閉じる
+                if (process.stdin && !process.stdin.destroyed) {
+                    process.stdin.end();
+                }
+                
+                // 穏やかに終了を試みる (SIGTERM)
+                process.kill('SIGTERM');
+                
+                // プロセス終了を監視
+                const forceKillTimeout = setTimeout(() => {
+                    if (!process.killed && process.exitCode === null) {
+                        console.log(`Force killing process for workspace: ${workspaceKey}`);
+                        try {
+                            // プロセスグループ全体を強制終了
+                            if (process.pid) {
+                                process.kill('SIGKILL');
+                            }
+                        } catch (killError) {
+                            console.error('Error force killing process:', killError);
+                        }
                     }
-                }, 2000);
+                }, 3000); // 3秒待つ
+                
+                // プロセス終了時にタイムアウトをクリア
+                const exitHandler = () => {
+                    clearTimeout(forceKillTimeout);
+                    this.processes.delete(workspaceKey);
+                    console.log(`Process for workspace ${workspaceKey} has exited`);
+                };
+                
+                process.once('exit', exitHandler);
+                process.once('error', (error) => {
+                    console.error(`Process error for workspace ${workspaceKey}:`, error);
+                    clearTimeout(forceKillTimeout);
+                    this.processes.delete(workspaceKey);
+                });
+                
             } catch (error) {
                 console.error('Error terminating process:', error);
+                this.processes.delete(workspaceKey);
             }
-            this.processes.delete(workspaceKey);
         }
     }
 
@@ -228,8 +267,79 @@ export class ShellProcessManager {
      * 全てのプロセスを終了
      */
     public terminateAllProcesses(): void {
-        for (const [workspaceKey] of this.processes) {
-            this.terminateProcess(workspaceKey);
+        console.log(`Terminating ${this.processes.size} shell processes...`);
+        
+        // すべてのプロセスに対して終了処理を並行実行
+        const terminationPromises: Promise<void>[] = [];
+        
+        for (const [workspaceKey, processInfo] of this.processes) {
+            if (processInfo && processInfo.process) {
+                const promise = new Promise<void>((resolve) => {
+                    const process = processInfo.process;
+                    
+                    // プロセスがすでに終了している場合
+                    if (process.killed || process.exitCode !== null) {
+                        this.processes.delete(workspaceKey);
+                        resolve();
+                        return;
+                    }
+                    
+                    // stdin を閉じる
+                    if (process.stdin && !process.stdin.destroyed) {
+                        try {
+                            process.stdin.end();
+                        } catch (e) {
+                            // エラーは無視
+                        }
+                    }
+                    
+                    let resolved = false;
+                    
+                    const cleanup = () => {
+                        if (!resolved) {
+                            resolved = true;
+                            this.processes.delete(workspaceKey);
+                            resolve();
+                        }
+                    };
+                    
+                    // 終了イベントリスナー
+                    process.once('exit', cleanup);
+                    process.once('error', cleanup);
+                    
+                    // SIGTERM で終了を試みる
+                    try {
+                        process.kill('SIGTERM');
+                    } catch (e) {
+                        cleanup();
+                        return;
+                    }
+                    
+                    // 2秒後に強制終了
+                    setTimeout(() => {
+                        if (!resolved && !process.killed && process.exitCode === null) {
+                            try {
+                                process.kill('SIGKILL');
+                            } catch (e) {
+                                // エラーは無視
+                            }
+                        }
+                        // さらに1秒後にクリーンアップを保証
+                        setTimeout(cleanup, 1000);
+                    }, 2000);
+                });
+                
+                terminationPromises.push(promise);
+            }
+        }
+        
+        // 同期的に終了を待つのは適切ではないため、非同期で処理
+        if (terminationPromises.length > 0) {
+            Promise.allSettled(terminationPromises).then(() => {
+                console.log('All shell processes terminated');
+            }).catch((error) => {
+                console.error('Error during process termination:', error);
+            });
         }
     }
 }
