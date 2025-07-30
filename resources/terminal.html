@@ -469,17 +469,56 @@
             const ctx = textLayer.getContext('2d');
 
             function applyBackgroundColor() {
+                if (!ctx || !textLayer.width || !textLayer.height) {
+                    return;
+                }
 
-                // 左上の1ピクセルの色データを取得
-                const imageData = ctx.getImageData(0, 0, 1, 1);
-                const data = imageData.data;
-                const rgba = `rgba(${data[0]}, ${data[1]}, ${data[2]},
-                ${data[3]/255})`;
-                // console.log('Applying background color:', rgba);
+                // Canvas のサイズを取得
+                const width = textLayer.width;
+                const height = textLayer.height;
 
-                terminalContainer.style.backgroundColor = rgba;
+                // 四隅の座標を定義
+                const corners = [
+                    { x: 0, y: 0 },              // 左上
+                    { x: width - 1, y: 0 },      // 右上
+                    { x: 0, y: height - 1 },     // 左下
+                    { x: width - 1, y: height - 1 } // 右下
+                ];
+
+                // 各隅の色を取得
+                const colors = corners.map(corner => {
+                    const imageData = ctx.getImageData(corner.x, corner.y, 1, 1);
+                    const data = imageData.data;
+                    return {
+                        r: data[0],
+                        g: data[1],
+                        b: data[2],
+                        a: data[3]
+                    };
+                });
+
+                // すべての色が同じかチェック
+                const firstColor = colors[0];
+                const allSameColor = colors.every(color => 
+                    color.r === firstColor.r &&
+                    color.g === firstColor.g &&
+                    color.b === firstColor.b &&
+                    color.a === firstColor.a
+                );
+
+                // すべて同じ色の場合のみ背景色を変更
+                if (allSameColor) {
+                    const rgba = `rgba(${firstColor.r}, ${firstColor.g}, ${firstColor.b}, ${firstColor.a / 255})`;
+                    terminalContainer.style.backgroundColor = rgba;
+                    // console.log('All corners have same color. Applying background color:', rgba);
+                } else {
+                    // console.log('Corners have different colors. Not applying background color.');
+                }
             }
-            applyBackgroundColor();
+            
+            // 初回実行を少し遅延させる (Canvas が完全に描画されるのを待つ)
+            setTimeout(applyBackgroundColor, 500);
+            
             setInterval(() => {
                 if (textLayer && textLayer.getContext) {
                     applyBackgroundColor();
