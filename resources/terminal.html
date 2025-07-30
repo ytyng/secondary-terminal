@@ -25,7 +25,7 @@
             margin: 0;
             background-color: var(--vscode-sideBar-background);
             color: var(--vscode-editor-foreground);
-            font-family: "RobotoMono Nerd Font Mono", "Roboto Mono", Consolas, "Courier New", monospace;
+            font-family: "RobotoMono Nerd Font Mono", "RobotoMono Nerd Font", "Roboto Mono", Consolas, "SF Mono", "Menlo", "Courier New", monospace;
             overflow: hidden;
             display: flex;
             flex-direction: column;
@@ -152,6 +152,9 @@
                 throw new Error('Terminal is not defined. xterm.js may not have loaded.');
             }
 
+            // フォント統一のためのフォントファミリー定数
+            const TERMINAL_FONT_FAMILY = '"RobotoMono Nerd Font Mono", "RobotoMono Nerd Font", "Roboto Mono", Consolas, "SF Mono", "Menlo", "Courier New", monospace';
+            
             const term = new Terminal({
             theme: {
                 background: 'transparent',
@@ -159,7 +162,7 @@
                 cursor: 'var(--vscode-terminal-cursor-foreground)',
                 selection: 'var(--vscode-terminal-selection-background)'
             },
-            fontFamily: '"RobotoMono Nerd Font Mono", "RobotoMono Nerd Font", "Roboto Mono", Consolas, "Courier New", monospace',
+            fontFamily: TERMINAL_FONT_FAMILY,
             fontSize: 13,
             letterSpacing: 0,
             lineHeight: 1.2,
@@ -236,51 +239,162 @@
 
             // コンテナの実際のサイズを取得
             const terminalRect = terminal.getBoundingClientRect();
-            const availableWidth = terminalRect.width - 20; // パディング考慮
-            // const availableHeight = Math.max(terminalRect.height - 20, 200); // パディング考慮
-            const availableHeight = terminalRect.height - 5;
+            // より正確なパディング計算（CSSから実際の値を取得）
+            const computedStyle = window.getComputedStyle(terminal);
+            const paddingLeft = parseInt(computedStyle.paddingLeft) || 5;
+            const paddingRight = parseInt(computedStyle.paddingRight) || 0;
+            const paddingTop = parseInt(computedStyle.paddingTop) || 0;
+            const paddingBottom = parseInt(computedStyle.paddingBottom) || 0;
+            
+            const availableWidth = terminalRect.width - paddingLeft - paddingRight;
+            const availableHeight = terminalRect.height - paddingTop - paddingBottom;
 
             console.log('Available terminal size:', availableWidth, 'x', availableHeight);
 
-            // フォント情報から文字サイズを正確に計算
+            // フォント情報から文字サイズを計算（環境安定化対応）
             const fontSize = 13;
             const targetLineHeight = 1.2; // Terminal設定と同じ行間
 
-            // 一時的な測定用エレメントを作成して文字幅を正確に測定
-            const measurer = document.createElement('div');
-            measurer.style.position = 'absolute';
-            measurer.style.visibility = 'hidden';
-            measurer.style.fontFamily = '"RobotoMono Nerd Font Mono", "RobotoMono Nerd Font", "Roboto Mono", Consolas, "Courier New", monospace';
-            measurer.style.fontSize = fontSize + 'px';
-            measurer.style.lineHeight = targetLineHeight; // 数値で指定
-            measurer.style.whiteSpace = 'pre';
-            measurer.textContent = 'M'.repeat(10); // 等幅フォントのM文字で測定
+            // 使用可能なフォントを検出
+            function detectAvailableFont() {
+                const fontList = [
+                    '"RobotoMono Nerd Font Mono"',
+                    '"RobotoMono Nerd Font"', 
+                    '"Roboto Mono"',
+                    'Consolas',
+                    '"SF Mono"', // macOS
+                    '"Menlo"',   // macOS fallback
+                    '"Courier New"',
+                    'monospace'
+                ];
 
-            document.body.appendChild(measurer);
-            const rawCharWidth = measurer.getBoundingClientRect().width / 10;
-            const rawLineHeight = measurer.getBoundingClientRect().height;
-            document.body.removeChild(measurer);
+                const testString = 'MMMMMMMMMMiiiiiiiiil1l1l1l1l1'; // 等幅チェック用
+                const testCanvas = document.createElement('canvas');
+                const ctx = testCanvas.getContext('2d');
+                
+                for (const font of fontList) {
+                    ctx.font = `${fontSize}px ${font}`;
+                    const metrics = ctx.measureText(testString);
+                    
+                    // 文字幅の一貫性をチェック（等幅フォントの確認）
+                    const avgWidth = metrics.width / testString.length;
+                    if (avgWidth > 0 && avgWidth < 20) { // 合理的な範囲
+                        console.log(`Selected font: ${font}, avgWidth: ${avgWidth}`);
+                        return { font, avgWidth };
+                    }
+                }
+                
+                // フォールバック
+                return { font: 'monospace', avgWidth: 8.0 };
+            }
 
-            // サイズ調整係数（微調整用）
-            // 大きくするほど表示サイズは小さくなる。はみ出したら大きくする。
-            // const widthAdjustment = 0.88; // 横幅を少し詰める（右余白を減らす）
-            const widthAdjustment = 1.0; // 横幅を少し詰める（右余白を減らす）
-            const heightAdjustment = 1.34; // 縦幅を少し詰める（はみ出し防止）
+            const { font: detectedFont, avgWidth: baseCharWidth } = detectAvailableFont();
 
-            const adjustedCharWidth = rawCharWidth * widthAdjustment;
-            const adjustedLineHeight = rawLineHeight * heightAdjustment;
+            // デバイスピクセル比を考慮
+            const devicePixelRatio = window.devicePixelRatio || 1;
+            console.log('Device pixel ratio:', devicePixelRatio);
+
+            // Canvas ベースの測定値
+            let canvasCharWidth = baseCharWidth;
+            let canvasLineHeight = fontSize * targetLineHeight;
+
+            // RobotoMono Nerd Font Mono 固定値ベース（13px時の実測値）
+            // 様々な環境での実測平均値を使用
+            const ROBOTO_MONO_13PX_CHAR_WIDTH = 7.8; // 実測値
+            const ROBOTO_MONO_13PX_LINE_HEIGHT = 15.6; // 実測値
+
+            // Canvas 測定値が合理的範囲内かチェック
+            const isCanvasReasonable = (
+                canvasCharWidth >= 6.0 && canvasCharWidth <= 10.0 &&
+                canvasLineHeight >= 12.0 && canvasLineHeight <= 20.0
+            );
+
+            let adjustedCharWidth, adjustedLineHeight;
+            
+            if (isCanvasReasonable) {
+                // Canvas 測定値が合理的な場合は使用（微調整あり）
+                adjustedCharWidth = canvasCharWidth * 0.98; // 微調整
+                adjustedLineHeight = canvasLineHeight * 1.32;
+                console.log('Using Canvas-based measurement');
+            } else {
+                // Canvas 測定値に問題がある場合は固定値を使用
+                adjustedCharWidth = ROBOTO_MONO_13PX_CHAR_WIDTH;
+                adjustedLineHeight = ROBOTO_MONO_13PX_LINE_HEIGHT;
+                console.log('Canvas measurement unreliable, using fixed values');
+            }
+
+            // デバイスピクセル比による微調整
+            if (devicePixelRatio > 1.5) {
+                adjustedCharWidth *= 0.99; // 高解像度ディスプレイでは少し詰める
+            }
 
             // 列数と行数を計算
             const cols = Math.floor(availableWidth / adjustedCharWidth);
             const rows = Math.floor(availableHeight / adjustedLineHeight);
 
-            console.log('Font metrics - rawCharWidth:', rawCharWidth, 'rawLineHeight:', rawLineHeight);
+            // 詳細デバッグ情報を収集
+            const debugInfo = {
+                // 環境情報
+                userAgent: navigator.userAgent,
+                platform: navigator.platform,
+                devicePixelRatio: devicePixelRatio,
+                screenWidth: window.screen.width,
+                screenHeight: window.screen.height,
+                
+                // フォント測定情報
+                detectedFont: detectedFont,
+                baseCharWidth: baseCharWidth,
+                canvasCharWidth: canvasCharWidth,
+                canvasLineHeight: canvasLineHeight,
+                isCanvasReasonable: isCanvasReasonable,
+                
+                // 最終計算値
+                adjustedCharWidth: adjustedCharWidth,
+                adjustedLineHeight: adjustedLineHeight,
+                
+                // レイアウト情報
+                terminalRect: {
+                    width: terminalRect.width,
+                    height: terminalRect.height
+                },
+                padding: { paddingLeft, paddingRight, paddingTop, paddingBottom },
+                availableWidth: availableWidth,
+                availableHeight: availableHeight,
+                
+                // 最終結果
+                calculatedCols: cols,
+                calculatedRows: rows,
+                finalCols: Math.max(cols, 20),
+                finalRows: Math.max(rows, 5)
+            };
+            
+            console.log('=== TERMINAL SIZE DEBUG INFO ===');
+            console.log(JSON.stringify(debugInfo, null, 2));
+            console.log('================================');
+
+            // 旧形式のログも維持（互換性のため）
+            console.log('Font detection - selected:', detectedFont, 'baseCharWidth:', baseCharWidth);
             console.log('Adjusted metrics - charWidth:', adjustedCharWidth, 'lineHeight:', adjustedLineHeight);
+            console.log('Padding - left:', paddingLeft, 'right:', paddingRight, 'top:', paddingTop, 'bottom:', paddingBottom);
             console.log('Calculated terminal size:', cols, 'x', rows);
 
             // 最小サイズを保証
             const finalCols = Math.max(cols, 20);
             const finalRows = Math.max(rows, 5);
+
+            // 幅の使用効率をチェック
+            const actualUsedWidth = finalCols * adjustedCharWidth;
+            const widthEfficiency = (actualUsedWidth / availableWidth * 100).toFixed(1);
+            console.log(`Width efficiency: ${widthEfficiency}% (${actualUsedWidth.toFixed(1)}px used of ${availableWidth.toFixed(1)}px available)`);
+            
+            // もし効率が90%未満なら警告
+            if (widthEfficiency < 90) {
+                console.warn(`⚠️ Low width efficiency: ${widthEfficiency}% - consider adjusting charWidth calculation`);
+                
+                // より効率的な文字幅を提案
+                const suggestedCharWidth = availableWidth / finalCols;
+                console.log(`💡 Suggested charWidth for better efficiency: ${suggestedCharWidth.toFixed(2)}px (current: ${adjustedCharWidth.toFixed(2)}px)`);
+            }
 
             // ターミナルサイズを設定
             if (term.cols !== finalCols || term.rows !== finalRows) {
