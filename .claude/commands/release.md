@@ -11,7 +11,7 @@ allowed-tools: Bash, Edit, Read
   - `npm run update-version` を実行する
 
 3. ビルド
-  - `npm run compile` を実行
+  - `npm run rebuild` を実行
 
 4. バージョンアップをコミット
   - `git add .` を実行する

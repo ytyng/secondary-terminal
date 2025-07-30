@@ -2,7 +2,7 @@
   "name": "secondary-terminal",
   "displayName": "Secondary Terminal",
   "description": "Terminal in sidebar",
-  "version": "0.3.65",
+  "version": "0.3.71",
   "engines": {
     "vscode": "^1.101.0"
   },
@@ -81,7 +81,7 @@
     "test": "vscode-test",
     "dev": "tsc -watch -p ./",
     "clean": "rm -rf out/",
-    "rebuild": "npm run clean && npm run compile",
+    "rebuild": "npm ci && npm run clean && npm run compile",
     "update-version": "node scripts/update-version.js",
     "increment-version": "npm version patch && npm run update-version"
   },
