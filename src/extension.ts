@@ -9,25 +9,25 @@ export function activate(context: vscode.ExtensionContext) {
 
     const provider = new TerminalProvider(context);
     context.subscriptions.push(
-        vscode.window.registerWebviewViewProvider('terminalView', provider)
+        vscode.window.registerWebviewViewProvider('secondaryTerminalMainView', provider)
     );
 
     // プロセス終了イベントリスナーを追加して強制終了時のクリーンアップを保証
     const processManager = ShellProcessManager.getInstance();
     const sessionManager = TerminalSessionManager.getInstance();
-    
+
     // Node.js プロセス終了時のクリーンアップ
     const cleanupHandler = () => {
         console.log('Cleaning up shell processes on exit...');
         processManager.terminateAllProcesses();
         sessionManager.removeAllSessions();
     };
-    
+
     process.on('exit', cleanupHandler);
     process.on('SIGINT', cleanupHandler);
     process.on('SIGTERM', cleanupHandler);
     process.on('beforeExit', cleanupHandler);
-    
+
     // context の subscriptions に cleanup 処理を登録
     context.subscriptions.push({
         dispose: cleanupHandler
@@ -35,7 +35,7 @@ export function activate(context: vscode.ExtensionContext) {
 
     context.subscriptions.push(
         vscode.commands.registerCommand('secondaryTerminal.focus', () => {
-            vscode.commands.executeCommand('terminalView.focus');
+            vscode.commands.executeCommand('secondaryTerminalMainView.focus');
         })
     );
 

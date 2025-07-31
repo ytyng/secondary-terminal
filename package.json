@@ -27,7 +27,7 @@
       "terminalContainer": [
         {
           "type": "webview",
-          "id": "terminalView",
+          "id": "secondaryTerminalMainView",
           "name": "Terminal",
           "icon": "$(terminal)",
           "when": "secondaryTerminal:enabled"
