@@ -10,7 +10,7 @@
     "Other"
   ],
   "activationEvents": [
-    "onStartupFinished"
+    "onStartup"
   ],
   "main": "./out/extension.js",
   "contributes": {
@@ -29,8 +29,7 @@
           "type": "webview",
           "id": "secondaryTerminalMainView",
           "name": "Terminal",
-          "icon": "$(terminal)",
-          "when": "secondaryTerminal:enabled"
+          "icon": "$(terminal)"
         }
       ]
     },
