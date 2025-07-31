@@ -1,9 +1,11 @@
 <!DOCTYPE html>
 <html lang="ja">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src {{CSP_SOURCE}} 'unsafe-inline'; script-src {{CSP_SOURCE}} 'unsafe-inline';">
+    <meta http-equiv="Content-Security-Policy"
+        content="default-src 'none'; style-src {{CSP_SOURCE}} 'unsafe-inline'; script-src {{CSP_SOURCE}} 'unsafe-inline';">
     <title>Secondary Terminal</title>
     <link rel="stylesheet" href="{{XTERM_CSS_URI}}" />
     <style>
@@ -12,12 +14,14 @@
             padding: 0;
             box-sizing: border-box;
         }
+
         html {
             height: 100%;
             overflow: hidden;
             padding: 0;
             margin: 0;
         }
+
         body {
             width: 100%;
             height: 100%;
@@ -34,35 +38,41 @@
         .terminal-container {
             flex: 1;
             width: 100%;
-            min-height: 0; /* 重要：flexboxで子要素が縮むのを許可 */
+            min-height: 0;
+            /* 重要：flexboxで子要素が縮むのを許可 */
             display: flex;
             flex-direction: column;
-            overflow: hidden; /* 追加：はみ出し防止 */
+            overflow: hidden;
+            /* 追加：はみ出し防止 */
         }
 
         #terminal {
             flex: 1;
             width: 100%;
             padding: 0 0 0 5px;
-            min-height: 0; /* 重要：flexboxで縮むのを許可 */
-            overflow: hidden; /* はみ出し防止 */
+            min-height: 0;
+            /* 重要：flexboxで縮むのを許可 */
+            overflow: hidden;
+            /* はみ出し防止 */
         }
+
         .terminal.xterm {
             padding: 0;
+
+            /* xterm.js のコンテナを透明に */
+            .xterm-viewport {
+                background-color: transparent !important;
+            }
+
+            .xterm-screen {
+                background-color: transparent !important;
+            }
+
+            .xterm-helper-textarea {
+                background-color: transparent !important;
+            }
         }
 
-        /* xterm.js のコンテナを透明に */
-        .xterm .xterm-viewport {
-            background-color: transparent !important;
-        }
-
-        .xterm .xterm-screen {
-            background-color: transparent !important;
-        }
-
-        .xterm .xterm-helper-textarea {
-            background-color: transparent !important;
-        }
 
         /* CLI エージェントアクティブ表示 */
         .cli-agent-indicator {
@@ -70,15 +80,17 @@
             font-size: 12px;
             transition: opacity 0.3s ease;
             opacity: 0;
+
+            &.active {
+                opacity: 1;
+            }
         }
 
-        .cli-agent-indicator.active {
-            opacity: 1;
-        }
 
         /* コントロールパネル */
         .control-panel {
-            flex-shrink: 0; /* 重要：縮まないように固定 */
+            flex-shrink: 0;
+            /* 重要：縮まないように固定 */
             background-color: var(--vscode-panel-background, #252526);
             border-top: 1px solid var(--vscode-panel-border, #3c3c3c);
             padding: 8px;
@@ -89,18 +101,25 @@
             justify-content: start;
             box-sizing: border-box;
         }
-        .control-panel-left-controls{
+
+        .control-panel-left-controls {
             display: flex;
             align-items: center;
             justify-content: start;
             flex-grow: 1;
         }
-        .control-panel-right-controls{
+
+        .control-panel-right-controls {
+            display: flex;
+            align-items: center;
+            justify-content: end;
+            padding: 0.5em;
+            gap: 0.5em;
         }
 
         .control-button {
-            background-color: var(--vscode-button-background, #0e639c);
-            color: var(--vscode-button-foreground, #ffffff);
+            background-color: var(--vscode-button-secondaryBackground, #3c3c3c);
+            color: var(--vscode-button-secondaryForeground, #cccccc);
             border: none;
             border-radius: 3px;
             padding: 4px 8px;
@@ -108,18 +127,26 @@
             cursor: pointer;
             font-family: inherit;
             transition: background-color 0.2s;
+
+            &:hover {
+                background-color: var(--vscode-button-secondaryHoverBackground, #4c4c4c);
+            }
         }
 
-        .control-button {
-            background-color: var(--vscode-button-secondaryBackground, #3c3c3c);
+        .reset-button {
+            background: transparent;
             color: var(--vscode-button-secondaryForeground, #cccccc);
-        }
+            border: none;
+            font-size: 11px;
+            opacity: 0.5;
 
-        .control-button:hover {
-            background-color: var(--vscode-button-secondaryHoverBackground, #4c4c4c);
+            &:hover {
+                opacity: 1;
+            }
         }
     </style>
 </head>
+
 <body>
     <div class="terminal-container" id="terminal-container">
 
@@ -127,14 +154,16 @@
         <!-- 下部コントロールパネル -->
         <div class="control-panel">
             <div class="control-panel-left-controls">
-            <button class="control-button" id="btn-send-selection" title="Send editor selection to terminal (Cmd+L)">
-                @Selection
-            </button>
-        </div>
+                <button class="control-button" id="btn-send-selection"
+                    title="Send editor selection to terminal (Cmd+L)">
+                    @Selection
+                </button>
+            </div>
             <div class="control-panel-right-controls">
                 <!-- CLI エージェントインジケーター -->
                 <div class="cli-agent-indicator" id="cli-agent-indicator"
-                  title="CLI Agent is active - Shift+Enter inputs a newline">CLI Agent</div>
+                    title="CLI Agent is active - Shift+Enter inputs a newline">CLI Agent</div>
+                <button id="reset-button" class="reset-button">Reset</button>
             </div>
         </div>
     </div>
@@ -153,308 +182,308 @@
             }
 
             const term = new Terminal({
-            theme: {
-                background: 'transparent',
-                foreground: 'var(--vscode-terminal-foreground)',
-                cursor: 'var(--vscode-terminal-cursor-foreground)',
-                selection: 'var(--vscode-terminal-selection-background)'
-            },
-            fontFamily: '"RobotoMono Nerd Font Mono", "RobotoMono Nerd Font", "Roboto Mono", Consolas, "Courier New", monospace',
-            fontSize: 13,
-            letterSpacing: 0,
-            lineHeight: 1.2,
-            cursorBlink: true,
-            convertEol: true,
-            allowProposedApi: true,
-            allowTransparency: false,
-            minimumContrastRatio: 1
-        });
-
-        const terminalElement = document.getElementById('terminal');
-        term.open(terminalElement);
-
-        // Unicode 11 アドオンをロード
-        if (typeof Unicode11Addon !== 'undefined') {
-            try {
-                const unicode11 = new Unicode11Addon.Unicode11Addon();
-                term.loadAddon(unicode11);
-                unicode11.activate(term);
-                console.log('Unicode 11 addon loaded and activated');
-            } catch (error) {
-                console.error('Failed to load Unicode 11 addon:', error);
-            }
-        }
-
-        // Canvas アドオンをロード
-        if (typeof CanvasAddon !== 'undefined') {
-            try {
-                const canvas = new CanvasAddon.CanvasAddon();
-                term.loadAddon(canvas);
-                console.log('Canvas addon loaded');
-            } catch (error) {
-                console.error('Failed to load Canvas addon:', error);
-            }
-        }
-
-        // ターミナル要素のサイズが確定するまで待機
-        function waitForSize() {
-            return new Promise((resolve) => {
-                const checkSize = () => {
-                    const rect = terminalElement.getBoundingClientRect();
-                    if (rect.width > 0 && rect.height > 0) {
-                        console.log('Terminal element size confirmed:', rect.width, 'x', rect.height);
-                        resolve();
-                    } else {
-                        setTimeout(checkSize, 10);
-                    }
-                };
-                checkSize();
+                theme: {
+                    background: 'transparent',
+                    foreground: 'var(--vscode-terminal-foreground)',
+                    cursor: 'var(--vscode-terminal-cursor-foreground)',
+                    selection: 'var(--vscode-terminal-selection-background)'
+                },
+                fontFamily: '"RobotoMono Nerd Font Mono", "RobotoMono Nerd Font", "Roboto Mono", Consolas, "Courier New", monospace',
+                fontSize: 13,
+                letterSpacing: 0,
+                lineHeight: 1.2,
+                cursorBlink: true,
+                convertEol: true,
+                allowProposedApi: true,
+                allowTransparency: false,
+                minimumContrastRatio: 1
             });
-        }
 
-        // サイズ確定後に初期設定
-        waitForSize().then(() => {
-            // 初期サイズ設定
-            setTerminalSize();
-            console.log('Terminal initialized with DOM renderer');
+            const terminalElement = document.getElementById('terminal');
+            term.open(terminalElement);
 
-            console.log('Terminal initialized with addons');
-        });
-
-        // ターミナルサイズを動的に設定（元の手動計算方式）
-        function setTerminalSize() {
-            const container = document.querySelector('.terminal-container');
-            const terminal = document.getElementById('terminal');
-
-            if (!container || !terminal) {
-                console.warn('Terminal container not found');
-                return;
+            // Unicode 11 アドオンをロード
+            if (typeof Unicode11Addon !== 'undefined') {
+                try {
+                    const unicode11 = new Unicode11Addon.Unicode11Addon();
+                    term.loadAddon(unicode11);
+                    unicode11.activate(term);
+                    console.log('Unicode 11 addon loaded and activated');
+                } catch (error) {
+                    console.error('Failed to load Unicode 11 addon:', error);
+                }
             }
 
-            console.log('Container size:', container.clientWidth, 'x', container.clientHeight);
-            console.log('Terminal size:', terminal.clientWidth, 'x', terminal.clientHeight);
+            // Canvas アドオンをロード
+            if (typeof CanvasAddon !== 'undefined') {
+                try {
+                    const canvas = new CanvasAddon.CanvasAddon();
+                    term.loadAddon(canvas);
+                    console.log('Canvas addon loaded');
+                } catch (error) {
+                    console.error('Failed to load Canvas addon:', error);
+                }
+            }
 
-            // コンテナの実際のサイズを取得
-            const terminalRect = terminal.getBoundingClientRect();
-            const availableWidth = terminalRect.width - 20; // パディング考慮
-            // const availableHeight = Math.max(terminalRect.height - 20, 200); // パディング考慮
-            const availableHeight = terminalRect.height - 5;
-
-            console.log('Available terminal size:', availableWidth, 'x', availableHeight);
-
-            // フォント情報から文字サイズを正確に計算
-            const fontSize = 13;
-            const targetLineHeight = 1.2; // Terminal設定と同じ行間
-
-            // 一時的な測定用エレメントを作成して文字幅を正確に測定
-            const measurer = document.createElement('div');
-            measurer.style.position = 'absolute';
-            measurer.style.visibility = 'hidden';
-            measurer.style.fontFamily = '"RobotoMono Nerd Font Mono", "RobotoMono Nerd Font", "Roboto Mono", Consolas, "Courier New", monospace';
-            measurer.style.fontSize = fontSize + 'px';
-            measurer.style.lineHeight = targetLineHeight; // 数値で指定
-            measurer.style.whiteSpace = 'pre';
-            measurer.textContent = 'M'.repeat(10); // 等幅フォントのM文字で測定
-
-            document.body.appendChild(measurer);
-            const rawCharWidth = measurer.getBoundingClientRect().width / 10;
-            const rawLineHeight = measurer.getBoundingClientRect().height;
-            document.body.removeChild(measurer);
-
-            // サイズ調整係数（微調整用）
-            // 大きくするほど表示サイズは小さくなる。はみ出したら大きくする。
-            const widthAdjustment = 0.88; // 横幅を少し詰める（右余白を減らす）
-            //const widthAdjustment = 1.0; // 横幅を少し詰める（右余白を減らす）
-            const heightAdjustment = 1.34; // 縦幅を少し詰める（はみ出し防止）
-
-            const adjustedCharWidth = rawCharWidth * widthAdjustment;
-            const adjustedLineHeight = rawLineHeight * heightAdjustment;
-
-            // 列数と行数を計算
-            const cols = Math.floor(availableWidth / adjustedCharWidth);
-            const rows = Math.floor(availableHeight / adjustedLineHeight);
-
-            console.log('Font metrics - rawCharWidth:', rawCharWidth, 'rawLineHeight:', rawLineHeight);
-            console.log('Adjusted metrics - charWidth:', adjustedCharWidth, 'lineHeight:', adjustedLineHeight);
-            console.log('Calculated terminal size:', cols, 'x', rows);
-
-            // 最小サイズを保証
-            const finalCols = Math.max(cols, 20);
-            const finalRows = Math.max(rows, 5);
-
-            // ターミナルサイズを設定
-            if (term.cols !== finalCols || term.rows !== finalRows) {
-                term.resize(finalCols, finalRows);
-
-                // サイズ変更を VSCode に通知
-                vscode.postMessage({
-                    type: 'resize',
-                    cols: finalCols,
-                    rows: finalRows
+            // ターミナル要素のサイズが確定するまで待機
+            function waitForSize() {
+                return new Promise((resolve) => {
+                    const checkSize = () => {
+                        const rect = terminalElement.getBoundingClientRect();
+                        if (rect.width > 0 && rect.height > 0) {
+                            console.log('Terminal element size confirmed:', rect.width, 'x', rect.height);
+                            resolve();
+                        } else {
+                            setTimeout(checkSize, 10);
+                        }
+                    };
+                    checkSize();
                 });
-
-                console.log('Terminal resized to:', finalCols, 'x', finalRows);
             }
-        }
 
-        // ウィンドウリサイズ時の処理
-        window.addEventListener('resize', () => {
-            setTimeout(setTerminalSize, 50);
-        });
+            // サイズ確定後に初期設定
+            waitForSize().then(() => {
+                // 初期サイズ設定
+                setTerminalSize();
+                console.log('Terminal initialized with DOM renderer');
 
-        // ResizeObserver でコンテナサイズ変更を監視
-        const resizeObserver = new ResizeObserver((entries) => {
-            for (const entry of entries) {
-                console.log('Container resized:', entry.contentRect.width, 'x', entry.contentRect.height);
+                console.log('Terminal initialized with addons');
+            });
+
+            // ターミナルサイズを動的に設定（元の手動計算方式）
+            function setTerminalSize() {
+                const container = document.querySelector('.terminal-container');
+                const terminal = document.getElementById('terminal');
+
+                if (!container || !terminal) {
+                    console.warn('Terminal container not found');
+                    return;
+                }
+
+                console.log('Container size:', container.clientWidth, 'x', container.clientHeight);
+                console.log('Terminal size:', terminal.clientWidth, 'x', terminal.clientHeight);
+
+                // コンテナの実際のサイズを取得
+                const terminalRect = terminal.getBoundingClientRect();
+                const availableWidth = terminalRect.width - 20; // パディング考慮
+                // const availableHeight = Math.max(terminalRect.height - 20, 200); // パディング考慮
+                const availableHeight = terminalRect.height - 5;
+
+                console.log('Available terminal size:', availableWidth, 'x', availableHeight);
+
+                // フォント情報から文字サイズを正確に計算
+                const fontSize = 13;
+                const targetLineHeight = 1.2; // Terminal設定と同じ行間
+
+                // 一時的な測定用エレメントを作成して文字幅を正確に測定
+                const measurer = document.createElement('div');
+                measurer.style.position = 'absolute';
+                measurer.style.visibility = 'hidden';
+                measurer.style.fontFamily = '"RobotoMono Nerd Font Mono", "RobotoMono Nerd Font", "Roboto Mono", Consolas, "Courier New", monospace';
+                measurer.style.fontSize = fontSize + 'px';
+                measurer.style.lineHeight = targetLineHeight; // 数値で指定
+                measurer.style.whiteSpace = 'pre';
+                measurer.textContent = 'M'.repeat(10); // 等幅フォントのM文字で測定
+
+                document.body.appendChild(measurer);
+                const rawCharWidth = measurer.getBoundingClientRect().width / 10;
+                const rawLineHeight = measurer.getBoundingClientRect().height;
+                document.body.removeChild(measurer);
+
+                // サイズ調整係数（微調整用）
+                // 大きくするほど表示サイズは小さくなる。はみ出したら大きくする。
+                const widthAdjustment = 0.88; // 横幅を少し詰める（右余白を減らす）
+                //const widthAdjustment = 1.0; // 横幅を少し詰める（右余白を減らす）
+                const heightAdjustment = 1.34; // 縦幅を少し詰める（はみ出し防止）
+
+                const adjustedCharWidth = rawCharWidth * widthAdjustment;
+                const adjustedLineHeight = rawLineHeight * heightAdjustment;
+
+                // 列数と行数を計算
+                const cols = Math.floor(availableWidth / adjustedCharWidth);
+                const rows = Math.floor(availableHeight / adjustedLineHeight);
+
+                console.log('Font metrics - rawCharWidth:', rawCharWidth, 'rawLineHeight:', rawLineHeight);
+                console.log('Adjusted metrics - charWidth:', adjustedCharWidth, 'lineHeight:', adjustedLineHeight);
+                console.log('Calculated terminal size:', cols, 'x', rows);
+
+                // 最小サイズを保証
+                const finalCols = Math.max(cols, 20);
+                const finalRows = Math.max(rows, 5);
+
+                // ターミナルサイズを設定
+                if (term.cols !== finalCols || term.rows !== finalRows) {
+                    term.resize(finalCols, finalRows);
+
+                    // サイズ変更を VSCode に通知
+                    vscode.postMessage({
+                        type: 'resize',
+                        cols: finalCols,
+                        rows: finalRows
+                    });
+
+                    console.log('Terminal resized to:', finalCols, 'x', finalRows);
+                }
+            }
+
+            // ウィンドウリサイズ時の処理
+            window.addEventListener('resize', () => {
                 setTimeout(setTerminalSize, 50);
+            });
+
+            // ResizeObserver でコンテナサイズ変更を監視
+            const resizeObserver = new ResizeObserver((entries) => {
+                for (const entry of entries) {
+                    console.log('Container resized:', entry.contentRect.width, 'x', entry.contentRect.height);
+                    setTimeout(setTerminalSize, 50);
+                }
+            });
+
+            // terminal-container を監視
+            const container = document.querySelector('.terminal-container');
+            if (container) {
+                resizeObserver.observe(container);
             }
-        });
 
-        // terminal-container を監視
-        const container = document.querySelector('.terminal-container');
-        if (container) {
-            resizeObserver.observe(container);
-        }
+            // 定期的なサイズチェック（VSCode の制約対応）
+            setInterval(setTerminalSize, 2000);
 
-        // 定期的なサイズチェック（VSCode の制約対応）
-        setInterval(setTerminalSize, 2000);
+            let cliAgentState = { active: false, agent_type: null }; // CLI エージェントの状態
 
-        let cliAgentState = {active: false, agent_type: null}; // CLI エージェントの状態
-
-        // CLI エージェントインジケーターの表示更新
-        function updateCliAgentIndicator() {
-            const indicator = document.getElementById('cli-agent-indicator');
-            if (indicator) {
-                if (cliAgentState.active) {
-                    indicator.classList.add('active');
-                    // エージェント種別に応じたラベル表示
-                    if (cliAgentState.agent_type === 'claude') {
-                        indicator.textContent = 'Claude';
-                        indicator.title = 'Claude is active - Shift+Enter inputs a newline';
-                    } else if (cliAgentState.agent_type === 'gemini') {
-                        indicator.textContent = 'Gemini';
-                        indicator.title = 'Gemini is active - Shift+Enter inputs a newline';
+            // CLI エージェントインジケーターの表示更新
+            function updateCliAgentIndicator() {
+                const indicator = document.getElementById('cli-agent-indicator');
+                if (indicator) {
+                    if (cliAgentState.active) {
+                        indicator.classList.add('active');
+                        // エージェント種別に応じたラベル表示
+                        if (cliAgentState.agent_type === 'claude') {
+                            indicator.textContent = 'Claude';
+                            indicator.title = 'Claude is active - Shift+Enter inputs a newline';
+                        } else if (cliAgentState.agent_type === 'gemini') {
+                            indicator.textContent = 'Gemini';
+                            indicator.title = 'Gemini is active - Shift+Enter inputs a newline';
+                        } else {
+                            indicator.textContent = 'CLI Agent';
+                            indicator.title = 'CLI Agent is active - Shift+Enter inputs a newline';
+                        }
                     } else {
+                        indicator.classList.remove('active');
                         indicator.textContent = 'CLI Agent';
                         indicator.title = 'CLI Agent is active - Shift+Enter inputs a newline';
                     }
-                } else {
-                    indicator.classList.remove('active');
-                    indicator.textContent = 'CLI Agent';
-                    indicator.title = 'CLI Agent is active - Shift+Enter inputs a newline';
                 }
             }
-        }
 
-        // ステータスメッセージの処理
-        function handleStatusMessage(data) {
-            try {
-                // CSI シーケンス ]777; で始まるメッセージを処理（実際のESC文字を検索）
-                if (data.includes('\x1b]777;')) {
-                    const match = data.match(/\x1b\]777;(.+?)\x07/);
-                    if (match) {
-                        const messageJson = match[1];
-                        const message = JSON.parse(messageJson);
+            // ステータスメッセージの処理
+            function handleStatusMessage(data) {
+                try {
+                    // CSI シーケンス ]777; で始まるメッセージを処理（実際のESC文字を検索）
+                    if (data.includes('\x1b]777;')) {
+                        const match = data.match(/\x1b\]777;(.+?)\x07/);
+                        if (match) {
+                            const messageJson = match[1];
+                            const message = JSON.parse(messageJson);
 
-                        if (message.type === 'cli_agent_status') {
-                            cliAgentState = message.data;
-                            console.log('CLI Agent status changed:', cliAgentState);
-                            updateCliAgentIndicator(); // インジケーター表示を更新
+                            if (message.type === 'cli_agent_status') {
+                                cliAgentState = message.data;
+                                console.log('CLI Agent status changed:', cliAgentState);
+                                updateCliAgentIndicator(); // インジケーター表示を更新
+                            }
                         }
                     }
+                } catch (error) {
+                    // JSON パースエラーは無視
+                    console.debug('Status message parse error:', error);
+                }
+            }
+
+            // Shift + Enter を Alt + Enter に変換するキーハンドラー
+            try {
+                if (typeof term.attachCustomKeyEventHandler === 'function') {
+                    console.log('Setting up custom key handler for Shift+Enter');
+
+                    term.attachCustomKeyEventHandler(function (event) {
+                        // Shift + Enter の場合（CLI エージェントが動作中のときのみ）
+                        if (event.type === 'keydown' &&
+                            event.key === 'Enter' &&
+                            event.shiftKey &&
+                            !event.ctrlKey &&
+                            !event.altKey &&
+                            !event.metaKey) {
+
+                            // CLI エージェント（Claude/Gemini）がアクティブの場合のみ Alt+Enter に変換
+                            if (cliAgentState.active) {
+                                const agentType = cliAgentState.agent_type || 'CLI Agent';
+                                console.log(`Shift+Enter detected (${agentType} active), sending Alt+Enter sequence`);
+
+                                // ブラウザのデフォルト動作を完全に停止
+                                event.preventDefault();
+                                event.stopPropagation();
+
+                                // Alt + Enter の正しいエスケープシーケンスを送信
+                                // ESC [ 1 3 ; 3 ~ (Alt+Enter のターミナルシーケンス)
+                                var altEnterSequence = '\x1b\r';
+
+                                vscode.postMessage({
+                                    type: 'terminalInput',
+                                    data: altEnterSequence
+                                });
+
+                                // false を返してデフォルト処理を完全に停止
+                                return false;
+                            } else {
+                                // CLI エージェントがアクティブでない場合は通常の Enter として処理
+                                console.log('Shift+Enter detected (CLI Agent not active), processing as normal Enter');
+                                return true;
+                            }
+                        }
+
+                        // その他のキーはデフォルト処理を継続
+                        return true;
+                    });
+
+                    console.log('Custom key handler attached successfully');
+                } else {
+                    console.warn('attachCustomKeyEventHandler is not available');
                 }
             } catch (error) {
-                // JSON パースエラーは無視
-                console.debug('Status message parse error:', error);
+                console.error('Failed to attach custom key handler:', error);
             }
-        }
 
-        // Shift + Enter を Alt + Enter に変換するキーハンドラー
-        try {
-            if (typeof term.attachCustomKeyEventHandler === 'function') {
-                console.log('Setting up custom key handler for Shift+Enter');
-
-                term.attachCustomKeyEventHandler(function(event) {
-                    // Shift + Enter の場合（CLI エージェントが動作中のときのみ）
-                    if (event.type === 'keydown' &&
-                        event.key === 'Enter' &&
-                        event.shiftKey &&
-                        !event.ctrlKey &&
-                        !event.altKey &&
-                        !event.metaKey) {
-
-                        // CLI エージェント（Claude/Gemini）がアクティブの場合のみ Alt+Enter に変換
-                        if (cliAgentState.active) {
-                            const agentType = cliAgentState.agent_type || 'CLI Agent';
-                            console.log(`Shift+Enter detected (${agentType} active), sending Alt+Enter sequence`);
-
-                            // ブラウザのデフォルト動作を完全に停止
-                            event.preventDefault();
-                            event.stopPropagation();
-
-                            // Alt + Enter の正しいエスケープシーケンスを送信
-                            // ESC [ 1 3 ; 3 ~ (Alt+Enter のターミナルシーケンス)
-                            var altEnterSequence = '\x1b\r';
-
-                            vscode.postMessage({
-                                type: 'terminalInput',
-                                data: altEnterSequence
-                            });
-
-                            // false を返してデフォルト処理を完全に停止
-                            return false;
-                        } else {
-                            // CLI エージェントがアクティブでない場合は通常の Enter として処理
-                            console.log('Shift+Enter detected (CLI Agent not active), processing as normal Enter');
-                            return true;
-                        }
-                    }
-
-                    // その他のキーはデフォルト処理を継続
-                    return true;
+            term.onData((data) => {
+                vscode.postMessage({
+                    type: 'terminalInput',
+                    data: data
                 });
-
-                console.log('Custom key handler attached successfully');
-            } else {
-                console.warn('attachCustomKeyEventHandler is not available');
-            }
-        } catch (error) {
-            console.error('Failed to attach custom key handler:', error);
-        }
-
-        term.onData((data) => {
-            vscode.postMessage({
-                type: 'terminalInput',
-                data: data
             });
-        });
 
-        window.addEventListener('message', event => {
-            const message = event.data;
-            switch (message.type) {
-                case 'output':
-                    // ステータスメッセージをチェック
-                    handleStatusMessage(message.data);
-                    // 通常の出力として書き込み
-                    term.write(message.data);
-                    break;
-                case 'clear':
-                    term.clear();
-                    break;
-            }
-        });
+            window.addEventListener('message', event => {
+                const message = event.data;
+                switch (message.type) {
+                    case 'output':
+                        // ステータスメッセージをチェック
+                        handleStatusMessage(message.data);
+                        // 通常の出力として書き込み
+                        term.write(message.data);
+                        break;
+                    case 'clear':
+                        term.clear();
+                        break;
+                }
+            });
 
 
-        // ボタンイベントの設定
-        document.getElementById('btn-send-selection').addEventListener('click', () => {
-            vscode.postMessage({ type: 'buttonSendSelection' });
-            // ボタンクリック後にターミナルにフォーカスを移動
-            term.focus();
-        });
+            // ボタンイベントの設定
+            document.getElementById('btn-send-selection').addEventListener('click', () => {
+                vscode.postMessage({ type: 'buttonSendSelection' });
+                // ボタンクリック後にターミナルにフォーカスを移動
+                term.focus();
+            });
 
-        vscode.postMessage({ type: 'terminalReady' });
+            vscode.postMessage({ type: 'terminalReady' });
 
-        console.log('Terminal initialized successfully');
+            console.log('Terminal initialized successfully');
 
         } catch (error) {
             console.error('Error initializing terminal:', error);
@@ -499,7 +528,7 @@
 
                 // すべての色が同じかチェック
                 const firstColor = colors[0];
-                const allSameColor = colors.every(color => 
+                const allSameColor = colors.every(color =>
                     color.r === firstColor.r &&
                     color.g === firstColor.g &&
                     color.b === firstColor.b &&
@@ -515,10 +544,10 @@
                     // console.log('Corners have different colors. Not applying background color.');
                 }
             }
-            
+
             // 初回実行を少し遅延させる (Canvas が完全に描画されるのを待つ)
             setTimeout(applyBackgroundColor, 500);
-            
+
             setInterval(() => {
                 if (textLayer && textLayer.getContext) {
                     applyBackgroundColor();
@@ -529,4 +558,5 @@
 
     </script>
 </body>
+
 </html>
