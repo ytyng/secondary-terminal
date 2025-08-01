@@ -57,7 +57,7 @@ export class TerminalProvider implements vscode.WebviewViewProvider {
 
         // WebView メッセージの型定義
         interface WebViewMessage {
-            type: 'terminalInput' | 'terminalReady' | 'resize' | 'error' | 'buttonSendSelection';
+            type: 'terminalInput' | 'terminalReady' | 'resize' | 'error' | 'buttonSendSelection' | 'buttonReset' | 'buttonResetRequest';
             data?: string;
             cols?: number;
             rows?: number;
@@ -107,6 +107,12 @@ export class TerminalProvider implements vscode.WebviewViewProvider {
                         break;
                     case 'buttonSendSelection':
                         this.handleButtonSendSelection();
+                        break;
+                    case 'buttonResetRequest':
+                        this.handleResetRequest();
+                        break;
+                    case 'buttonReset':
+                        this.resetTerminal();
                         break;
                 }
             },
@@ -199,6 +205,40 @@ export class TerminalProvider implements vscode.WebviewViewProvider {
             return;
         }
         this.sendTextToTerminal(createContextTextForSelectedText(editor));
+    }
+
+    private async handleResetRequest() {
+        const result = await vscode.window.showWarningMessage(
+            'ターミナルをリセットしますか？\n実行中のプロセスはすべて終了します。',
+            { modal: true },
+            'リセット'
+        );
+        
+        if (result === 'リセット') {
+            this.resetTerminal();
+        }
+    }
+
+    public resetTerminal() {
+        console.log('Resetting terminal...');
+        
+        // 1. 既存のプロセスを強制終了
+        this._processManager.terminateProcess(this._workspaceKey);
+        
+        // 2. セッションバッファとビューをクリア
+        this._sessionManager.clearBuffer(this._workspaceKey);
+        this._view?.webview.postMessage({ type: 'clear' });
+        
+        // 3. 少し待ってから新しいシェルを起動
+        setTimeout(() => {
+            // ウェルカムメッセージを表示
+            const versionInfo = this.getVersionInfo();
+            const welcomeMessage = `Terminal has been reset.\r\nWelcome to Secondary Terminal v${versionInfo.version} (${versionInfo.buildDate}).\r\n`;
+            this._sessionManager.addOutput(this._workspaceKey, welcomeMessage);
+            
+            // 新しいシェルプロセスを開始
+            this.startShell();
+        }, 500);
     }
 
     private _getHtmlForWebview(webview: vscode.Webview) {

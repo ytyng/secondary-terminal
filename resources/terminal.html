@@ -73,20 +73,6 @@
             }
         }
 
-
-        /* CLI エージェントアクティブ表示 */
-        .cli-agent-indicator {
-            color: #888;
-            font-size: 12px;
-            transition: opacity 0.3s ease;
-            opacity: 0;
-
-            &.active {
-                opacity: 1;
-            }
-        }
-
-
         /* コントロールパネル */
         .control-panel {
             flex-shrink: 0;
@@ -137,10 +123,24 @@
             background: transparent;
             color: var(--vscode-button-secondaryForeground, #cccccc);
             border: none;
-            font-size: 11px;
+            font-family: inherit;
+            font-size: 12px;
             opacity: 0.5;
 
             &:hover {
+                opacity: 1;
+            }
+        }
+
+        /* CLI エージェントアクティブ表示 */
+        .cli-agent-indicator {
+            color: #888;
+            font-family: inherit;
+            font-size: 12px;
+            transition: opacity 0.3s ease;
+            opacity: 0;
+
+            &.active {
                 opacity: 1;
             }
         }
@@ -479,6 +479,13 @@
                 vscode.postMessage({ type: 'buttonSendSelection' });
                 // ボタンクリック後にターミナルにフォーカスを移動
                 term.focus();
+            });
+
+            // リセットボタンのイベント設定
+            document.getElementById('reset-button').addEventListener('click', () => {
+                console.log('resetButtonPressed');
+                // VSCode 側で確認ダイアログを表示してもらう
+                vscode.postMessage({ type: 'buttonResetRequest' });
             });
 
             vscode.postMessage({ type: 'terminalReady' });
