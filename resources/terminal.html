@@ -93,6 +93,7 @@
             align-items: center;
             justify-content: start;
             flex-grow: 1;
+            gap: 0.5em;
         }
 
         .control-panel-right-controls {
@@ -157,6 +158,10 @@
                 <button class="control-button" id="btn-send-selection"
                     title="Send editor selection to terminal (Cmd+L)">
                     @Selection
+                </button>
+                <button class="control-button" id="btn-copy-selection"
+                    title="Copy editor selection context to clipboard">
+                    Copy
                 </button>
             </div>
             <div class="control-panel-right-controls">
@@ -477,6 +482,23 @@
             // ボタンイベントの設定
             document.getElementById('btn-send-selection').addEventListener('click', () => {
                 vscode.postMessage({ type: 'buttonSendSelection' });
+                // ボタンクリック後にターミナルにフォーカスを移動
+                term.focus();
+            });
+
+            // コピーボタンのイベント設定
+            document.getElementById('btn-copy-selection').addEventListener('click', () => {
+                const button = document.getElementById('btn-copy-selection');
+                const originalText = button.textContent;
+
+                vscode.postMessage({ type: 'buttonCopySelection' });
+
+                // ボタンを一時的にチェックマークに変更
+                button.textContent = '✓';
+                setTimeout(() => {
+                    button.textContent = originalText;
+                }, 2000);
+
                 // ボタンクリック後にターミナルにフォーカスを移動
                 term.focus();
             });

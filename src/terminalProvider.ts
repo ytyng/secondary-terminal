@@ -57,7 +57,7 @@ export class TerminalProvider implements vscode.WebviewViewProvider {
 
         // WebView メッセージの型定義
         interface WebViewMessage {
-            type: 'terminalInput' | 'terminalReady' | 'resize' | 'error' | 'buttonSendSelection' | 'buttonReset' | 'buttonResetRequest';
+            type: 'terminalInput' | 'terminalReady' | 'resize' | 'error' | 'buttonSendSelection' | 'buttonCopySelection' | 'buttonReset' | 'buttonResetRequest';
             data?: string;
             cols?: number;
             rows?: number;
@@ -107,6 +107,9 @@ export class TerminalProvider implements vscode.WebviewViewProvider {
                         break;
                     case 'buttonSendSelection':
                         this.handleButtonSendSelection();
+                        break;
+                    case 'buttonCopySelection':
+                        this.handleButtonCopySelection();
                         break;
                     case 'buttonResetRequest':
                         this.handleResetRequest();
@@ -205,6 +208,16 @@ export class TerminalProvider implements vscode.WebviewViewProvider {
             return;
         }
         this.sendTextToTerminal(createContextTextForSelectedText(editor));
+    }
+
+    private handleButtonCopySelection() {
+        const editor = vscode.window.activeTextEditor;
+        if (!editor) {
+            vscode.window.showWarningMessage('アクティブなエディターがありません');
+            return;
+        }
+        const contextText = createContextTextForSelectedText(editor);
+        vscode.env.clipboard.writeText(contextText);
     }
 
     private async handleResetRequest() {
