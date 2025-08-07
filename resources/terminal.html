@@ -163,6 +163,10 @@
                     title="Copy editor selection context to clipboard">
                     Copy
                 </button>
+                <button class="control-button" id="btn-scroll-to-bottom"
+                    title="Scroll to bottom of terminal">
+                    ↓
+                </button>
             </div>
             <div class="control-panel-right-controls">
                 <!-- CLI エージェントインジケーター -->
@@ -508,6 +512,14 @@
                 console.log('resetButtonPressed');
                 // VSCode 側で確認ダイアログを表示してもらう
                 vscode.postMessage({ type: 'buttonResetRequest' });
+            });
+
+            // スクロールボタンのイベント設定
+            document.getElementById('btn-scroll-to-bottom').addEventListener('click', () => {
+                // ターミナルを一番下までスクロール
+                term.scrollToBottom();
+                // ボタンクリック後にターミナルにフォーカスを移動
+                term.focus();
             });
 
             vscode.postMessage({ type: 'terminalReady' });
