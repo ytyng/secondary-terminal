@@ -27,12 +27,12 @@ def set_winsize(fd, rows, cols):
 def check_cli_agent_active(shell_pid):
     """シェルプロセスでCLIエージェント（Claude、Gemini）がアクティブかチェック"""
     try:
-        # プロセスツリーを取得して、シェルの子孫プロセスを調べる
+        # プロセスツリーを取得して、シェルの子孫プロセスを調べる（軽量化）
         ps_result = subprocess.run(
-            ['ps', '-eo', 'pid,ppid,comm,args'],
+            ['ps', '-eo', 'pid,ppid,comm'],
             capture_output=True,
             text=True,
-            timeout=2,
+            timeout=1,  # 1秒に短縮してCPU負荷軽減
             encoding='utf-8',
             errors='replace',
         )
@@ -42,17 +42,16 @@ def check_cli_agent_active(shell_pid):
 
         lines = ps_result.stdout.strip().split('\n')
 
-        # プロセスツリーを構築
+        # プロセスツリーを構築（軽量化）
         processes = {}
         for line in lines[1:]:  # ヘッダー行をスキップ
-            parts = line.strip().split(None, 3)
+            parts = line.strip().split(None, 2)
             if len(parts) >= 3:
                 try:
                     pid = int(parts[0])
                     ppid = int(parts[1])
                     comm = parts[2]
-                    args = parts[3] if len(parts) >= 4 else comm
-                    processes[pid] = {'ppid': ppid, 'comm': comm, 'args': args}
+                    processes[pid] = {'ppid': ppid, 'comm': comm}
                 except ValueError:
                     continue
 
@@ -85,19 +84,18 @@ def check_cli_agent_active(shell_pid):
 
         descendants = find_descendants(shell_pid)
 
-        # 子孫プロセスの中でCLIエージェントを検索
+        # 子孫プロセスの中でCLIエージェントを検索（軽量化）
         for pid in descendants:
             if pid in processes:
                 proc_info = processes[pid]
                 comm_lower = proc_info['comm'].lower()
-                args_lower = proc_info['args'].lower()
                 
-                # Claude の検出
-                if 'claude' in comm_lower or 'claude' in args_lower:
+                # Claude の検出（コマンド名のみで判定）
+                if 'claude' in comm_lower:
                     return {'active': True, 'agent_type': 'claude'}
                 
-                # Gemini の検出
-                if 'gemini' in comm_lower or 'gemini' in args_lower:
+                # Gemini の検出（コマンド名のみで判定）
+                if 'gemini' in comm_lower:
                     return {'active': True, 'agent_type': 'gemini'}
 
         return {'active': False, 'agent_type': None}
@@ -269,12 +267,11 @@ def main():
                             os.write(master, command_with_newline.encode('utf-8'))
                             time.sleep(0.1)  # コマンド間に少し間隔を空ける
                 
-                # CLI エージェントアクティブチェック（軽量化）
+                # CLI エージェントアクティブチェック（3秒間隔で実行）
                 if current_time - last_agent_check >= check_interval:
-                    # CPU 負荷軽減のため、プロセスチェックを簡素化
-                    # フル機能が必要な場合は check_cli_agent_active(p.pid) を呼び出す
-                    new_agent_state = {'active': False, 'agent_type': None}  # 軽量版では常に無効
-                    if new_agent_state != current_agent_state:
+                    # Claude や Gemini の検出を実行（負荷軽減のため3秒間隔）
+                    new_agent_state = check_cli_agent_active(p.pid)
+                    if new_agent_state and new_agent_state != current_agent_state:
                         current_agent_state = new_agent_state
                         send_status_message(
                             'cli_agent_status', current_agent_state
