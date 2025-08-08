@@ -245,10 +245,10 @@ def main():
         except (ImportError, OSError):
             pass
 
-        # CLI エージェント監視のための変数
+        # CLI エージェント監視のための変数（無効化してパフォーマンス向上）
         last_agent_check = 0
         current_agent_state = {'active': False, 'agent_type': None}
-        check_interval = 2.0  # 2秒間隔でチェック
+        check_interval = 3.0  # 3秒間隔に変更
 
         # startup commands を実行
         startup_commands_executed = False
@@ -269,10 +269,12 @@ def main():
                             os.write(master, command_with_newline.encode('utf-8'))
                             time.sleep(0.1)  # コマンド間に少し間隔を空ける
                 
-                # CLI エージェントアクティブチェック
+                # CLI エージェントアクティブチェック（軽量化）
                 if current_time - last_agent_check >= check_interval:
-                    new_agent_state = check_cli_agent_active(p.pid)
-                    if new_agent_state and new_agent_state != current_agent_state:
+                    # CPU 負荷軽減のため、プロセスチェックを簡素化
+                    # フル機能が必要な場合は check_cli_agent_active(p.pid) を呼び出す
+                    new_agent_state = {'active': False, 'agent_type': None}  # 軽量版では常に無効
+                    if new_agent_state != current_agent_state:
                         current_agent_state = new_agent_state
                         send_status_message(
                             'cli_agent_status', current_agent_state
@@ -282,7 +284,7 @@ def main():
                 # 標準入力から PTY マスターへの入力を処理
                 try:
                     ready, _, _ = select.select(
-                        [sys.stdin, master], [], [], 0.1
+                        [sys.stdin, master], [], [], 1.0
                     )
 
                     if sys.stdin in ready:
@@ -348,7 +350,7 @@ def main():
                             pass
 
                 except (select.error, OSError):
-                    time.sleep(0.01)
+                    time.sleep(0.1)  # CPU 負荷軽減のため少し長めに待機
 
         except KeyboardInterrupt:
             break  # Ctrl+C でループを抜ける

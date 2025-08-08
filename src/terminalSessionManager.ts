@@ -14,8 +14,8 @@ interface TerminalSession {
  */
 // 定数定義
 const TERMINAL_CONSTANTS = {
-    MAX_BUFFER_SIZE: 100000, // 100KB のバッファサイズ
-    BUFFER_TRIM_RATIO: 0.8,  // バッファ削除時に残す割合
+    MAX_BUFFER_SIZE: 50000,  // 50KB に削減してメモリ使用量とCPU負荷を軽減
+    BUFFER_TRIM_RATIO: 0.7,  // バッファ削除時により多く削除してトリミング頻度を減らす
 } as const;
 
 export class TerminalSessionManager {
@@ -107,18 +107,11 @@ export class TerminalSessionManager {
         
         // バッファサイズ制限（効率的なトリミング）
         if (session.outputBuffer.length > session.maxBufferSize) {
-            // 適切な改行位置を見つけてトリミング
+            // CPU 負荷軽減のため、単純なトリミングに変更
             const targetSize = Math.floor(session.maxBufferSize * TERMINAL_CONSTANTS.BUFFER_TRIM_RATIO);
-            const trimPoint = session.outputBuffer.lastIndexOf('\n', session.outputBuffer.length - targetSize);
+            const excess = session.outputBuffer.length - targetSize;
+            session.outputBuffer = session.outputBuffer.substring(excess);
             
-            if (trimPoint > 0) {
-                // 改行位置でトリミング（コマンド実行の途中で切れることを防ぐ）
-                session.outputBuffer = session.outputBuffer.substring(trimPoint + 1);
-            } else {
-                // 改行が見つからない場合は強制的にトリミング
-                const excess = session.outputBuffer.length - targetSize;
-                session.outputBuffer = session.outputBuffer.substring(excess);
-            }
             console.log(`Buffer trimmed for workspace: ${workspaceKey} (new size: ${session.outputBuffer.length})`);
         }
 
