@@ -183,14 +183,92 @@
     <script>
         const vscode = acquireVsCodeApi();
 
-        try {
-            console.log('Initializing terminal...');
+        // グローバル変数とオブジェクトの管理オブジェクト
+        const terminalState = {
+            term: null,
+            resizeObserver: null,
+            timers: {
+                sizeCheckInterval: null,
+                backgroundColorInterval: null
+            },
+            eventListeners: [],
+            isInitialized: false
+        };
+
+        // リソース完全リセット関数
+        function resetTerminalResources() {
+            console.log('Resetting all terminal resources...');
+
+            // 既存のターミナルを破棄
+            if (terminalState.term) {
+                try {
+                    terminalState.term.dispose();
+                } catch (error) {
+                    console.error('Error disposing terminal:', error);
+                }
+                terminalState.term = null;
+            }
+
+            // ResizeObserver を停止
+            if (terminalState.resizeObserver) {
+                try {
+                    terminalState.resizeObserver.disconnect();
+                } catch (error) {
+                    console.error('Error disconnecting ResizeObserver:', error);
+                }
+                terminalState.resizeObserver = null;
+            }
+
+            // すべてのタイマーをクリア
+            Object.keys(terminalState.timers).forEach(timerKey => {
+                if (terminalState.timers[timerKey]) {
+                    try {
+                        clearInterval(terminalState.timers[timerKey]);
+                    } catch (error) {
+                        console.error(`Error clearing timer ${timerKey}:`, error);
+                    }
+                    terminalState.timers[timerKey] = null;
+                }
+            });
+
+            // イベントリスナーをすべて削除
+            terminalState.eventListeners.forEach(({ element, event, handler }) => {
+                try {
+                    element.removeEventListener(event, handler);
+                } catch (error) {
+                    console.error('Error removing event listener:', error);
+                }
+            });
+            terminalState.eventListeners = [];
+
+            // 初期化フラグをリセット
+            terminalState.isInitialized = false;
+
+            console.log('Terminal resources reset completed');
+        }
+
+        // イベントリスナー登録ヘルパー（管理対象に追加）
+        function addManagedEventListener(element, event, handler) {
+            element.addEventListener(event, handler);
+            terminalState.eventListeners.push({ element, event, handler });
+        }
+
+        // ターミナル初期化関数
+        function initializeTerminal() {
+            try {
+                // 重複初期化をチェック
+                if (terminalState.isInitialized) {
+                    console.warn('Terminal is already initialized, skipping duplicate initialization');
+                    return;
+                }
+
+                console.log('Initializing terminal...');
 
             if (typeof Terminal === 'undefined') {
                 throw new Error('Terminal is not defined. xterm.js may not have loaded.');
             }
 
-            const term = new Terminal({
+            terminalState.term = new Terminal({
                 theme: {
                     background: 'transparent',
                     foreground: 'var(--vscode-terminal-foreground)',
@@ -209,14 +287,14 @@
             });
 
             const terminalElement = document.getElementById('terminal');
-            term.open(terminalElement);
+            terminalState.term.open(terminalElement);
 
             // Unicode 11 アドオンをロード
             if (typeof Unicode11Addon !== 'undefined') {
                 try {
                     const unicode11 = new Unicode11Addon.Unicode11Addon();
-                    term.loadAddon(unicode11);
-                    unicode11.activate(term);
+                    terminalState.term.loadAddon(unicode11);
+                    unicode11.activate(terminalState.term);
                     console.log('Unicode 11 addon loaded and activated');
                 } catch (error) {
                     console.error('Failed to load Unicode 11 addon:', error);
@@ -227,7 +305,7 @@
             if (typeof CanvasAddon !== 'undefined') {
                 try {
                     const canvas = new CanvasAddon.CanvasAddon();
-                    term.loadAddon(canvas);
+                    terminalState.term.loadAddon(canvas);
                     console.log('Canvas addon loaded');
                 } catch (error) {
                     console.error('Failed to load Canvas addon:', error);
@@ -321,8 +399,8 @@
                 const finalRows = Math.max(rows, 5);
 
                 // ターミナルサイズを設定
-                if (term.cols !== finalCols || term.rows !== finalRows) {
-                    term.resize(finalCols, finalRows);
+                if (terminalState.term && (terminalState.term.cols !== finalCols || terminalState.term.rows !== finalRows)) {
+                    terminalState.term.resize(finalCols, finalRows);
 
                     // サイズ変更を VSCode に通知
                     vscode.postMessage({
@@ -336,14 +414,15 @@
             }
 
             // ウィンドウリサイズ時の処理
-            window.addEventListener('resize', () => {
+            const windowResizeHandler = () => {
                 setTimeout(setTerminalSize, 50);
-            });
+            };
+            addManagedEventListener(window, 'resize', windowResizeHandler);
 
             // ResizeObserver でコンテナサイズ変更を監視
             let lastResizeTime = 0;
             let resizeCount = 0;
-            const resizeObserver = new ResizeObserver((entries) => {
+            terminalState.resizeObserver = new ResizeObserver((entries) => {
                 const now = Date.now();
                 resizeCount++;
                 
@@ -365,12 +444,12 @@
             // terminal-container を監視
             const container = document.querySelector('.terminal-container');
             if (container) {
-                resizeObserver.observe(container);
+                terminalState.resizeObserver.observe(container);
             }
 
             // 定期的なサイズチェック（VSCode の制約対応）
             let lastSizeCheck = Date.now();
-            setInterval(() => {
+            terminalState.timers.sizeCheckInterval = setInterval(() => {
                 const now = Date.now();
                 console.log(`[PERF] Size check interval: ${now - lastSizeCheck}ms`);
                 lastSizeCheck = now;
@@ -429,10 +508,10 @@
 
             // Shift + Enter を Alt + Enter に変換するキーハンドラー
             try {
-                if (typeof term.attachCustomKeyEventHandler === 'function') {
+                if (typeof terminalState.term.attachCustomKeyEventHandler === 'function') {
                     console.log('Setting up custom key handler for Shift+Enter');
 
-                    term.attachCustomKeyEventHandler(function (event) {
+                    terminalState.term.attachCustomKeyEventHandler(function (event) {
                         // Shift + Enter の場合（CLI エージェントが動作中のときのみ）
                         if (event.type === 'keydown' &&
                             event.key === 'Enter' &&
@@ -480,7 +559,7 @@
                 console.error('Failed to attach custom key handler:', error);
             }
 
-            term.onData((data) => {
+            terminalState.term.onData((data) => {
                 vscode.postMessage({
                     type: 'terminalInput',
                     data: data
@@ -490,7 +569,7 @@
             let outputCount = 0;
             let totalOutputChars = 0;
             
-            window.addEventListener('message', event => {
+            const messageHandler = (event) => {
                 const message = event.data;
                 switch (message.type) {
                     case 'output':
@@ -501,7 +580,9 @@
                         // ステータスメッセージをチェック
                         handleStatusMessage(message.data);
                         // 通常の出力として書き込み
-                        term.write(message.data);
+                        if (terminalState.term) {
+                            terminalState.term.write(message.data);
+                        }
                         
                         const outputEnd = performance.now();
                         const outputTime = outputEnd - outputStart;
@@ -517,22 +598,59 @@
                         }
                         break;
                     case 'clear':
-                        term.clear();
+                        if (terminalState.term) {
+                            terminalState.term.clear();
+                        }
                         console.log(`[PERF] Terminal cleared`);
                         break;
+                    case 'reset':
+                        // 完全リセット要求への対応
+                        console.log('Received reset message from VSCode');
+                        resetTerminalResources();
+                        // リセット後にページをリロード
+                        window.location.reload();
+                        break;
+                    case 'visibility_restored':
+                        // WebView の可視状態が復元された時の処理
+                        console.log('WebView visibility restored, checking terminal state');
+                        if (terminalState.term) {
+                            // ターミナルが存在する場合は、サイズを再調整
+                            setTimeout(() => {
+                                setTerminalSize();
+                                // フォーカスを復元
+                                terminalState.term.focus();
+                                
+                                // CLI Agent状態を強制的に再チェック要求
+                                vscode.postMessage({ 
+                                    type: 'refreshCliAgentStatus',
+                                    timestamp: Date.now()
+                                });
+                            }, 50);
+                        } else if (terminalState.isInitialized) {
+                            // ターミナルが破棄されているが初期化済みの場合は、状態をリセット
+                            console.warn('Terminal was disposed unexpectedly, resetting state');
+                            resetTerminalResources();
+                            // ページを再読み込みして完全に復元
+                            window.location.reload();
+                        }
+                        break;
                 }
-            });
+            };
+            addManagedEventListener(window, 'message', messageHandler);
 
 
             // ボタンイベントの設定
-            document.getElementById('btn-send-selection').addEventListener('click', () => {
+            const sendSelectionHandler = () => {
                 vscode.postMessage({ type: 'buttonSendSelection' });
                 // ボタンクリック後にターミナルにフォーカスを移動
-                term.focus();
-            });
+                if (terminalState.term) {
+                    terminalState.term.focus();
+                }
+            };
+            addManagedEventListener(document.getElementById('btn-send-selection'), 'click', sendSelectionHandler);
 
             // コピーボタンのイベント設定
-            document.getElementById('btn-copy-selection').addEventListener('click', () => {
+            const copySelectionHandler = () => {
                 const button = document.getElementById('btn-copy-selection');
                 const originalText = button.textContent;
 
@@ -545,33 +663,46 @@
                 }, 2000);
 
                 // ボタンクリック後にターミナルにフォーカスを移動
-                term.focus();
-            });
+                if (terminalState.term) {
+                    terminalState.term.focus();
+                }
+            };
+            addManagedEventListener(document.getElementById('btn-copy-selection'), 'click', copySelectionHandler);
 
             // リセットボタンのイベント設定
-            document.getElementById('reset-button').addEventListener('click', () => {
+            const resetButtonHandler = () => {
                 console.log('resetButtonPressed');
                 // VSCode 側で確認ダイアログを表示してもらう
                 vscode.postMessage({ type: 'buttonResetRequest' });
-            });
+            };
+            addManagedEventListener(document.getElementById('reset-button'), 'click', resetButtonHandler);
 
             // スクロールボタンのイベント設定
-            document.getElementById('btn-scroll-to-bottom').addEventListener('click', () => {
+            const scrollToBottomHandler = () => {
                 // ターミナルを一番下までスクロール
-                term.scrollToBottom();
-                // ボタンクリック後にターミナルにフォーカスを移動
-                term.focus();
-            });
+                if (terminalState.term) {
+                    terminalState.term.scrollToBottom();
+                    terminalState.term.focus();
+                }
+            };
+            addManagedEventListener(document.getElementById('btn-scroll-to-bottom'), 'click', scrollToBottomHandler);
+
+            // 初期化完了フラグを設定
+            terminalState.isInitialized = true;
 
             vscode.postMessage({ type: 'terminalReady' });
 
             console.log('Terminal initialized successfully');
 
-        } catch (error) {
-            console.error('Error initializing terminal:', error);
-            vscode.postMessage({ type: 'error', error: error.message });
-            document.getElementById('terminal').innerHTML = '<p style="color: red;">Error loading terminal: ' + error.message + '</p>';
+            } catch (error) {
+                console.error('Error initializing terminal:', error);
+                vscode.postMessage({ type: 'error', error: error.message });
+                document.getElementById('terminal').innerHTML = '<p style="color: red;">Error loading terminal: ' + error.message + '</p>';
+            }
         }
+
+        // ターミナル初期化を実行
+        initializeTerminal();
 
         // ターミナルの背景色をコンテナの背景色に適用させる
         (function () {
@@ -656,7 +787,7 @@
             // 初回実行を少し遅延させる (Canvas が完全に描画されるのを待つ)
             setTimeout(applyBackgroundColor, 500);
 
-            setInterval(() => {
+            terminalState.timers.backgroundColorInterval = setInterval(() => {
                 const textLayer = document.querySelector('#terminal canvas.xterm-text-layer');
                 if (textLayer && textLayer.getContext) {
                     applyBackgroundColor();

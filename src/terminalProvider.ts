@@ -57,11 +57,12 @@ export class TerminalProvider implements vscode.WebviewViewProvider {
 
         // WebView メッセージの型定義
         interface WebViewMessage {
-            type: 'terminalInput' | 'terminalReady' | 'resize' | 'error' | 'buttonSendSelection' | 'buttonCopySelection' | 'buttonReset' | 'buttonResetRequest';
+            type: 'terminalInput' | 'terminalReady' | 'resize' | 'error' | 'buttonSendSelection' | 'buttonCopySelection' | 'buttonReset' | 'buttonResetRequest' | 'refreshCliAgentStatus';
             data?: string;
             cols?: number;
             rows?: number;
             error?: string;
+            timestamp?: number;
         }
 
         webviewView.webview.onDidReceiveMessage(
@@ -117,6 +118,11 @@ export class TerminalProvider implements vscode.WebviewViewProvider {
                     case 'buttonReset':
                         this.resetTerminal();
                         break;
+                    case 'refreshCliAgentStatus':
+                        console.log('Received refreshCliAgentStatus request');
+                        // PTY プロセスに強制的な CLI Agent ステータスチェックを要求
+                        this.forceRefreshCliAgentStatus();
+                        break;
                 }
             },
             undefined,
@@ -127,6 +133,20 @@ export class TerminalProvider implements vscode.WebviewViewProvider {
         webviewView.onDidChangeVisibility(() => {
             if (!webviewView.visible) {
                 console.log('WebView is not visible, but keeping shell process alive');
+            } else {
+                // WebView が再び表示された時の処理
+                console.log('WebView became visible, ensuring proper state');
+                // セッションを再接続（既に接続されている場合は何もしない）
+                this._sessionManager.connectView(this._workspaceKey, webviewView);
+                
+                // HTMLが初期化されていない場合は再設定
+                setTimeout(() => {
+                    // フロントエンド側の状態確認とリセット用メッセージを送信
+                    webviewView.webview.postMessage({ 
+                        type: 'visibility_restored',
+                        timestamp: Date.now()
+                    });
+                }, 100);
             }
         });
 
@@ -252,6 +272,20 @@ export class TerminalProvider implements vscode.WebviewViewProvider {
             // 新しいシェルプロセスを開始
             this.startShell();
         }, 500);
+    }
+
+    private forceRefreshCliAgentStatus() {
+        try {
+            console.log('Forcing CLI Agent status refresh');
+            // PTY プロセスに特別なシーケンスを送信してステータスを強制チェック
+            // この処理では、CLI Agent チェック間隔をリセットして即座に実行させる
+            // PTY 側では特別な信号やシーケンスを受信する必要があるが、
+            // 今回は簡単な方法として、非表示文字を送信することで次回のチェックを促進する
+            const refreshSignal = '\x00'; // NULL文字（画面には表示されない）
+            this._processManager.sendToProcess(this._workspaceKey, refreshSignal);
+        } catch (error) {
+            console.error('Failed to force refresh CLI Agent status:', error);
+        }
     }
 
     private _getHtmlForWebview(webview: vscode.Webview) {

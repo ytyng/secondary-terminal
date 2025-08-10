@@ -293,6 +293,22 @@ def main():
                                 try:
                                     # UTF-8でデコード
                                     text = data.decode('utf-8')
+                                    
+                                    # CLI Agent ステータス強制チェック信号を検出
+                                    if '\x00' in text:
+                                        # NULL文字が含まれている場合は、CLI Agentステータスを即座にチェック
+                                        print('Received CLI Agent status refresh signal', file=sys.stderr)
+                                        new_agent_state = check_cli_agent_active(p.pid)
+                                        if new_agent_state:
+                                            current_agent_state = new_agent_state
+                                            send_status_message('cli_agent_status', current_agent_state)
+                                            last_agent_check = current_time  # チェック時間を更新
+                                        # NULL文字を除去してから送信
+                                        text = text.replace('\x00', '')
+                                        if text:  # 残りの文字がある場合のみ送信
+                                            os.write(master, text.encode('utf-8'))
+                                        continue  # 以下の処理をスキップ
+                                    
                                     # エスケープシーケンスでターミナルサイズ変更を検出
                                     if text.startswith('\x1b[8;'):
                                         # ターミナルサイズ変更シーケンス
