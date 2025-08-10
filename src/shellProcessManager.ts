@@ -264,10 +264,15 @@ export class ShellProcessManager {
     }
 
     /**
-     * 全てのプロセスを終了
+     * 全てのプロセスを終了（非同期版）
      */
-    public terminateAllProcesses(): void {
+    public async terminateAllProcessesAsync(): Promise<void> {
         console.log(`Terminating ${this.processes.size} shell processes...`);
+        
+        if (this.processes.size === 0) {
+            console.log('No shell processes to terminate');
+            return;
+        }
         
         // すべてのプロセスに対して終了処理を並行実行
         const terminationPromises: Promise<void>[] = [];
@@ -289,7 +294,7 @@ export class ShellProcessManager {
                         try {
                             process.stdin.end();
                         } catch (e) {
-                            // エラーは無視
+                            console.warn(`Error closing stdin for ${workspaceKey}:`, e);
                         }
                     }
                     
@@ -299,18 +304,24 @@ export class ShellProcessManager {
                         if (!resolved) {
                             resolved = true;
                             this.processes.delete(workspaceKey);
+                            console.log(`Process ${workspaceKey} cleanup completed`);
                             resolve();
                         }
                     };
                     
                     // 終了イベントリスナー
                     process.once('exit', cleanup);
-                    process.once('error', cleanup);
+                    process.once('error', (error) => {
+                        console.warn(`Process ${workspaceKey} error during termination:`, error);
+                        cleanup();
+                    });
                     
                     // SIGTERM で終了を試みる
                     try {
                         process.kill('SIGTERM');
+                        console.log(`Sent SIGTERM to process ${workspaceKey}`);
                     } catch (e) {
+                        console.warn(`Error sending SIGTERM to ${workspaceKey}:`, e);
                         cleanup();
                         return;
                     }
@@ -320,8 +331,9 @@ export class ShellProcessManager {
                         if (!resolved && !process.killed && process.exitCode === null) {
                             try {
                                 process.kill('SIGKILL');
+                                console.log(`Sent SIGKILL to process ${workspaceKey}`);
                             } catch (e) {
-                                // エラーは無視
+                                console.warn(`Error sending SIGKILL to ${workspaceKey}:`, e);
                             }
                         }
                         // さらに1秒後にクリーンアップを保証
@@ -333,13 +345,22 @@ export class ShellProcessManager {
             }
         }
         
-        // 同期的に終了を待つのは適切ではないため、非同期で処理
-        if (terminationPromises.length > 0) {
-            Promise.allSettled(terminationPromises).then(() => {
-                console.log('All shell processes terminated');
-            }).catch((error) => {
-                console.error('Error during process termination:', error);
-            });
+        // すべての終了処理が完了するまで待機
+        try {
+            await Promise.allSettled(terminationPromises);
+            console.log('All shell processes terminated successfully');
+        } catch (error) {
+            console.error('Error during process termination:', error);
+            throw error;
         }
+    }
+
+    /**
+     * 全てのプロセスを終了（同期版、後方互換性のため保持）
+     */
+    public terminateAllProcesses(): void {
+        this.terminateAllProcessesAsync().catch((error) => {
+            console.error('Error during synchronous process termination:', error);
+        });
     }
 }

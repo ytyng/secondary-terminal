@@ -19,8 +19,15 @@ export function activate(context: vscode.ExtensionContext) {
     // Node.js プロセス終了時のクリーンアップ
     const cleanupHandler = () => {
         console.log('Cleaning up shell processes on exit...');
-        processManager.terminateAllProcesses();
-        sessionManager.removeAllSessions();
+        try {
+            // セッションマネージャーを先にクリーンアップ
+            sessionManager.removeAllSessions();
+            // プロセスマネージャーをクリーンアップ（同期版を使用）
+            processManager.terminateAllProcesses();
+        } catch (error) {
+            console.error('Error during cleanup:', error);
+            // エラーが発生してもプロセス終了は妨げない
+        }
     };
 
     process.on('exit', cleanupHandler);
@@ -61,14 +68,28 @@ export function activate(context: vscode.ExtensionContext) {
 }
 
 export function deactivate() {
-    vscode.commands.executeCommand('setContext', 'secondaryTerminal:enabled', false);
+    // VSCode終了時は非同期処理やAPIを避けて、シンプルに同期処理のみ実行
+    console.log('Secondary Terminal deactivation started...');
+    
+    try {
+        // セッションマネージャーのクリーンアップ
+        const sessionManager = TerminalSessionManager.getInstance();
+        sessionManager.removeAllSessions();
+        console.log('Sessions cleanup completed');
+    } catch (error) {
+        console.error('Error during sessions cleanup:', error);
+    }
 
-    // 拡張機能が非アクティブになったときに全てのリソースをクリーンアップ
-    const processManager = ShellProcessManager.getInstance();
-    processManager.terminateAllProcesses();
-
-    const sessionManager = TerminalSessionManager.getInstance();
-    sessionManager.removeAllSessions();
-
-    console.log('Secondary Terminal が無効化されました。');
+    try {
+        // プロセスマネージャーのクリーンアップ（同期版のみ使用）
+        const processManager = ShellProcessManager.getInstance();
+        processManager.terminateAllProcesses();
+        console.log('Process cleanup initiated');
+    } catch (error) {
+        console.error('Error during process cleanup:', error);
+    }
+    
+    console.log('Secondary Terminal deactivation completed');
+    
+    // VSCode API は呼び出さない（終了時はコンテキストも自動でクリアされる）
 }

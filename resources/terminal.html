@@ -341,10 +341,24 @@
             });
 
             // ResizeObserver でコンテナサイズ変更を監視
+            let lastResizeTime = 0;
+            let resizeCount = 0;
             const resizeObserver = new ResizeObserver((entries) => {
+                const now = Date.now();
+                resizeCount++;
+                
+                // デバウンス処理：連続する resize を制限
+                if (now - lastResizeTime < 100) {
+                    console.log(`[PERF] Resize event #${resizeCount} debounced (${now - lastResizeTime}ms since last)`);
+                    return;
+                }
+                
                 for (const entry of entries) {
-                    console.log('Container resized:', entry.contentRect.width, 'x', entry.contentRect.height);
-                    setTimeout(setTerminalSize, 50);
+                    console.log(`[PERF] Container resized #${resizeCount}:`, entry.contentRect.width, 'x', entry.contentRect.height, `(${now - lastResizeTime}ms since last)`);
+                    lastResizeTime = now;
+                    
+                    // 遅延を短縮してレスポンシブ性を向上
+                    setTimeout(setTerminalSize, 30);
                 }
             });
 
@@ -355,7 +369,13 @@
             }
 
             // 定期的なサイズチェック（VSCode の制約対応）
-            setInterval(setTerminalSize, 2000);
+            let lastSizeCheck = Date.now();
+            setInterval(() => {
+                const now = Date.now();
+                console.log(`[PERF] Size check interval: ${now - lastSizeCheck}ms`);
+                lastSizeCheck = now;
+                setTerminalSize();
+            }, 2000);
 
             let cliAgentState = { active: false, agent_type: null }; // CLI エージェントの状態
 
@@ -467,17 +487,38 @@
                 });
             });
 
+            let outputCount = 0;
+            let totalOutputChars = 0;
+            
             window.addEventListener('message', event => {
                 const message = event.data;
                 switch (message.type) {
                     case 'output':
+                        const outputStart = performance.now();
+                        outputCount++;
+                        totalOutputChars += message.data.length;
+                        
                         // ステータスメッセージをチェック
                         handleStatusMessage(message.data);
                         // 通常の出力として書き込み
                         term.write(message.data);
+                        
+                        const outputEnd = performance.now();
+                        const outputTime = outputEnd - outputStart;
+                        
+                        // 重い処理（2ms以上）のみログ出力
+                        if (outputTime > 2) {
+                            console.log(`[PERF] Output #${outputCount} took ${outputTime.toFixed(2)}ms for ${message.data.length} chars (total: ${totalOutputChars} chars)`);
+                        }
+                        
+                        // 100回ごとに統計を出力
+                        if (outputCount % 100 === 0) {
+                            console.log(`[PERF] Output stats: ${outputCount} outputs, ${totalOutputChars} total chars, avg ${(totalOutputChars/outputCount).toFixed(1)} chars/output`);
+                        }
                         break;
                     case 'clear':
                         term.clear();
+                        console.log(`[PERF] Terminal cleared`);
                         break;
                 }
             });
@@ -535,13 +576,29 @@
         // ターミナルの背景色をコンテナの背景色に適用させる
         (function () {
             const terminalContainer = document.getElementById('terminal-container');
-            const textLayer = document.querySelector('#terminal canvas.xterm-text-layer')
-            const ctx = textLayer.getContext('2d');
+            let backgroundColorCheckCount = 0;
+            let lastBackgroundCheck = Date.now();
+            let isBackgroundStable = false; // 背景色が安定したかのフラグ
 
             function applyBackgroundColor() {
-                if (!ctx || !textLayer.width || !textLayer.height) {
+                const now = Date.now();
+                backgroundColorCheckCount++;
+                console.log(`[PERF] Background color check #${backgroundColorCheckCount}, interval: ${now - lastBackgroundCheck}ms`);
+                lastBackgroundCheck = now;
+
+                const textLayer = document.querySelector('#terminal canvas.xterm-text-layer');
+                if (!textLayer) {
+                    console.log(`[PERF] Text layer not found, skipping background color check`);
                     return;
                 }
+
+                const ctx = textLayer.getContext('2d');
+                if (!ctx || !textLayer.width || !textLayer.height) {
+                    console.log(`[PERF] Canvas context not ready, skipping background color check`);
+                    return;
+                }
+
+                const performanceStart = performance.now();
 
                 // Canvas のサイズを取得
                 const width = textLayer.width;
@@ -555,34 +612,44 @@
                     { x: width - 1, y: height - 1 } // 右下
                 ];
 
-                // 各隅の色を取得
-                const colors = corners.map(corner => {
-                    const imageData = ctx.getImageData(corner.x, corner.y, 1, 1);
-                    const data = imageData.data;
-                    return {
-                        r: data[0],
-                        g: data[1],
-                        b: data[2],
-                        a: data[3]
-                    };
-                });
+                try {
+                    // 各隅の色を取得
+                    const colors = corners.map(corner => {
+                        const imageData = ctx.getImageData(corner.x, corner.y, 1, 1);
+                        const data = imageData.data;
+                        return {
+                            r: data[0],
+                            g: data[1],
+                            b: data[2],
+                            a: data[3]
+                        };
+                    });
 
-                // すべての色が同じかチェック
-                const firstColor = colors[0];
-                const allSameColor = colors.every(color =>
-                    color.r === firstColor.r &&
-                    color.g === firstColor.g &&
-                    color.b === firstColor.b &&
-                    color.a === firstColor.a
-                );
+                    // すべての色が同じかチェック
+                    const firstColor = colors[0];
+                    const allSameColor = colors.every(color =>
+                        color.r === firstColor.r &&
+                        color.g === firstColor.g &&
+                        color.b === firstColor.b &&
+                        color.a === firstColor.a
+                    );
 
-                // すべて同じ色の場合のみ背景色を変更
-                if (allSameColor) {
-                    const rgba = `rgba(${firstColor.r}, ${firstColor.g}, ${firstColor.b}, ${firstColor.a / 255})`;
-                    terminalContainer.style.backgroundColor = rgba;
-                    // console.log('All corners have same color. Applying background color:', rgba);
-                } else {
-                    // console.log('Corners have different colors. Not applying background color.');
+                    // すべて同じ色の場合のみ背景色を変更
+                    if (allSameColor) {
+                        const rgba = `rgba(${firstColor.r}, ${firstColor.g}, ${firstColor.b}, ${firstColor.a / 255})`;
+                        
+                        // 背景色が変わった場合のみ更新
+                        const currentBg = terminalContainer.style.backgroundColor;
+                        if (currentBg !== rgba) {
+                            terminalContainer.style.backgroundColor = rgba;
+                            console.log(`[PERF] Background color updated: ${rgba}`);
+                        }
+                    }
+
+                    const performanceEnd = performance.now();
+                    console.log(`[PERF] Background color check took: ${(performanceEnd - performanceStart).toFixed(2)}ms`);
+                } catch (error) {
+                    console.error('[PERF] Error reading canvas pixel data:', error);
                 }
             }
 
@@ -590,6 +657,7 @@
             setTimeout(applyBackgroundColor, 500);
 
             setInterval(() => {
+                const textLayer = document.querySelector('#terminal canvas.xterm-text-layer');
                 if (textLayer && textLayer.getContext) {
                     applyBackgroundColor();
                 }
