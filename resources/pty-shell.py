@@ -32,9 +32,9 @@ def check_cli_agent_active(shell_pid):
             ['ps', '-eo', 'pid,ppid,comm'],
             capture_output=True,
             text=True,
-            timeout=1,  # 1秒に短縮してCPU負荷軽減
+            timeout=2,
             encoding='utf-8',
-            errors='replace',
+            errors='ignore',
         )
 
         if ps_result.returncode != 0:
@@ -89,11 +89,11 @@ def check_cli_agent_active(shell_pid):
             if pid in processes:
                 proc_info = processes[pid]
                 comm_lower = proc_info['comm'].lower()
-                
+
                 # Claude の検出（コマンド名のみで判定）
                 if 'claude' in comm_lower:
                     return {'active': True, 'agent_type': 'claude'}
-                
+
                 # Gemini の検出（コマンド名のみで判定）
                 if 'gemini' in comm_lower:
                     return {'active': True, 'agent_type': 'gemini'}
@@ -127,7 +127,7 @@ def main():
     initial_cols = int(sys.argv[1]) if len(sys.argv) > 1 else 80
     initial_rows = int(sys.argv[2]) if len(sys.argv) > 2 else 24
     cwd = sys.argv[3] if len(sys.argv) > 3 else os.getcwd()
-    
+
     # startup commands を安全に取得
     startup_commands = []
     if len(sys.argv) > 4 and sys.argv[4] == '--startup-commands':
@@ -135,54 +135,67 @@ def main():
             startup_commands = json.loads(sys.argv[5])
             # セキュリティチェック: 配列であることを確認
             if not isinstance(startup_commands, list):
-                print(f"Warning: Invalid startup commands format, ignoring", file=sys.stderr)
+                print(
+                    f"Warning: Invalid startup commands format, ignoring",
+                    file=sys.stderr,
+                )
                 startup_commands = []
             else:
                 # 各コマンドが文字列であることを確認
-                startup_commands = [cmd for cmd in startup_commands if isinstance(cmd, str)]
+                startup_commands = [
+                    cmd for cmd in startup_commands if isinstance(cmd, str)
+                ]
         except (IndexError, json.JSONDecodeError) as e:
-            print(f"Warning: Failed to parse startup commands: {e}", file=sys.stderr)
+            print(
+                f"Warning: Failed to parse startup commands: {e}",
+                file=sys.stderr,
+            )
             startup_commands = []
 
     # グローバル変数でプロセス参照を保持
     global current_shell_process, current_master
     current_shell_process = None
     current_master = None
-    
+
     def cleanup_handler():
         """プロセス終了時のクリーンアップ処理"""
         try:
             if current_shell_process and current_shell_process.poll() is None:
                 # シェルプロセスとそのプロセスグループを終了
                 try:
-                    os.killpg(os.getpgid(current_shell_process.pid), signal.SIGTERM)
+                    os.killpg(
+                        os.getpgid(current_shell_process.pid), signal.SIGTERM
+                    )
                     # 少し待って強制終了
                     time.sleep(0.5)
                     if current_shell_process.poll() is None:
-                        os.killpg(os.getpgid(current_shell_process.pid), signal.SIGKILL)
+                        os.killpg(
+                            os.getpgid(current_shell_process.pid),
+                            signal.SIGKILL,
+                        )
                 except (OSError, ProcessLookupError):
                     pass
-            
+
             if current_master:
                 try:
                     os.close(current_master)
                 except OSError:
                     pass
-                    
+
         except Exception as e:
             print(f"Error during cleanup: {e}", file=sys.stderr)
-    
+
     def signal_handler(signum, frame):
         """シグナルハンドラー"""
         print(f"Received signal {signum}, cleaning up...", file=sys.stderr)
         cleanup_handler()
         sys.exit(0)
-    
+
     # シグナルハンドラーを設定
     signal.signal(signal.SIGTERM, signal_handler)
     signal.signal(signal.SIGINT, signal_handler)
     signal.signal(signal.SIGHUP, signal_handler)
-    
+
     # atexit でクリーンアップを保証
     atexit.register(cleanup_handler)
 
@@ -256,22 +269,31 @@ def main():
         try:
             while p.poll() is None:
                 current_time = time.time()
-                
+
                 # startup commands を実行（シェル起動から1秒後）
-                if not startup_commands_executed and current_time >= startup_delay_time and startup_commands:
+                if (
+                    not startup_commands_executed
+                    and current_time >= startup_delay_time
+                    and startup_commands
+                ):
                     startup_commands_executed = True
                     for command in startup_commands:
                         if command.strip():
                             # コマンドを PTY に送信
                             command_with_newline = command + '\n'
-                            os.write(master, command_with_newline.encode('utf-8'))
+                            os.write(
+                                master, command_with_newline.encode('utf-8')
+                            )
                             time.sleep(0.1)  # コマンド間に少し間隔を空ける
-                
+
                 # CLI エージェントアクティブチェック（3秒間隔で実行）
                 if current_time - last_agent_check >= check_interval:
                     # Claude や Gemini の検出を実行（負荷軽減のため3秒間隔）
                     new_agent_state = check_cli_agent_active(p.pid)
-                    if new_agent_state and new_agent_state != current_agent_state:
+                    if (
+                        new_agent_state
+                        and new_agent_state != current_agent_state
+                    ):
                         current_agent_state = new_agent_state
                         send_status_message(
                             'cli_agent_status', current_agent_state
@@ -292,23 +314,40 @@ def main():
                             if data:
                                 try:
                                     # UTF-8でデコード
-                                    text = data.decode('utf-8')
-                                    
+                                    text = data.decode(
+                                        'utf-8', errors='ignore'
+                                    )
+
                                     # CLI Agent ステータス強制チェック信号を検出
                                     if '\x00' in text:
                                         # NULL文字が含まれている場合は、CLI Agentステータスを即座にチェック
-                                        print('Received CLI Agent status refresh signal', file=sys.stderr)
-                                        new_agent_state = check_cli_agent_active(p.pid)
+                                        # Extension が非アクティブになってから、再アクティブになると来ることがある
+                                        # print('Received CLI Agent status refresh signal', file=sys.stderr)
+                                        new_agent_state = (
+                                            check_cli_agent_active(p.pid)
+                                        )
                                         if new_agent_state:
-                                            current_agent_state = new_agent_state
-                                            send_status_message('cli_agent_status', current_agent_state)
+                                            current_agent_state = (
+                                                new_agent_state
+                                            )
+                                            send_status_message(
+                                                'cli_agent_status',
+                                                current_agent_state,
+                                            )
                                             last_agent_check = current_time  # チェック時間を更新
                                         # NULL文字を除去してから送信
                                         text = text.replace('\x00', '')
-                                        if text:  # 残りの文字がある場合のみ送信
-                                            os.write(master, text.encode('utf-8'))
+                                        if (
+                                            text
+                                        ):  # 残りの文字がある場合のみ送信
+                                            os.write(
+                                                master,
+                                                text.encode(
+                                                    'utf-8', errors='ignore'
+                                                ),
+                                            )
                                         continue  # 以下の処理をスキップ
-                                    
+
                                     # エスケープシーケンスでターミナルサイズ変更を検出
                                     if text.startswith('\x1b[8;'):
                                         # ターミナルサイズ変更シーケンス
@@ -378,13 +417,21 @@ def main():
 
             # プロセスを終了
             try:
-                if current_shell_process and current_shell_process.poll() is None:
-                    os.killpg(os.getpgid(current_shell_process.pid), signal.SIGTERM)
+                if (
+                    current_shell_process
+                    and current_shell_process.poll() is None
+                ):
+                    os.killpg(
+                        os.getpgid(current_shell_process.pid), signal.SIGTERM
+                    )
                     current_shell_process.wait(timeout=2)
             except (OSError, subprocess.TimeoutExpired):
                 try:
                     if current_shell_process:
-                        os.killpg(os.getpgid(current_shell_process.pid), signal.SIGKILL)
+                        os.killpg(
+                            os.getpgid(current_shell_process.pid),
+                            signal.SIGKILL,
+                        )
                 except OSError:
                     pass
             finally:
