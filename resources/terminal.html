@@ -120,6 +120,36 @@
             }
         }
 
+        .copy-button {
+            background-color: var(--vscode-button-secondaryBackground, #3c3c3c);
+            color: var(--vscode-button-secondaryForeground, #cccccc);
+            border: none;
+            border-radius: 3px;
+            padding: 4px 8px;
+            font-size: 11px;
+            cursor: pointer;
+            font-family: inherit;
+            transition: background-color 0.2s;
+            position: relative;
+
+            &:hover {
+                background-color: var(--vscode-button-secondaryHoverBackground, #4c4c4c);
+            }
+
+            &.done {
+                color: transparent;
+            }
+
+            &.done::after {
+                content: '✓';
+                position: absolute;
+                top: 50%;
+                left: 50%;
+                transform: translate(-50%, -50%);
+                color: var(--vscode-button-secondaryForeground, #cccccc);
+            }
+        }
+
         .reset-button {
             background: transparent;
             color: var(--vscode-button-secondaryForeground, #cccccc);
@@ -159,7 +189,7 @@
                     title="Send editor selection to terminal (Cmd+L)">
                     @Selection
                 </button>
-                <button class="control-button" id="btn-copy-selection"
+                <button class="copy-button" id="btn-copy-selection"
                     title="Copy editor selection context to clipboard">
                     Copy
                 </button>
@@ -652,14 +682,13 @@
             // コピーボタンのイベント設定
             const copySelectionHandler = () => {
                 const button = document.getElementById('btn-copy-selection');
-                const originalText = button.textContent;
 
                 vscode.postMessage({ type: 'buttonCopySelection' });
 
-                // ボタンを一時的にチェックマークに変更
-                button.textContent = '✓';
+                // ボタンに .done クラスを追加してチェックマーク表示
+                button.classList.add('done');
                 setTimeout(() => {
-                    button.textContent = originalText;
+                    button.classList.remove('done');
                 }, 2000);
 
                 // ボタンクリック後にターミナルにフォーカスを移動
