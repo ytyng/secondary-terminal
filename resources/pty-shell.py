@@ -260,6 +260,9 @@ def main():
         last_agent_check = 0
         current_agent_state = {'active': False, 'agent_type': None}
         check_interval = 3.0  # 3秒間隔に変更
+        
+        # UTF-8 デコード用のバッファ（マルチバイト文字の分割対応）
+        input_buffer = b''
 
         # startup commands を実行
         startup_commands_executed = False
@@ -312,11 +315,30 @@ def main():
                             # バイナリデータとして読み取り
                             data = os.read(sys.stdin.fileno(), 1024)
                             if data:
+                                # 前回の未完成バイト列と結合
+                                input_buffer += data
+                                
+                                # UTF-8 incomplete sequence を考慮したデコード
+                                text = ''
                                 try:
-                                    # UTF-8でデコード
-                                    text = data.decode(
-                                        'utf-8', errors='ignore'
-                                    )
+                                    # 全体をデコードしてみる
+                                    text = input_buffer.decode('utf-8')
+                                    # 成功したらバッファをクリア
+                                    input_buffer = b''
+                                except UnicodeDecodeError as e:
+                                    # デコードエラーが発生した場合、完全にデコードできる部分だけを取り出す
+                                    if e.start > 0:
+                                        # エラー開始位置より前は正常にデコードできる
+                                        text = input_buffer[:e.start].decode('utf-8')
+                                        # 未処理部分をバッファに残す
+                                        input_buffer = input_buffer[e.start:]
+                                    else:
+                                        # 先頭からエラーの場合、1文字分進めて再試行（破損データの回避）
+                                        if len(input_buffer) > 1:
+                                            input_buffer = input_buffer[1:]
+                                        text = ''
+                                
+                                if text:
 
                                     # CLI Agent ステータス強制チェック信号を検出
                                     if '\x00' in text:
@@ -382,11 +404,11 @@ def main():
                                         except (ValueError, IndexError):
                                             pass
                                     else:
-                                        # 通常の入力を PTY に送信
-                                        os.write(master, data)
-                                except UnicodeDecodeError:
-                                    # デコードに失敗した場合はバイナリデータをそのまま送信
-                                    os.write(master, data)
+                                        # 通常の入力を PTY に送信（デコードした文字列を再エンコード）
+                                        os.write(master, text.encode('utf-8'))
+                                else:
+                                    # デコードされたテキストがない場合は何もしない（バッファに残っている）
+                                    pass
                         except OSError:
                             pass
 
