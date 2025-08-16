@@ -119,7 +119,7 @@ export class ShellProcessManager {
 
         if (shellProcess.stderr) {
             shellProcess.stderr.on('data', (data: Buffer) => {
-                const output = data.toString().replace(/\n/g, '\r\n');
+                const output = data.toString('utf8').replace(/\n/g, '\r\n');
                 this.sessionManager.addOutput(workspaceKey, output);
             });
         }

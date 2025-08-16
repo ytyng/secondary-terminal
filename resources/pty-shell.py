@@ -417,9 +417,16 @@ def main():
                         try:
                             data = os.read(master, 1024)
                             if data:
-                                # バイナリデータをそのまま標準出力に送信
-                                sys.stdout.buffer.write(data)
-                                sys.stdout.buffer.flush()
+                                # UTF-8 でデコードしてから再エンコード（文字化け対策）
+                                try:
+                                    decoded_text = data.decode('utf-8', errors='ignore')
+                                    encoded_data = decoded_text.encode('utf-8')
+                                    sys.stdout.buffer.write(encoded_data)
+                                    sys.stdout.buffer.flush()
+                                except (UnicodeDecodeError, UnicodeEncodeError):
+                                    # エラー時はバイナリデータをそのまま送信
+                                    sys.stdout.buffer.write(data)
+                                    sys.stdout.buffer.flush()
                         except OSError:
                             pass
 
