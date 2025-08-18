@@ -634,11 +634,19 @@
                         console.log(`[PERF] Terminal cleared`);
                         break;
                     case 'reset':
-                        // 完全リセット要求への対応
-                        console.log('Received reset message from VSCode');
-                        resetTerminalResources();
-                        // リセット後にページをリロード
-                        window.location.reload();
+                        // リセット完了通知への対応
+                        console.log('Received reset completion message from VSCode');
+                        // ターミナルの表示をクリアし、入力を有効化
+                        if (terminalState.term) {
+                            terminalState.term.clear();
+                            // ターミナルにフォーカスを戻して入力可能状態にする
+                            setTimeout(() => {
+                                if (terminalState.term) {
+                                    terminalState.term.focus();
+                                }
+                            }, 50);
+                        }
+                        console.log('Reset completed, terminal ready for input');
                         break;
                     case 'visibility_restored':
                         // WebView の可視状態が復元された時の処理

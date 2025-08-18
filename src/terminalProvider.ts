@@ -271,6 +271,12 @@ export class TerminalProvider implements vscode.WebviewViewProvider {
             
             // 新しいシェルプロセスを開始
             this.startShell();
+            
+            // プロセス起動後にフロントエンドにリセット完了を通知
+            setTimeout(() => {
+                console.log('Sending reset completion message to frontend');
+                this._view?.webview.postMessage({ type: 'reset' });
+            }, 100); // startShell の後、少し待ってからリセット完了通知
         }, 500);
     }
 
