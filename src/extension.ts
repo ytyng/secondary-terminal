@@ -64,6 +64,21 @@ export function activate(context: vscode.ExtensionContext) {
         })
     );
 
+    // エディターの選択範囲をコードの位置つきでクリップボードにコピー
+    context.subscriptions.push(
+        vscode.commands.registerCommand('secondaryTerminal.copySelectionWithLocation', () => {
+            const editor = vscode.window.activeTextEditor;
+            if (!editor) {
+                vscode.window.showWarningMessage('アクティブなエディターがありません');
+                return;
+            }
+            const contextText = createContextTextForSelectedText(editor);
+            vscode.env.clipboard.writeText(contextText).then(() => {
+                vscode.window.showInformationMessage('コードの位置情報付きでクリップボードにコピーしました');
+            });
+        })
+    );
+
     console.log('Secondary Terminal が有効化されました！');
 }
 

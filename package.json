@@ -48,12 +48,22 @@
         "command": "secondaryTerminal.sendSelection",
         "title": "Send Selection to Secondary Terminal",
         "category": "Secondary Terminal"
+      },
+      {
+        "command": "secondaryTerminal.copySelectionWithLocation",
+        "title": "Copy Selection with Location",
+        "category": "Secondary Terminal"
       }
     ],
     "keybindings": [
       {
         "command": "secondaryTerminal.sendSelection",
         "key": "cmd+l",
+        "when": "editorTextFocus"
+      },
+      {
+        "command": "secondaryTerminal.copySelectionWithLocation",
+        "key": "cmd+shift+l",
         "when": "editorTextFocus"
       }
     ],
