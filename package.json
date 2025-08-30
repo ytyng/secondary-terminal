@@ -50,8 +50,18 @@
         "category": "Secondary Terminal"
       },
       {
+        "command": "secondaryTerminal.sendTerminalSelection",
+        "title": "Send Terminal Selection to Secondary Terminal",
+        "category": "Secondary Terminal"
+      },
+      {
         "command": "secondaryTerminal.copySelectionWithLocation",
         "title": "Copy Selection with Location",
+        "category": "Secondary Terminal"
+      },
+      {
+        "command": "secondaryTerminal.copyTerminalSelectionWithLocation",
+        "title": "Copy Terminal Selection with Location",
         "category": "Secondary Terminal"
       }
     ],
@@ -62,9 +72,19 @@
         "when": "editorTextFocus"
       },
       {
+        "command": "secondaryTerminal.sendTerminalSelection",
+        "key": "cmd+l",
+        "when": "terminalFocus"
+      },
+      {
         "command": "secondaryTerminal.copySelectionWithLocation",
         "key": "cmd+shift+l",
         "when": "editorTextFocus"
+      },
+      {
+        "command": "secondaryTerminal.copyTerminalSelectionWithLocation",
+        "key": "cmd+shift+l",
+        "when": "terminalFocus"
       }
     ],
     "configuration": {
