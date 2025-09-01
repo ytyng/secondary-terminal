@@ -27,9 +27,9 @@ def set_winsize(fd, rows, cols):
 def check_cli_agent_active(shell_pid):
     """シェルプロセスでCLIエージェント（Claude、Gemini）がアクティブかチェック"""
     try:
-        # プロセスツリーを取得して、シェルの子孫プロセスを調べる（軽量化）
+        # プロセスツリーを取得して、シェルの子孫プロセスを調べる
         ps_result = subprocess.run(
-            ['ps', '-eo', 'pid,ppid,comm'],
+            ['ps', '-eo', 'pid,ppid,comm,args'],
             capture_output=True,
             text=True,
             timeout=2,
@@ -42,16 +42,25 @@ def check_cli_agent_active(shell_pid):
 
         lines = ps_result.stdout.strip().split('\n')
 
-        # プロセスツリーを構築（軽量化）
+        # プロセスツリーを構築
         processes = {}
-        for line in lines[1:]:  # ヘッダー行をスキップ
-            parts = line.strip().split(None, 2)
-            if len(parts) >= 3:
+        for line in lines[1:]:
+            parts = line.strip().split(None, 3)
+            if len(parts) >= 4:
                 try:
                     pid = int(parts[0])
                     ppid = int(parts[1])
                     comm = parts[2]
-                    processes[pid] = {'ppid': ppid, 'comm': comm}
+                    args = parts[3]
+                    processes[pid] = {'ppid': ppid, 'comm': comm, 'args': args}
+                except ValueError:
+                    continue
+            elif len(parts) == 3:
+                try:
+                    pid = int(parts[0])
+                    ppid = int(parts[1])
+                    comm = parts[2]
+                    processes[pid] = {'ppid': ppid, 'comm': comm, 'args': ''}
                 except ValueError:
                     continue
 
@@ -84,18 +93,19 @@ def check_cli_agent_active(shell_pid):
 
         descendants = find_descendants(shell_pid)
 
-        # 子孫プロセスの中でCLIエージェントを検索（軽量化）
+        # 子孫プロセスの中でCLIエージェントを検索
         for pid in descendants:
             if pid in processes:
                 proc_info = processes[pid]
                 comm_lower = proc_info['comm'].lower()
+                args_lower = proc_info['args'].lower()
 
                 # Claude の検出（コマンド名のみで判定）
                 if 'claude' in comm_lower:
                     return {'active': True, 'agent_type': 'claude'}
 
-                # Gemini の検出（コマンド名のみで判定）
-                if 'gemini' in comm_lower:
+                # Gemini の検出 (コマンドライン引数全体で判定)
+                if '/bin/gemini' in args_lower:
                     return {'active': True, 'agent_type': 'gemini'}
 
         return {'active': False, 'agent_type': None}
@@ -106,6 +116,7 @@ def check_cli_agent_active(shell_pid):
         FileNotFoundError,
     ):
         return {'active': False, 'agent_type': None}
+
 
 
 def send_status_message(message_type, data):
