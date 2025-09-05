@@ -2,13 +2,16 @@ import * as vscode from 'vscode';
 
 interface TerminalSession {
     workspaceKey: string;
-    outputBuffer: string;
+    // 出力のリングバッファ（O(n) 連結/トリミング回避のため）
+    outputChunks: string[];
+    totalBufferLength: number;
     currentView: vscode.WebviewView | undefined;
     isConnected: boolean;
     maxBufferSize: number;
     pendingOutput: string;        // デバウンス用の一時バッファ
     outputTimer: NodeJS.Timeout | undefined;  // デバウンス用タイマー
     lastOutputTime: number;       // 最後の出力時刻
+    pendingSince: number | null;  // 最初に pendingOutput が溜まり始めた時刻
 }
 
 /**
@@ -48,13 +51,15 @@ export class TerminalSessionManager {
         
         const newSession: TerminalSession = {
             workspaceKey,
-            outputBuffer: '',
+            outputChunks: [],
+            totalBufferLength: 0,
             currentView: undefined,
             isConnected: false,
             maxBufferSize: this.MAX_BUFFER_SIZE,
             pendingOutput: '',
             outputTimer: undefined,
-            lastOutputTime: 0
+            lastOutputTime: 0,
+            pendingSince: null
         };
         
         this.sessions.set(workspaceKey, newSession);
@@ -78,9 +83,10 @@ export class TerminalSessionManager {
         session.isConnected = true;
         
         // バッファに保存されている出力を新しいビューに送信
-        if (session.outputBuffer) {
-            console.log(`Restoring ${session.outputBuffer.length} characters to new view`);
-            this.sendToView(session, session.outputBuffer);
+        if (session.totalBufferLength > 0 && session.outputChunks.length > 0) {
+            const snapshot = session.outputChunks.join('');
+            console.log(`Restoring ${snapshot.length} characters to new view`);
+            this.sendToView(session, snapshot);
             // バッファはクリアしない（次回の接続でも使用するため）
         }
         
@@ -111,21 +117,24 @@ export class TerminalSessionManager {
             return;
         }
 
-        // バッファにデータを追加
-        session.outputBuffer += data;
+        // バッファ（リングバッファ）にデータを追加
+        session.outputChunks.push(data);
+        session.totalBufferLength += data.length;
         
         // バッファサイズ制限（効率的なトリミング）
-        if (session.outputBuffer.length > session.maxBufferSize) {
+        if (session.totalBufferLength > session.maxBufferSize) {
             const trimStart = performance.now();
             
-            // CPU 負荷軽減のため、単純なトリミングに変更
+            // 目標サイズまで先頭からチャンクを削除
             const targetSize = Math.floor(session.maxBufferSize * TERMINAL_CONSTANTS.BUFFER_TRIM_RATIO);
-            const excess = session.outputBuffer.length - targetSize;
-            const originalSize = session.outputBuffer.length;
-            session.outputBuffer = session.outputBuffer.substring(excess);
+            const originalSize = session.totalBufferLength;
+            while (session.totalBufferLength > targetSize && session.outputChunks.length > 0) {
+                const removed = session.outputChunks.shift()!;
+                session.totalBufferLength -= removed.length;
+            }
             
             const trimEnd = performance.now();
-            console.log(`[PERF] Buffer trimmed for workspace: ${workspaceKey} (${originalSize} → ${session.outputBuffer.length} chars, took ${(trimEnd - trimStart).toFixed(2)}ms)`);
+            console.log(`[PERF] Buffer trimmed for workspace: ${workspaceKey} (${originalSize} → ${session.totalBufferLength} chars, took ${(trimEnd - trimStart).toFixed(2)}ms)`);
         }
 
         // 接続されているビューに送信（デバウンス処理付き）
@@ -145,7 +154,8 @@ export class TerminalSessionManager {
     public clearBuffer(workspaceKey: string): void {
         const session = this.sessions.get(workspaceKey);
         if (session) {
-            session.outputBuffer = '';
+            session.outputChunks = [];
+            session.totalBufferLength = 0;
             console.log(`Cleared buffer for workspace: ${workspaceKey}`);
         }
     }
@@ -156,43 +166,61 @@ export class TerminalSessionManager {
     private sendToViewDebounced(session: TerminalSession, data: string): void {
         const now = Date.now();
         session.pendingOutput += data;
-        
+        if (session.pendingSince === null) {
+            session.pendingSince = now;
+        }
+
+        const MAX_DEBOUNCE_MS = 32;           // 最長待機
+        const IMMEDIATE_FLUSH_THRESHOLD = 8192; // 8KB 以上は即送信
+
+        // 即時フラッシュ条件
+        const elapsedSincePending = now - (session.pendingSince || now);
+        if (session.pendingOutput.length >= IMMEDIATE_FLUSH_THRESHOLD || elapsedSincePending >= MAX_DEBOUNCE_MS) {
+            if (session.outputTimer) {
+                clearTimeout(session.outputTimer);
+                session.outputTimer = undefined;
+            }
+            this.flushPendingOutput(session);
+            return;
+        }
+
         // 前回の出力から間隔が短い場合はデバウンス
         const timeSinceLastOutput = now - session.lastOutputTime;
         const shouldDebounce = timeSinceLastOutput < 16; // 60FPS（約16.67ms）を基準
-        
+
         if (shouldDebounce && session.outputTimer) {
-            // 既存のタイマーをクリア
+            // 既存のタイマーを更新
             clearTimeout(session.outputTimer);
         }
-        
-        const flushOutput = () => {
-            if (session.pendingOutput && session.currentView) {
-                try {
-                    const outputData = session.pendingOutput;
-                    session.pendingOutput = ''; // 先にクリアして重複送信を防ぐ
-                    session.lastOutputTime = Date.now();
-                    
-                    session.currentView.webview.postMessage({
-                        type: 'output',
-                        data: outputData
-                    });
-                } catch (error) {
-                    console.error('Error sending data to view:', error);
-                    session.isConnected = false;
-                    session.pendingOutput = ''; // エラー時もクリア
-                }
-            }
-            session.outputTimer = undefined;
-        };
-        
+
         if (shouldDebounce) {
             // デバウンス：16ms後に送信
-            session.outputTimer = setTimeout(flushOutput, 16);
+            session.outputTimer = setTimeout(() => this.flushPendingOutput(session), 16);
         } else {
             // 即座に送信
-            flushOutput();
+            this.flushPendingOutput(session);
         }
+    }
+
+    private flushPendingOutput(session: TerminalSession): void {
+        if (session.pendingOutput && session.currentView) {
+            try {
+                const outputData = session.pendingOutput;
+                session.pendingOutput = '';
+                session.lastOutputTime = Date.now();
+                session.pendingSince = null;
+                session.currentView.webview.postMessage({
+                    type: 'output',
+                    data: outputData
+                });
+            } catch (error) {
+                console.error('Error sending data to view:', error);
+                session.isConnected = false;
+                session.pendingOutput = '';
+                session.pendingSince = null;
+            }
+        }
+        session.outputTimer = undefined;
     }
 
     /**
@@ -225,7 +253,9 @@ export class TerminalSessionManager {
      */
     public getBuffer(workspaceKey: string): string {
         const session = this.sessions.get(workspaceKey);
-        return session ? session.outputBuffer : '';
+        if (!session) return '';
+        if (session.outputChunks.length === 0) return '';
+        return session.outputChunks.join('');
     }
 
     /**
@@ -268,7 +298,9 @@ export class TerminalSessionManager {
                 session.isConnected = false;
                 session.currentView = undefined;
                 session.pendingOutput = '';
-                session.outputBuffer = '';
+                session.outputChunks = [];
+                session.totalBufferLength = 0;
+                session.pendingSince = null;
                 
                 console.log(`Cleaned up session: ${workspaceKey}`);
             } catch (error) {
@@ -287,7 +319,7 @@ export class TerminalSessionManager {
     public getSessionInfo(): Array<{ workspaceKey: string; bufferSize: number; isConnected: boolean }> {
         return Array.from(this.sessions.entries()).map(([key, session]) => ({
             workspaceKey: key,
-            bufferSize: session.outputBuffer.length,
+            bufferSize: session.totalBufferLength,
             isConnected: session.isConnected
         }));
     }
