@@ -313,7 +313,9 @@
                 convertEol: true,
                 allowProposedApi: true,
                 allowTransparency: false,
-                minimumContrastRatio: 1
+                minimumContrastRatio: 1,
+                // スクロールバック上限を設定（大きな履歴での write/render 負荷を軽減）
+                scrollback: 2000
             });
 
             const terminalElement = document.getElementById('terminal');
@@ -636,10 +638,9 @@
                     case 'reset':
                         // リセット完了通知への対応
                         console.log('Received reset completion message from VSCode');
-                        // ターミナルの表示をクリアし、入力を有効化
+                        // スクロールバックごと完全にリセットし、入力を有効化
                         if (terminalState.term) {
-                            terminalState.term.clear();
-                            // ターミナルにフォーカスを戻して入力可能状態にする
+                            terminalState.term.reset();
                             setTimeout(() => {
                                 if (terminalState.term) {
                                     terminalState.term.focus();
