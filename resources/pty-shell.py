@@ -10,6 +10,9 @@ import time
 import json
 import atexit
 
+# I/O バッファサイズ定数
+IO_BUFFER_SIZE = 8092
+
 
 def set_winsize(fd, rows, cols):
     """ターミナルサイズを設定"""
@@ -70,7 +73,7 @@ def check_cli_agent_active(shell_pid):
                 visited = set()
 
             # 最大再帰深度を制限
-            if depth > 50:
+            if depth > 5:
                 return []
 
             # 循環参照を検出して回避
@@ -116,7 +119,6 @@ def check_cli_agent_active(shell_pid):
         FileNotFoundError,
     ):
         return {'active': False, 'agent_type': None}
-
 
 
 def send_status_message(message_type, data):
@@ -271,7 +273,7 @@ def main():
         last_agent_check = 0
         current_agent_state = {'active': False, 'agent_type': None}
         check_interval = 3.0  # 3秒間隔に変更
-        
+
         # UTF-8 デコード用のバッファ（マルチバイト文字の分割対応）
         input_buffer = b''
 
@@ -324,11 +326,11 @@ def main():
                         # Node.js からの入力を読み取り（非ブロッキング）
                         try:
                             # バイナリデータとして読み取り
-                            data = os.read(sys.stdin.fileno(), 1024)
+                            data = os.read(sys.stdin.fileno(), IO_BUFFER_SIZE)
                             if data:
                                 # 前回の未完成バイト列と結合
                                 input_buffer += data
-                                
+
                                 # UTF-8 incomplete sequence を考慮したデコード
                                 text = ''
                                 try:
@@ -340,15 +342,17 @@ def main():
                                     # デコードエラーが発生した場合、完全にデコードできる部分だけを取り出す
                                     if e.start > 0:
                                         # エラー開始位置より前は正常にデコードできる
-                                        text = input_buffer[:e.start].decode('utf-8')
+                                        text = input_buffer[: e.start].decode(
+                                            'utf-8'
+                                        )
                                         # 未処理部分をバッファに残す
-                                        input_buffer = input_buffer[e.start:]
+                                        input_buffer = input_buffer[e.start :]
                                     else:
                                         # 先頭からエラーの場合、1文字分進めて再試行（破損データの回避）
                                         if len(input_buffer) > 1:
                                             input_buffer = input_buffer[1:]
                                         text = ''
-                                
+
                                 if text:
 
                                     # CLI Agent ステータス強制チェック信号を検出
@@ -426,15 +430,20 @@ def main():
                     if master in ready:
                         # PTY からの出力を読み取り
                         try:
-                            data = os.read(master, 1024)
+                            data = os.read(master, IO_BUFFER_SIZE)
                             if data:
                                 # UTF-8 でデコードしてから再エンコード（文字化け対策）
                                 try:
-                                    decoded_text = data.decode('utf-8', errors='ignore')
+                                    decoded_text = data.decode(
+                                        'utf-8', errors='ignore'
+                                    )
                                     encoded_data = decoded_text.encode('utf-8')
                                     sys.stdout.buffer.write(encoded_data)
                                     sys.stdout.buffer.flush()
-                                except (UnicodeDecodeError, UnicodeEncodeError):
+                                except (
+                                    UnicodeDecodeError,
+                                    UnicodeEncodeError,
+                                ):
                                     # エラー時はバイナリデータをそのまま送信
                                     sys.stdout.buffer.write(data)
                                     sys.stdout.buffer.flush()
