@@ -307,13 +307,19 @@ export class TerminalProvider implements vscode.WebviewViewProvider {
             const htmlTemplatePath = path.join(this._extensionContext.extensionPath, 'resources', 'terminal.html');
             let htmlContent = fs.readFileSync(htmlTemplatePath, 'utf8');
 
+            // VSCode 設定から scrollback 最大行数を取得
+            // 設定キー: secondaryTerminal.maxHistoryLines
+            const config = vscode.workspace.getConfiguration('secondaryTerminal');
+            const maxHistoryLines = Math.max(50, Math.floor(config.get('maxHistoryLines', 300)));
+
             // プレースホルダーを実際の値に置換
             htmlContent = htmlContent
                 .replace(/{{CSP_SOURCE}}/g, webview.cspSource)
                 .replace(/{{XTERM_CSS_URI}}/g, xtermCssUri.toString())
                 .replace(/{{XTERM_JS_URI}}/g, xtermJsUri.toString())
                 .replace(/{{XTERM_CANVAS_JS_URI}}/g, xtermCanvasJsUri.toString())
-                .replace(/{{XTERM_UNICODE11_JS_URI}}/g, xtermUnicode11JsUri.toString());
+                .replace(/{{XTERM_UNICODE11_JS_URI}}/g, xtermUnicode11JsUri.toString())
+                .replace(/{{SCROLLBACK_MAX}}/g, String(maxHistoryLines));
 
             return htmlContent;
         } catch (error) {

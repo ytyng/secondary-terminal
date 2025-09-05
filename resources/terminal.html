@@ -315,7 +315,7 @@
                 allowTransparency: false,
                 minimumContrastRatio: 1,
                 // スクロールバック上限を設定（大きな履歴での write/render 負荷を軽減）
-                scrollback: 300
+                scrollback: {{SCROLLBACK_MAX}}
             });
 
             const terminalElement = document.getElementById('terminal');

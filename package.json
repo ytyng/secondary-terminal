@@ -97,6 +97,12 @@
           },
           "default": [],
           "description": "ターミナル起動時に自動実行するコマンド一覧"
+        },
+        "secondaryTerminal.maxHistoryLines": {
+          "type": "number",
+          "default": 300,
+          "minimum": 50,
+          "description": "ターミナルの履歴として保持する最大行数 (xterm の scrollback とセッション復元バッファに適用)"
         }
       }
     }
