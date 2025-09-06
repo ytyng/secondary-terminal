@@ -9,6 +9,7 @@ import select
 import time
 import json
 import atexit
+import errno
 
 # I/O バッファサイズ定数
 IO_BUFFER_SIZE = 8092
@@ -293,6 +294,8 @@ def main():
 
         # UTF-8 デコード用のバッファ（マルチバイト文字の分割対応）
         input_buffer = b''
+        # stdin が EOF/クローズされたかどうかのフラグ（EOF 後は select 対象から外してスピンを防ぐ）
+        stdin_open = True
 
         # startup commands を実行
         startup_commands_executed = False
@@ -335,16 +338,20 @@ def main():
 
                 # 標準入力から PTY マスターへの入力を処理
                 try:
-                    ready, _, _ = select.select(
-                        [sys.stdin, master], [], [], 1.0
-                    )
+                    read_fds = [master]
+                    if stdin_open:
+                        read_fds.append(sys.stdin)
+                    ready, _, _ = select.select(read_fds, [], [], 1.0)
 
-                    if sys.stdin in ready:
+                    if stdin_open and sys.stdin in ready:
                         # Node.js からの入力を読み取り（非ブロッキング）
                         try:
                             # バイナリデータとして読み取り
                             data = os.read(sys.stdin.fileno(), IO_BUFFER_SIZE)
-                            if data:
+                            if not data:
+                                # EOF（パイプが閉じられた）。以後 stdin を監視しない。
+                                stdin_open = False
+                            else:
                                 # 前回の未完成バイト列と結合
                                 input_buffer += data
 
@@ -443,7 +450,11 @@ def main():
                                 else:
                                     # デコードされたテキストがない場合は何もしない（バッファに残っている）
                                     pass
-                        except OSError:
+                        except OSError as e:
+                            # EAGAIN は未準備、EIO/ENXIO などは実質クローズとみなす
+                            if e.errno in (errno.EIO, errno.ENXIO):
+                                stdin_open = False
+                            # その他は無視
                             pass
 
                     if master in ready:

@@ -234,33 +234,25 @@ export class TerminalProvider implements vscode.WebviewViewProvider {
         );
 
         if (result === 'リセット') {
-            this.resetTerminal();
+            await this.resetTerminal();
         }
     }
 
-    public resetTerminal() {
-        // 1. 既存のプロセスを強制終了
-        this._processManager.terminateProcess(this._workspaceKey);
+    public async resetTerminal() {
+        // 1. 既存のプロセスを明示的に終了完了まで待つ
+        await this._processManager.terminateProcessAsync(this._workspaceKey);
 
         // 2. セッションバッファとビューをクリア
         this._sessionManager.clearBuffer(this._workspaceKey);
         this._view?.webview.postMessage({ type: 'clear' });
 
-        // 3. 少し待ってから新しいシェルを起動
-        setTimeout(() => {
-            // ウェルカムメッセージを表示
-            const versionInfo = this.getVersionInfo();
-            const welcomeMessage = `Terminal has been reset.\r\nWelcome to Secondary Terminal v${versionInfo.version} (${versionInfo.buildDate}).\r\n`;
-            this._sessionManager.addOutput(this._workspaceKey, welcomeMessage);
+        // 3. リセット完了通知（フロント側で完全再初期化→terminalReady→startShell）
+        this._view?.webview.postMessage({ type: 'reset' });
 
-            // 新しいシェルプロセスを開始
-            this.startShell();
-
-            // プロセス起動後にフロントエンドにリセット完了を通知
-            setTimeout(() => {
-                this._view?.webview.postMessage({ type: 'reset' });
-            }, 100); // startShell の後、少し待ってからリセット完了通知
-        }, 500);
+        // 4. ウェルカムメッセージ（再初期化後に出力される）
+        const versionInfo = this.getVersionInfo();
+        const welcomeMessage = `Terminal has been reset.\r\nWelcome to Secondary Terminal v${versionInfo.version} (${versionInfo.buildDate}).\r\n`;
+        this._sessionManager.addOutput(this._workspaceKey, welcomeMessage);
     }
 
     private forceRefreshCliAgentStatus() {

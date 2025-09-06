@@ -19,6 +19,8 @@ export class ShellProcessManager {
     private static instance: ShellProcessManager;
     private processes: Map<string, ShellProcessInfo> = new Map();
     private sessionManager = TerminalSessionManager.getInstance();
+    // startup commands をワークスペースごとに一度だけ実行するためのフラグ
+    private startupExecuted: Set<string> = new Set();
 
     private constructor() {}
 
@@ -41,9 +43,17 @@ export class ShellProcessManager {
     ): childProcess.ChildProcess {
         let processInfo = this.processes.get(workspaceKey);
 
-        if (!processInfo || !processInfo.process || processInfo.process.killed) {
-            // プロセスが存在しないか終了している場合は新規作成
+        const shouldCreate = !processInfo
+            || processInfo.process.killed
+            || processInfo.process.exitCode !== null
+            || !this.isProcessStdinWritable(processInfo.process);
+
+        if (shouldCreate) {
             processInfo = this.createNewProcess(workspaceKey, extensionPath, cwd, cols, rows);
+        }
+
+        if (!processInfo) {
+            throw new Error(`Failed to create or retrieve shell process for workspace ${workspaceKey}`);
         }
 
         // プロセスをアクティブにする
@@ -69,9 +79,10 @@ export class ShellProcessManager {
 
         const pythonScriptPath = path.join(extensionPath, 'resources', 'pty-shell.py');
         
-        // VSCode 設定から startup commands を取得
+        // VSCode 設定から startup commands を取得（初回起動時のみ有効化）
         const config = vscode.workspace.getConfiguration('secondaryTerminal');
-        const startupCommands: string[] = config.get('startupCommands', []);
+        const configuredStartup: string[] = config.get('startupCommands', []);
+        const shouldIncludeStartup = !this.startupExecuted.has(workspaceKey) && configuredStartup.length > 0;
         
         const args = [
             pythonScriptPath,
@@ -80,9 +91,9 @@ export class ShellProcessManager {
             cwd
         ];
         
-        // startup commands が設定されている場合は引数に追加
-        if (startupCommands.length > 0) {
-            args.push('--startup-commands', JSON.stringify(startupCommands));
+        // 初回のみ startup commands を引数に追加
+        if (shouldIncludeStartup) {
+            args.push('--startup-commands', JSON.stringify(configuredStartup));
         }
         
         // Python実行パスを動的に決定
@@ -108,6 +119,11 @@ export class ShellProcessManager {
             cwd,
             isActive: true
         };
+
+        // 起動に成功したので、このワークスペースでは startup を実行済み扱いにする
+        if (shouldIncludeStartup) {
+            this.startupExecuted.add(workspaceKey);
+        }
 
         // 出力データをセッションマネージャーに送信
         if (shellProcess.stdout) {
@@ -143,9 +159,14 @@ export class ShellProcessManager {
      */
     public sendToProcess(workspaceKey: string, data: string): void {
         const processInfo = this.processes.get(workspaceKey);
-        if (processInfo && processInfo.process && processInfo.process.stdin) {
-            processInfo.process.stdin.write(data, 'utf8');
+        if (!processInfo || !processInfo.process || !processInfo.process.stdin) return;
+        const stdinAny: any = processInfo.process.stdin as any;
+        // リセット直後など、stdin が閉じている場合は書き込まない
+        if (!this.isProcessStdinWritable(processInfo.process)) {
+            console.warn(`Skip write: stdin closed (destroyed=${stdinAny.destroyed}, writable=${stdinAny.writable}, ended=${stdinAny.writableEnded}, finished=${stdinAny.writableFinished}) for ${workspaceKey}`);
+            return;
         }
+        processInfo.process.stdin.write(data, 'utf8');
     }
 
     /**
@@ -153,7 +174,7 @@ export class ShellProcessManager {
      */
     public updateProcessSize(workspaceKey: string, cols: number, rows: number): void {
         const processInfo = this.processes.get(workspaceKey);
-        if (processInfo && processInfo.process && processInfo.process.stdin) {
+        if (processInfo && processInfo.process && processInfo.process.stdin && !(processInfo.process.stdin as any).destroyed) {
             if (processInfo.cols !== cols || processInfo.rows !== rows) {
                 processInfo.cols = cols;
                 processInfo.rows = rows;
@@ -180,17 +201,24 @@ export class ShellProcessManager {
         const processInfo = this.processes.get(workspaceKey);
         if (processInfo && processInfo.process) {
             try {
+                // 以降の getOrCreate で再利用されないように、まず Map から外す
+                this.processes.delete(workspaceKey);
+
                 const process = processInfo.process;
                 
                 // プロセスがまだ生きているかチェック
                 if (process.killed || process.exitCode !== null) {
-                    this.processes.delete(workspaceKey);
                     return;
                 }
                 
-                // stdin を閉じる
+                // stdin を確実に閉じる（end ではなく destroy を優先）
                 if (process.stdin && !process.stdin.destroyed) {
-                    process.stdin.end();
+                    try {
+                        (process.stdin as any).destroy?.();
+                    } catch {
+                        // destroy が無い/失敗時は end
+                        try { process.stdin.end(); } catch {}
+                    }
                 }
                 
                 // 穏やかに終了を試みる (SIGTERM)
@@ -208,26 +236,78 @@ export class ShellProcessManager {
                             console.error('Error force killing process:', killError);
                         }
                     }
-                }, 3000); // 3秒待つ
+                }, 1500); // 短縮して再起動までの待ちを減らす
                 
                 // プロセス終了時にタイムアウトをクリア
                 const exitHandler = () => {
                     clearTimeout(forceKillTimeout);
-                    this.processes.delete(workspaceKey);
                 };
                 
                 process.once('exit', exitHandler);
                 process.once('error', (error) => {
                     console.error(`Process error for workspace ${workspaceKey}:`, error);
                     clearTimeout(forceKillTimeout);
-                    this.processes.delete(workspaceKey);
                 });
                 
             } catch (error) {
                 console.error('Error terminating process:', error);
-                this.processes.delete(workspaceKey);
             }
         }
+    }
+
+    /**
+     * 特定のワークスペースのプロセスを明示的に終了（完了を待つ）
+     */
+    public async terminateProcessAsync(workspaceKey: string): Promise<void> {
+        const processInfo = this.processes.get(workspaceKey);
+        if (!processInfo || !processInfo.process) return;
+
+        return new Promise<void>((resolve) => {
+            try {
+                // 以降の再利用を防ぐため、先に Map から外す
+                this.processes.delete(workspaceKey);
+
+                const proc = processInfo.process;
+
+                // 既に終了していれば即 resolve
+                if (proc.killed || proc.exitCode !== null) {
+                    resolve();
+                    return;
+                }
+
+                // stdin を確実に閉じる
+                if (proc.stdin && !(proc.stdin as any).destroyed) {
+                    try { (proc.stdin as any).destroy?.(); } catch {}
+                    try { proc.stdin.end(); } catch {}
+                }
+
+                let resolved = false;
+                const done = () => {
+                    if (resolved) return;
+                    resolved = true;
+                    resolve();
+                };
+
+                // 正常終了・エラーで完了
+                proc.once('exit', done);
+                proc.once('error', done);
+
+                // 穏やかに終了
+                try { proc.kill('SIGTERM'); } catch {}
+
+                // 1秒待ってまだなら強制終了、その0.5秒後に resolve 保証
+                setTimeout(() => {
+                    try {
+                        if (!proc.killed && proc.exitCode === null) {
+                            proc.kill('SIGKILL');
+                        }
+                    } catch {}
+                    setTimeout(done, 500);
+                }, 1000);
+            } catch {
+                resolve();
+            }
+        });
     }
 
     /**
@@ -255,6 +335,17 @@ export class ShellProcessManager {
         // フォールバック
         console.warn('Python not found, falling back to python3');
         return 'python3';
+    }
+
+    // stdin が書き込み可能かのユーティリティ
+    private isProcessStdinWritable(proc: childProcess.ChildProcess): boolean {
+        const s: any = proc.stdin as any;
+        if (!s) return false;
+        if (s.destroyed === true) return false;
+        if (s.writable === false) return false;
+        if (s.writableEnded === true) return false;
+        if (s.writableFinished === true) return false;
+        return true;
     }
 
     /**

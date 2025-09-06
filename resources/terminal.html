@@ -227,7 +227,7 @@
 
         // リソース完全リセット関数
         function resetTerminalResources() {
-            console.log('Resetting all terminal resources...');
+            
 
             // 既存のターミナルを破棄
             if (terminalState.term) {
@@ -274,7 +274,7 @@
             // 初期化フラグをリセット
             terminalState.isInitialized = false;
 
-            console.log('Terminal resources reset completed');
+            
         }
 
         // イベントリスナー登録ヘルパー（管理対象に追加）
@@ -292,7 +292,7 @@
                     return;
                 }
 
-                console.log('Initializing terminal...');
+                
 
             if (typeof Terminal === 'undefined') {
                 throw new Error('Terminal is not defined. xterm.js may not have loaded.');
@@ -328,7 +328,7 @@
                     const unicode11 = new Unicode11Addon.Unicode11Addon();
                     terminalState.term.loadAddon(unicode11);
                     unicode11.activate(terminalState.term);
-                    console.log('Unicode 11 addon loaded and activated');
+                    
                 } catch (error) {
                     console.error('Failed to load Unicode 11 addon:', error);
                 }
@@ -339,7 +339,7 @@
                 try {
                     const canvas = new CanvasAddon.CanvasAddon();
                     terminalState.term.loadAddon(canvas);
-                    console.log('Canvas addon loaded');
+                    
                 } catch (error) {
                     console.error('Failed to load Canvas addon:', error);
                 }
@@ -351,7 +351,7 @@
                     const checkSize = () => {
                         const rect = terminalElement.getBoundingClientRect();
                         if (rect.width > 0 && rect.height > 0) {
-                            console.log('Terminal element size confirmed:', rect.width, 'x', rect.height);
+                            
                             resolve();
                         } else {
                             setTimeout(checkSize, 10);
@@ -365,9 +365,9 @@
             waitForSize().then(() => {
                 // 初期サイズ設定
                 setTerminalSize();
-                console.log('Terminal initialized with DOM renderer');
+                
 
-                console.log('Terminal initialized with addons');
+                
             });
 
             // ターミナルサイズを動的に設定（元の手動計算方式）
@@ -380,8 +380,7 @@
                     return;
                 }
 
-                console.log('Container size:', container.clientWidth, 'x', container.clientHeight);
-                console.log('Terminal size:', terminal.clientWidth, 'x', terminal.clientHeight);
+                
 
                 // コンテナの実際のサイズを取得
                 const terminalRect = terminal.getBoundingClientRect();
@@ -389,7 +388,7 @@
                 // const availableHeight = Math.max(terminalRect.height - 20, 200); // パディング考慮
                 const availableHeight = terminalRect.height - 5;
 
-                console.log('Available terminal size:', availableWidth, 'x', availableHeight);
+                
 
                 // フォント情報から文字サイズを正確に計算
                 const fontSize = 13;
@@ -423,9 +422,7 @@
                 const cols = Math.floor(availableWidth / adjustedCharWidth);
                 const rows = Math.floor(availableHeight / adjustedLineHeight);
 
-                console.log('Font metrics - rawCharWidth:', rawCharWidth, 'rawLineHeight:', rawLineHeight);
-                console.log('Adjusted metrics - charWidth:', adjustedCharWidth, 'lineHeight:', adjustedLineHeight);
-                console.log('Calculated terminal size:', cols, 'x', rows);
+                
 
                 // 最小サイズを保証
                 const finalCols = Math.max(cols, 20);
@@ -442,7 +439,7 @@
                         rows: finalRows
                     });
 
-                    console.log('Terminal resized to:', finalCols, 'x', finalRows);
+                    
                 }
             }
 
@@ -461,12 +458,12 @@
 
                 // デバウンス処理：連続する resize を制限
                 if (now - lastResizeTime < 100) {
-                    console.log(`[PERF] Resize event #${resizeCount} debounced (${now - lastResizeTime}ms since last)`);
+                    
                     return;
                 }
 
                 for (const entry of entries) {
-                    console.log(`[PERF] Container resized #${resizeCount}:`, entry.contentRect.width, 'x', entry.contentRect.height, `(${now - lastResizeTime}ms since last)`);
+                    
                     lastResizeTime = now;
 
                     // 遅延を短縮してレスポンシブ性を向上
@@ -484,7 +481,7 @@
             let lastSizeCheck = Date.now();
             terminalState.timers.sizeCheckInterval = setInterval(() => {
                 const now = Date.now();
-                console.log(`[PERF] Size check interval: ${now - lastSizeCheck}ms`);
+                
                 lastSizeCheck = now;
                 setTerminalSize();
             }, 2000);
@@ -528,7 +525,7 @@
 
                             if (message.type === 'cli_agent_status') {
                                 cliAgentState = message.data;
-                                console.log('CLI Agent status changed:', cliAgentState);
+                                
                                 updateCliAgentIndicator(); // インジケーター表示を更新
                             }
                         }
@@ -542,7 +539,7 @@
             // Shift + Enter を Alt + Enter に変換するキーハンドラー
             try {
                 if (typeof terminalState.term.attachCustomKeyEventHandler === 'function') {
-                    console.log('Setting up custom key handler for Shift+Enter');
+                    
 
                     terminalState.term.attachCustomKeyEventHandler(function (event) {
                         // Shift + Enter の場合（CLI エージェントが動作中のときのみ）
@@ -556,7 +553,7 @@
                             // CLI エージェント（Claude/Gemini）がアクティブの場合のみ Alt+Enter に変換
                             if (cliAgentState.active) {
                                 const agentType = cliAgentState.agent_type || 'CLI Agent';
-                                console.log(`Shift+Enter detected (${agentType} active), sending Alt+Enter sequence`);
+                                
 
                                 // ブラウザのデフォルト動作を完全に停止
                                 event.preventDefault();
@@ -575,7 +572,7 @@
                                 return false;
                             } else {
                                 // CLI エージェントがアクティブでない場合は通常の Enter として処理
-                                console.log('Shift+Enter detected (CLI Agent not active), processing as normal Enter');
+                                
                                 return true;
                             }
                         }
@@ -584,7 +581,7 @@
                         return true;
                     });
 
-                    console.log('Custom key handler attached successfully');
+                    
                 } else {
                     console.warn('attachCustomKeyEventHandler is not available');
                 }
@@ -622,37 +619,31 @@
 
                         // 重い処理（2ms以上）のみログ出力
                         if (outputTime > 2) {
-                            console.log(`[PERF] Output #${outputCount} took ${outputTime.toFixed(2)}ms for ${message.data.length} chars (total: ${totalOutputChars} chars)`);
+                            
                         }
 
                         // 100回ごとに統計を出力
                         if (outputCount % 100 === 0) {
-                            console.log(`[PERF] Output stats: ${outputCount} outputs, ${totalOutputChars} total chars, avg ${(totalOutputChars/outputCount).toFixed(1)} chars/output`);
+                            
                         }
                         break;
                     case 'clear':
                         if (terminalState.term) {
                             terminalState.term.clear();
                         }
-                        console.log(`[PERF] Terminal cleared`);
+                        
                         break;
                     case 'reset':
-                        // リセット完了通知への対応
-                        console.log('Received reset completion message from VSCode');
-                        // スクロールバックごと完全にリセットし、入力を有効化
-                        if (terminalState.term) {
-                            terminalState.term.reset();
-                            setTimeout(() => {
-                                if (terminalState.term) {
-                                    terminalState.term.focus();
-                                }
-                            }, 50);
-                        }
-                        console.log('Reset completed, terminal ready for input');
+                        // VSCode 側のリセット完了に合わせて、フロント側も完全再初期化
+                        // これによりキーハンドラ、フォーカス、ResizeObserver、タイマーを健全な状態に戻す
+                        resetTerminalResources();
+                        setTimeout(() => {
+                            initializeTerminal();
+                        }, 10);
                         break;
                     case 'visibility_restored':
                         // WebView の可視状態が復元された時の処理
-                        console.log('WebView visibility restored, checking terminal state');
+                        
                         if (terminalState.term) {
                             // ターミナルが存在する場合は、サイズを再調整
                             setTimeout(() => {
@@ -710,7 +701,7 @@
 
             // リセットボタンのイベント設定
             const resetButtonHandler = () => {
-                console.log('resetButtonPressed');
+                
                 // VSCode 側で確認ダイアログを表示してもらう
                 vscode.postMessage({ type: 'buttonResetRequest' });
             };
@@ -729,9 +720,15 @@
             // 初期化完了フラグを設定
             terminalState.isInitialized = true;
 
+            // 入力フォーカスを明示的に与える
+            if (terminalState.term) {
+                terminalState.term.focus();
+            }
+
+            // VSCode 側に準備完了を通知（これをトリガにシェルを起動）
             vscode.postMessage({ type: 'terminalReady' });
 
-            console.log('Terminal initialized successfully');
+            
 
             } catch (error) {
                 console.error('Error initializing terminal:', error);
@@ -753,18 +750,18 @@
             function applyBackgroundColor() {
                 const now = Date.now();
                 backgroundColorCheckCount++;
-                console.log(`[PERF] Background color check #${backgroundColorCheckCount}, interval: ${now - lastBackgroundCheck}ms`);
+                
                 lastBackgroundCheck = now;
 
                 const textLayer = document.querySelector('#terminal canvas.xterm-text-layer');
                 if (!textLayer) {
-                    console.log(`[PERF] Text layer not found, skipping background color check`);
+                    
                     return;
                 }
 
                 const ctx = textLayer.getContext('2d');
                 if (!ctx || !textLayer.width || !textLayer.height) {
-                    console.log(`[PERF] Canvas context not ready, skipping background color check`);
+                    
                     return;
                 }
 
@@ -812,12 +809,12 @@
                         const currentBg = terminalContainer.style.backgroundColor;
                         if (currentBg !== rgba) {
                             terminalContainer.style.backgroundColor = rgba;
-                            console.log(`[PERF] Background color updated: ${rgba}`);
+                            
                         }
                     }
 
                     const performanceEnd = performance.now();
-                    console.log(`[PERF] Background color check took: ${(performanceEnd - performanceStart).toFixed(2)}ms`);
+                    
                 } catch (error) {
                     console.error('[PERF] Error reading canvas pixel data:', error);
                 }
