@@ -67,14 +67,13 @@ export class ShellProcessManager {
     ): ShellProcessInfo {
         console.log(`Creating new shell process for workspace: ${workspaceKey}`);
 
-        const pythonScriptPath = path.join(extensionPath, 'resources', 'pty-shell.py');
+        const rustBinaryPath = path.join(extensionPath, 'resources', 'pty-shell-rs');
         
         // VSCode 設定から startup commands を取得
         const config = vscode.workspace.getConfiguration('secondaryTerminal');
         const startupCommands: string[] = config.get('startupCommands', []);
         
         const args = [
-            pythonScriptPath,
             cols.toString(),
             rows.toString(),
             cwd
@@ -85,10 +84,7 @@ export class ShellProcessManager {
             args.push('--startup-commands', JSON.stringify(startupCommands));
         }
         
-        // Python実行パスを動的に決定
-        const pythonCommand = this.findPythonCommand();
-        
-        const shellProcess = childProcess.spawn(pythonCommand, args, {
+        const shellProcess = childProcess.spawn(rustBinaryPath, args, {
             cwd: cwd,
             env: {
                 ...process.env,
@@ -235,33 +231,7 @@ export class ShellProcessManager {
         }
     }
 
-    /**
-     * Python コマンドを動的に検索
-     */
-    private findPythonCommand(): string {
-        const candidates = ['python3', 'python', 'python3.exe', 'python.exe'];
-        
-        for (const cmd of candidates) {
-            try {
-                // which コマンドでパスを確認
-                const result = childProcess.execSync(`which ${cmd}`, { 
-                    encoding: 'utf8', 
-                    stdio: 'pipe' 
-                });
-                if (result.trim()) {
-                    console.log(`Using Python command: ${cmd}`);
-                    return cmd;
-                }
-            } catch {
-                // このコマンドは見つからなかった
-                continue;
-            }
-        }
-        
-        // フォールバック
-        console.warn('Python not found, falling back to python3');
-        return 'python3';
-    }
+    // Python バックエンドは廃止（Rust バックエンドを使用）
 
     /**
      * 全てのプロセスを終了（非同期版）
