@@ -227,11 +227,42 @@
 
         // リソース完全リセット関数
         function resetTerminalResources() {
-            
+            console.log('[LEAK CHECK] Starting resource reset');
+
+            // xterm のリスナーを先に dispose
+            if (terminalState.xtermListeners && terminalState.xtermListeners.length > 0) {
+                console.log('[LEAK CHECK] Disposing ' + terminalState.xtermListeners.length + ' xterm listeners');
+                terminalState.xtermListeners.forEach(listener => {
+                    try {
+                        if (listener && listener.dispose) {
+                            listener.dispose();
+                        }
+                    } catch (error) {
+                        console.error('[LEAK CHECK] Error disposing xterm listener:', error);
+                    }
+                });
+                terminalState.xtermListeners = [];
+            }
+
+            // アドオンを dispose
+            if (terminalState.addons && terminalState.addons.length > 0) {
+                console.log('[LEAK CHECK] Disposing ' + terminalState.addons.length + ' addons');
+                terminalState.addons.forEach(addon => {
+                    try {
+                        if (addon && addon.dispose) {
+                            addon.dispose();
+                        }
+                    } catch (error) {
+                        console.error('[LEAK CHECK] Error disposing addon:', error);
+                    }
+                });
+                terminalState.addons = [];
+            }
 
             // 既存のターミナルを破棄
             if (terminalState.term) {
                 try {
+                    console.log('[LEAK CHECK] Disposing terminal instance');
                     terminalState.term.dispose();
                 } catch (error) {
                     console.error('Error disposing terminal:', error);
@@ -288,10 +319,11 @@
             try {
                 // 重複初期化をチェック
                 if (terminalState.isInitialized) {
-                    console.warn('Terminal is already initialized, skipping duplicate initialization');
+                    console.warn('[LEAK CHECK] Terminal is already initialized, skipping duplicate initialization');
                     return;
                 }
 
+                console.log('[LEAK CHECK] Starting terminal initialization');
                 
 
             if (typeof Terminal === 'undefined') {
@@ -328,7 +360,13 @@
                     const unicode11 = new Unicode11Addon.Unicode11Addon();
                     terminalState.term.loadAddon(unicode11);
                     unicode11.activate(terminalState.term);
+                    console.log('[LEAK CHECK] Unicode11 addon loaded');
                     
+                    // アドオンを管理対象に追加
+                    if (!terminalState.addons) {
+                        terminalState.addons = [];
+                    }
+                    terminalState.addons.push(unicode11);
                 } catch (error) {
                     console.error('Failed to load Unicode 11 addon:', error);
                 }
@@ -339,7 +377,13 @@
                 try {
                     const canvas = new CanvasAddon.CanvasAddon();
                     terminalState.term.loadAddon(canvas);
+                    console.log('[LEAK CHECK] Canvas addon loaded');
                     
+                    // アドオンを管理対象に追加
+                    if (!terminalState.addons) {
+                        terminalState.addons = [];
+                    }
+                    terminalState.addons.push(canvas);
                 } catch (error) {
                     console.error('Failed to load Canvas addon:', error);
                 }
@@ -452,6 +496,12 @@
             // ResizeObserver でコンテナサイズ変更を監視
             let lastResizeTime = 0;
             let resizeCount = 0;
+            
+            // 既存の ResizeObserver があれば警告
+            if (terminalState.resizeObserver) {
+                console.warn('[LEAK CHECK] ResizeObserver already exists! This might be a duplicate.');
+            }
+            
             terminalState.resizeObserver = new ResizeObserver((entries) => {
                 const now = Date.now();
                 resizeCount++;
@@ -597,12 +647,20 @@
                 console.error('Failed to attach custom key handler:', error);
             }
 
-            terminalState.term.onData((data) => {
+            // onData のリスナーを保存して後で dispose できるようにする
+            const dataListener = terminalState.term.onData((data) => {
                 vscode.postMessage({
                     type: 'terminalInput',
                     data: data
                 });
             });
+            
+            // dataListener を管理対象に追加（dispose 時にクリーンアップするため）
+            if (!terminalState.xtermListeners) {
+                terminalState.xtermListeners = [];
+            }
+            terminalState.xtermListeners.push(dataListener);
+            console.log('[LEAK CHECK] Added onData listener, total listeners: ' + terminalState.xtermListeners.length);
 
             let outputCount = 0;
             let totalOutputChars = 0;
@@ -651,10 +709,11 @@
                         break;
                     case 'visibility_restored':
                         // WebView の可視状態が復元された時の処理
-                        
+                        console.log('[LEAK CHECK] visibility_restored event received');
                         if (terminalState.term) {
                             // ターミナルが存在する場合は、サイズを再調整
                             setTimeout(() => {
+                                console.log('[LEAK CHECK] Calling setTerminalSize from visibility_restored');
                                 setTerminalSize();
                                 // フォーカスを復元
                                 terminalState.term.focus();
