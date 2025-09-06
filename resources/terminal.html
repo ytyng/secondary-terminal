@@ -309,7 +309,8 @@
                 fontSize: 13,
                 letterSpacing: 0,
                 lineHeight: 1.2,
-                cursorBlink: true,
+                cursorBlink: false,
+                smoothScrollDuration: 0,  // スムーズスクロールを無効化（パフォーマンス向上）
                 convertEol: true,
                 allowProposedApi: true,
                 allowTransparency: false,
@@ -457,17 +458,17 @@
             terminalState.resizeObserver = new ResizeObserver((entries) => {
                 const now = Date.now();
                 resizeCount++;
-                
+
                 // デバウンス処理：連続する resize を制限
                 if (now - lastResizeTime < 100) {
                     console.log(`[PERF] Resize event #${resizeCount} debounced (${now - lastResizeTime}ms since last)`);
                     return;
                 }
-                
+
                 for (const entry of entries) {
                     console.log(`[PERF] Container resized #${resizeCount}:`, entry.contentRect.width, 'x', entry.contentRect.height, `(${now - lastResizeTime}ms since last)`);
                     lastResizeTime = now;
-                    
+
                     // 遅延を短縮してレスポンシブ性を向上
                     setTimeout(setTerminalSize, 30);
                 }
@@ -600,7 +601,7 @@
 
             let outputCount = 0;
             let totalOutputChars = 0;
-            
+
             const messageHandler = (event) => {
                 const message = event.data;
                 switch (message.type) {
@@ -608,22 +609,22 @@
                         const outputStart = performance.now();
                         outputCount++;
                         totalOutputChars += message.data.length;
-                        
+
                         // ステータスメッセージをチェック
                         handleStatusMessage(message.data);
                         // 通常の出力として書き込み
                         if (terminalState.term) {
                             terminalState.term.write(message.data);
                         }
-                        
+
                         const outputEnd = performance.now();
                         const outputTime = outputEnd - outputStart;
-                        
+
                         // 重い処理（2ms以上）のみログ出力
                         if (outputTime > 2) {
                             console.log(`[PERF] Output #${outputCount} took ${outputTime.toFixed(2)}ms for ${message.data.length} chars (total: ${totalOutputChars} chars)`);
                         }
-                        
+
                         // 100回ごとに統計を出力
                         if (outputCount % 100 === 0) {
                             console.log(`[PERF] Output stats: ${outputCount} outputs, ${totalOutputChars} total chars, avg ${(totalOutputChars/outputCount).toFixed(1)} chars/output`);
@@ -658,9 +659,9 @@
                                 setTerminalSize();
                                 // フォーカスを復元
                                 terminalState.term.focus();
-                                
+
                                 // CLI Agent状態を強制的に再チェック要求
-                                vscode.postMessage({ 
+                                vscode.postMessage({
                                     type: 'refreshCliAgentStatus',
                                     timestamp: Date.now()
                                 });
@@ -806,7 +807,7 @@
                     // すべて同じ色の場合のみ背景色を変更
                     if (allSameColor) {
                         const rgba = `rgba(${firstColor.r}, ${firstColor.g}, ${firstColor.b}, ${firstColor.a / 255})`;
-                        
+
                         // 背景色が変わった場合のみ更新
                         const currentBg = terminalContainer.style.backgroundColor;
                         if (currentBg !== rgba) {
