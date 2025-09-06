@@ -28,96 +28,110 @@ def set_winsize(fd, rows, cols):
 
 
 def check_cli_agent_active(shell_pid):
-    """シェルプロセスでCLIエージェント（Claude、Gemini）がアクティブかチェック"""
+    """シェルプロセス配下で CLI エージェント（Claude, Gemini）の稼働有無を軽量に判定する。
+
+    以前は `ps -eo pid,ppid,comm,args` で全プロセスを列挙していたが、
+    環境によっては出力が大きくなり、3秒ごとの実行でも徐々に CPU 使用率が上がる可能性があった。
+    ここでは pgrep を用いた親子探索(BFS)と、対象 PID 群に限定した ps 呼び出しにより負荷を抑える。
+    """
     try:
-        # プロセスツリーを取得して、シェルの子孫プロセスを調べる
-        ps_result = subprocess.run(
-            ['ps', '-eo', 'pid,ppid,comm,args'],
-            capture_output=True,
-            text=True,
-            timeout=2,
-            encoding='utf-8',
-            errors='ignore',
-        )
-
-        if ps_result.returncode != 0:
-            return None
-
-        lines = ps_result.stdout.strip().split('\n')
-
-        # プロセスツリーを構築
-        processes = {}
-        for line in lines[1:]:
-            parts = line.strip().split(None, 3)
-            if len(parts) >= 4:
-                try:
-                    pid = int(parts[0])
-                    ppid = int(parts[1])
-                    comm = parts[2]
-                    args = parts[3]
-                    processes[pid] = {'ppid': ppid, 'comm': comm, 'args': args}
-                except ValueError:
-                    continue
-            elif len(parts) == 3:
-                try:
-                    pid = int(parts[0])
-                    ppid = int(parts[1])
-                    comm = parts[2]
-                    processes[pid] = {'ppid': ppid, 'comm': comm, 'args': ''}
-                except ValueError:
-                    continue
-
-        # シェルプロセスの子孫を再帰的に検索
-        def find_descendants(parent_pid, visited=None, depth=0):
-            if visited is None:
-                visited = set()
-
-            # 最大再帰深度を制限
-            if depth > 5:
+        # BFS で深さ5までの子孫 PID を列挙
+        def list_children(parent_pid):
+            try:
+                r = subprocess.run(
+                    ['pgrep', '-P', str(parent_pid)],
+                    capture_output=True,
+                    text=True,
+                    timeout=1,
+                    encoding='utf-8',
+                    errors='ignore',
+                )
+                if r.returncode not in (0, 1):
+                    return []
+                lines = r.stdout.strip().split('\n') if r.stdout else []
+                result = []
+                for line in lines:
+                    line = line.strip()
+                    if not line:
+                        continue
+                    try:
+                        result.append(int(line))
+                    except ValueError:
+                        pass
+                return result
+            except (subprocess.TimeoutExpired, subprocess.SubprocessError, FileNotFoundError):
                 return []
 
-            # 循環参照を検出して回避
-            if parent_pid in visited:
-                return []
+        max_depth = 5
+        descendants = []
+        queue = [(shell_pid, 0)]
+        seen = {shell_pid}
 
-            visited.add(parent_pid)
-            descendants = []
+        while queue:
+            pid, depth = queue.pop(0)
+            if depth >= max_depth:
+                continue
+            for c in list_children(pid):
+                if c in seen:
+                    continue
+                seen.add(c)
+                descendants.append(c)
+                queue.append((c, depth + 1))
 
-            for pid, info in processes.items():
-                if info['ppid'] == parent_pid and pid not in visited:
-                    descendants.append(pid)
-                    # 新しいvisitedセットを作成して再帰的に子孫を検索
-                    child_descendants = find_descendants(
-                        pid, visited.copy(), depth + 1
-                    )
-                    descendants.extend(child_descendants)
+        if not descendants:
+            return {'active': False, 'agent_type': None}
 
-            return descendants
+        # 収集した子孫 PID だけを対象に、最小限の ps で詳細を取得
+        # macOS の ps は複数 PID をカンマ区切りで受け付ける
+        def batched(iterable, size):
+            it = iter(iterable)
+            while True:
+                chunk = []
+                try:
+                    for _ in range(size):
+                        chunk.append(next(it))
+                except StopIteration:
+                    if chunk:
+                        yield chunk
+                    break
+                yield chunk
 
-        descendants = find_descendants(shell_pid)
+        for chunk in batched(descendants, 50):
+            try:
+                r = subprocess.run(
+                    ['ps', '-o', 'comm=,args=', '-p', ','.join(str(x) for x in chunk)],
+                    capture_output=True,
+                    text=True,
+                    timeout=1,
+                    encoding='utf-8',
+                    errors='ignore',
+                )
+                if r.returncode != 0:
+                    continue
+                for line in r.stdout.splitlines():
+                    if not line.strip():
+                        continue
+                    # comm と args はスペース区切りだが、args はスペースを含む。
+                    # 'comm=,args=' により先頭フィールドはコマンド名のみ、それ以降を args として扱える。
+                    try:
+                        # 先頭のコマンド名と残りを args として分離
+                        parts = line.strip().split(None, 1)
+                        comm = parts[0].lower() if parts else ''
+                        args = parts[1].lower() if len(parts) > 1 else ''
 
-        # 子孫プロセスの中でCLIエージェントを検索
-        for pid in descendants:
-            if pid in processes:
-                proc_info = processes[pid]
-                comm_lower = proc_info['comm'].lower()
-                args_lower = proc_info['args'].lower()
-
-                # Claude の検出（コマンド名のみで判定）
-                if 'claude' in comm_lower:
-                    return {'active': True, 'agent_type': 'claude'}
-
-                # Gemini の検出 (コマンドライン引数全体で判定)
-                if '/bin/gemini' in args_lower:
-                    return {'active': True, 'agent_type': 'gemini'}
+                        if 'claude' in comm:
+                            return {'active': True, 'agent_type': 'claude'}
+                        if '/bin/gemini' in args:
+                            return {'active': True, 'agent_type': 'gemini'}
+                    except Exception:
+                        # 行のパース失敗は無視して続行
+                        continue
+            except (subprocess.TimeoutExpired, subprocess.SubprocessError, FileNotFoundError):
+                continue
 
         return {'active': False, 'agent_type': None}
-
-    except (
-        subprocess.TimeoutExpired,
-        subprocess.SubprocessError,
-        FileNotFoundError,
-    ):
+    except Exception:
+        # 想定外のエラーは検出無効として扱う
         return {'active': False, 'agent_type': None}
 
 
@@ -269,8 +283,11 @@ def main():
         except (ImportError, OSError):
             pass
 
-        # CLI エージェント監視のための変数（無効化してパフォーマンス向上）
+        # CLI エージェント監視のための変数
         last_agent_check = 0
+        # NULL での強制チェックにレート制限を導入（過剰な発火での高負荷を防止）
+        last_forced_check = 0.0
+        forced_check_cooldown = 1.5  # 秒
         current_agent_state = {'active': False, 'agent_type': None}
         check_interval = 3.0  # 3秒間隔に変更
 
@@ -360,18 +377,20 @@ def main():
                                         # NULL文字が含まれている場合は、CLI Agentステータスを即座にチェック
                                         # Extension が非アクティブになってから、再アクティブになると来ることがある
                                         # print('Received CLI Agent status refresh signal', file=sys.stderr)
-                                        new_agent_state = (
-                                            check_cli_agent_active(p.pid)
-                                        )
-                                        if new_agent_state:
-                                            current_agent_state = (
-                                                new_agent_state
+                                        if current_time - last_forced_check >= forced_check_cooldown:
+                                            new_agent_state = (
+                                                check_cli_agent_active(p.pid)
                                             )
-                                            send_status_message(
-                                                'cli_agent_status',
-                                                current_agent_state,
-                                            )
-                                            last_agent_check = current_time  # チェック時間を更新
+                                            if new_agent_state:
+                                                current_agent_state = (
+                                                    new_agent_state
+                                                )
+                                                send_status_message(
+                                                    'cli_agent_status',
+                                                    current_agent_state,
+                                                )
+                                                last_agent_check = current_time  # チェック時間を更新
+                                                last_forced_check = current_time
                                         # NULL文字を除去してから送信
                                         text = text.replace('\x00', '')
                                         if (
