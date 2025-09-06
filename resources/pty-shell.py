@@ -10,6 +10,7 @@ import time
 import json
 import atexit
 import errno
+import re
 
 # I/O バッファサイズ定数
 IO_BUFFER_SIZE = 8092
@@ -366,9 +367,7 @@ def main():
                                     # デコードエラーが発生した場合、完全にデコードできる部分だけを取り出す
                                     if e.start > 0:
                                         # エラー開始位置より前は正常にデコードできる
-                                        text = input_buffer[: e.start].decode(
-                                            'utf-8'
-                                        )
+                                        text = input_buffer[: e.start].decode('utf-8')
                                         # 未処理部分をバッファに残す
                                         input_buffer = input_buffer[e.start :]
                                     else:
@@ -378,75 +377,72 @@ def main():
                                         text = ''
 
                                 if text:
+                                    #
+                                    # NOTE: WebView 側からの resize 通知は、
+                                    # '\x1b[8;{rows};{cols}t' のエスケープシーケンスとして
+                                    # 本プロセスの stdin に流入する。
+                                    # これがユーザー入力（ペースト）に混在した場合、
+                                    # 先頭一致のみの判定だと後続テキストが破棄され得る。
+                                    # そのため、テキスト中の全シーケンスを検出して処理し、
+                                    # 残余の通常テキストだけを PTY に流す。
+                                    #
 
-                                    # CLI Agent ステータス強制チェック信号を検出
+                                    # CLI Agent ステータス強制チェック信号を検出し、取り除く
                                     if '\x00' in text:
-                                        # NULL文字が含まれている場合は、CLI Agentステータスを即座にチェック
-                                        # Extension が非アクティブになってから、再アクティブになると来ることがある
-                                        # print('Received CLI Agent status refresh signal', file=sys.stderr)
+                                        # NULL 文字は取り除いたうえで残余を処理する
                                         if current_time - last_forced_check >= forced_check_cooldown:
-                                            new_agent_state = (
-                                                check_cli_agent_active(p.pid)
-                                            )
+                                            new_agent_state = check_cli_agent_active(p.pid)
                                             if new_agent_state:
-                                                current_agent_state = (
-                                                    new_agent_state
-                                                )
-                                                send_status_message(
-                                                    'cli_agent_status',
-                                                    current_agent_state,
-                                                )
-                                                last_agent_check = current_time  # チェック時間を更新
+                                                current_agent_state = new_agent_state
+                                                send_status_message('cli_agent_status', current_agent_state)
+                                                last_agent_check = current_time
                                                 last_forced_check = current_time
-                                        # NULL文字を除去してから送信
                                         text = text.replace('\x00', '')
-                                        if (
-                                            text
-                                        ):  # 残りの文字がある場合のみ送信
-                                            os.write(
-                                                master,
-                                                text.encode(
-                                                    'utf-8', errors='ignore'
-                                                ),
-                                            )
-                                        continue  # 以下の処理をスキップ
 
-                                    # エスケープシーケンスでターミナルサイズ変更を検出
-                                    if text.startswith('\x1b[8;'):
-                                        # ターミナルサイズ変更シーケンス
+                                    # リサイズシーケンスを全て処理し、入力から取り除く
+                                    # パターン: ESC [ 8 ; rows ; cols t
+                                    resize_pattern = re.compile(r"\x1b\[8;(\d+);(\d+)t")
+
+                                    def handle_resize_match(m: re.Match[str]):
+                                        """リサイズ指示を反映する。
+                                        rows, cols は xterm の CSI 8 ; rows ; cols t に対応。
+                                        """
                                         try:
-                                            if 't' in text:
-                                                parts = text.split(';')
-                                                if len(parts) >= 3:
-                                                    rows = int(parts[1])
-                                                    cols = int(
-                                                        parts[2].rstrip('t')
-                                                    )
-                                                    set_winsize(
-                                                        master, rows, cols
-                                                    )
-                                                    os.environ['LINES'] = str(
-                                                        rows
-                                                    )
-                                                    os.environ['COLUMNS'] = (
-                                                        str(cols)
-                                                    )
-                                                    # SIGWINCH をシェルに送信
-                                                    if p.pid:
-                                                        try:
-                                                            os.killpg(
-                                                                os.getpgid(
-                                                                    p.pid
-                                                                ),
-                                                                signal.SIGWINCH,
-                                                            )
-                                                        except OSError:
-                                                            pass
+                                            rows = int(m.group(1))
+                                            cols = int(m.group(2))
                                         except (ValueError, IndexError):
-                                            pass
-                                    else:
-                                        # 通常の入力を PTY に送信（デコードした文字列を再エンコード）
-                                        os.write(master, text.encode('utf-8'))
+                                            return
+                                        set_winsize(master, rows, cols)
+                                        os.environ['LINES'] = str(rows)
+                                        os.environ['COLUMNS'] = str(cols)
+                                        # シェルへウィンドウサイズ変更通知
+                                        if p.pid:
+                                            try:
+                                                os.killpg(os.getpgid(p.pid), signal.SIGWINCH)
+                                            except OSError:
+                                                pass
+
+                                    # テキストから全てのリサイズシーケンスを除去しつつ適用
+                                    tail = 0
+                                    cleaned_parts = []
+                                    for m in resize_pattern.finditer(text):
+                                        # マッチ前の通常テキストを溜める
+                                        if m.start() > tail:
+                                            cleaned_parts.append(text[tail:m.start()])
+                                        # マッチ処理
+                                        handle_resize_match(m)
+                                        tail = m.end()
+                                    # 最後の残り
+                                    if tail < len(text):
+                                        cleaned_parts.append(text[tail:])
+                                    cleaned_text = ''.join(cleaned_parts)
+
+                                    # 通常テキストを PTY に送信
+                                    if cleaned_text:
+                                        os.write(
+                                            master,
+                                            cleaned_text.encode('utf-8', errors='ignore'),
+                                        )
                                 else:
                                     # デコードされたテキストがない場合は何もしない（バッファに残っている）
                                     pass
@@ -464,16 +460,11 @@ def main():
                             if data:
                                 # UTF-8 でデコードしてから再エンコード（文字化け対策）
                                 try:
-                                    decoded_text = data.decode(
-                                        'utf-8', errors='ignore'
-                                    )
+                                    decoded_text = data.decode('utf-8', errors='ignore')
                                     encoded_data = decoded_text.encode('utf-8')
                                     sys.stdout.buffer.write(encoded_data)
                                     sys.stdout.buffer.flush()
-                                except (
-                                    UnicodeDecodeError,
-                                    UnicodeEncodeError,
-                                ):
+                                except (UnicodeDecodeError, UnicodeEncodeError):
                                     # エラー時はバイナリデータをそのまま送信
                                     sys.stdout.buffer.write(data)
                                     sys.stdout.buffer.flush()
