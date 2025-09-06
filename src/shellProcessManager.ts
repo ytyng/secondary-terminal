@@ -65,7 +65,6 @@ export class ShellProcessManager {
         cols: number,
         rows: number
     ): ShellProcessInfo {
-        console.log(`Creating new shell process for workspace: ${workspaceKey}`);
 
         const rustBinaryPath = path.join(extensionPath, 'resources', 'pty-shell-rs');
         
@@ -167,7 +166,6 @@ export class ShellProcessManager {
         const processInfo = this.processes.get(workspaceKey);
         if (processInfo) {
             processInfo.isActive = false;
-            console.log(`Deactivated process for workspace: ${workspaceKey}`);
         }
     }
 
@@ -177,7 +175,6 @@ export class ShellProcessManager {
     public terminateProcess(workspaceKey: string): void {
         const processInfo = this.processes.get(workspaceKey);
         if (processInfo && processInfo.process) {
-            console.log(`Terminating shell process for workspace: ${workspaceKey}`);
             try {
                 const process = processInfo.process;
                 
@@ -198,7 +195,6 @@ export class ShellProcessManager {
                 // プロセス終了を監視
                 const forceKillTimeout = setTimeout(() => {
                     if (!process.killed && process.exitCode === null) {
-                        console.log(`Force killing process for workspace: ${workspaceKey}`);
                         try {
                             // プロセスグループ全体を強制終了
                             if (process.pid) {
@@ -214,7 +210,6 @@ export class ShellProcessManager {
                 const exitHandler = () => {
                     clearTimeout(forceKillTimeout);
                     this.processes.delete(workspaceKey);
-                    console.log(`Process for workspace ${workspaceKey} has exited`);
                 };
                 
                 process.once('exit', exitHandler);
@@ -237,10 +232,7 @@ export class ShellProcessManager {
      * 全てのプロセスを終了（非同期版）
      */
     public async terminateAllProcessesAsync(): Promise<void> {
-        console.log(`Terminating ${this.processes.size} shell processes...`);
-        
         if (this.processes.size === 0) {
-            console.log('No shell processes to terminate');
             return;
         }
         
@@ -274,7 +266,6 @@ export class ShellProcessManager {
                         if (!resolved) {
                             resolved = true;
                             this.processes.delete(workspaceKey);
-                            console.log(`Process ${workspaceKey} cleanup completed`);
                             resolve();
                         }
                     };
@@ -289,7 +280,6 @@ export class ShellProcessManager {
                     // SIGTERM で終了を試みる
                     try {
                         process.kill('SIGTERM');
-                        console.log(`Sent SIGTERM to process ${workspaceKey}`);
                     } catch (e) {
                         console.warn(`Error sending SIGTERM to ${workspaceKey}:`, e);
                         cleanup();
@@ -301,7 +291,6 @@ export class ShellProcessManager {
                         if (!resolved && !process.killed && process.exitCode === null) {
                             try {
                                 process.kill('SIGKILL');
-                                console.log(`Sent SIGKILL to process ${workspaceKey}`);
                             } catch (e) {
                                 console.warn(`Error sending SIGKILL to ${workspaceKey}:`, e);
                             }
@@ -318,7 +307,6 @@ export class ShellProcessManager {
         // すべての終了処理が完了するまで待機
         try {
             await Promise.allSettled(terminationPromises);
-            console.log('All shell processes terminated successfully');
         } catch (error) {
             console.error('Error during process termination:', error);
             throw error;

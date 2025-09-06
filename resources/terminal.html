@@ -591,11 +591,29 @@
                 console.error('Failed to attach custom key handler:', error);
             }
 
+            // 入力タイミング計測用のマップ
+            const inputTimestamps = new Map();
+            let inputSequence = 0;
+            
             terminalState.term.onData((data) => {
+                const keyTime = performance.now();
+                const sequence = ++inputSequence;
+                inputTimestamps.set(sequence, keyTime);
+                
+                console.log(`[FRONTEND] Key input sent: seq=${sequence}, time=${keyTime.toFixed(2)}ms`);
+                
                 vscode.postMessage({
                     type: 'terminalInput',
-                    data: data
+                    data: data,
+                    timestamp: keyTime,
+                    sequence: sequence
                 });
+                
+                // 古いタイムスタンプを削除（メモリリーク防止）
+                if (inputTimestamps.size > 100) {
+                    const oldestKey = Math.min(...inputTimestamps.keys());
+                    inputTimestamps.delete(oldestKey);
+                }
             });
 
             let outputCount = 0;
@@ -605,9 +623,20 @@
                 const message = event.data;
                 switch (message.type) {
                     case 'output':
-                        const outputStart = performance.now();
+                        const outputReceiveTime = performance.now();
                         outputCount++;
                         totalOutputChars += message.data.length;
+                        
+                        // ラウンドトリップ時間を計測（最新の入力との差分）
+                        if (inputTimestamps.size > 0) {
+                            const latestInputTime = Math.max(...inputTimestamps.values());
+                            const roundTripMs = outputReceiveTime - latestInputTime;
+                            if (roundTripMs >= 0 && roundTripMs < 5000) { // 5秒以内の妥当な範囲
+                                console.log(`[FRONTEND] Round trip: ${roundTripMs.toFixed(2)}ms (input→output)`);
+                            }
+                        }
+                        
+                        const outputStart = performance.now();
                         
                         // ステータスメッセージをチェック
                         handleStatusMessage(message.data);
