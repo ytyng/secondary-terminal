@@ -130,11 +130,11 @@ export class TerminalProvider implements vscode.WebviewViewProvider {
                 // WebView が再び表示された時の処理
                 // セッションを再接続（既に接続されている場合は何もしない）
                 this._sessionManager.connectView(this._workspaceKey, webviewView);
-                
+
                 // HTMLが初期化されていない場合は再設定
                 setTimeout(() => {
                     // フロントエンド側の状態確認とリセット用メッセージを送信
-                    webviewView.webview.postMessage({ 
+                    webviewView.webview.postMessage({
                         type: 'visibility_restored',
                         timestamp: Date.now()
                     });
@@ -232,7 +232,7 @@ export class TerminalProvider implements vscode.WebviewViewProvider {
             { modal: true },
             'リセット'
         );
-        
+
         if (result === 'リセット') {
             this.resetTerminal();
         }
@@ -241,21 +241,21 @@ export class TerminalProvider implements vscode.WebviewViewProvider {
     public resetTerminal() {
         // 1. 既存のプロセスを強制終了
         this._processManager.terminateProcess(this._workspaceKey);
-        
+
         // 2. セッションバッファとビューをクリア
         this._sessionManager.clearBuffer(this._workspaceKey);
         this._view?.webview.postMessage({ type: 'clear' });
-        
+
         // 3. 少し待ってから新しいシェルを起動
         setTimeout(() => {
             // ウェルカムメッセージを表示
             const versionInfo = this.getVersionInfo();
             const welcomeMessage = `Terminal has been reset.\r\nWelcome to Secondary Terminal v${versionInfo.version} (${versionInfo.buildDate}).\r\n`;
             this._sessionManager.addOutput(this._workspaceKey, welcomeMessage);
-            
+
             // 新しいシェルプロセスを開始
             this.startShell();
-            
+
             // プロセス起動後にフロントエンドにリセット完了を通知
             setTimeout(() => {
                 this._view?.webview.postMessage({ type: 'reset' });
@@ -291,8 +291,10 @@ export class TerminalProvider implements vscode.WebviewViewProvider {
 
             // VSCode 設定から scrollback 最大行数を取得
             // 設定キー: secondaryTerminal.maxHistoryLines
-            const config = vscode.workspace.getConfiguration('secondaryTerminal');
-            const maxHistoryLines = Math.max(50, Math.floor(config.get('maxHistoryLines', 300)));
+            // const config = vscode.workspace.getConfiguration('secondaryTerminal');
+            // const maxHistoryLines = Math.max(50, Math.floor(config.get('maxHistoryLines', 300)));
+            // 検証のため50。遅いのを防ぎたい
+            const maxHistoryLines = 50;
 
             // プレースホルダーを実際の値に置換
             htmlContent = htmlContent
