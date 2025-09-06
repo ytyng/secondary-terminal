@@ -75,7 +75,6 @@ export class TerminalSessionManager {
         };
         
         this.sessions.set(workspaceKey, newSession);
-        console.log(`Created new terminal session for workspace: ${workspaceKey}`);
         return newSession;
     }
 
@@ -107,7 +106,6 @@ export class TerminalSessionManager {
         
         // 既存の接続がある場合は切断
         if (session.currentView && session.currentView !== view) {
-            console.log(`Disconnecting previous view for workspace: ${workspaceKey}`);
             session.isConnected = false;
         }
         
@@ -117,12 +115,9 @@ export class TerminalSessionManager {
         // バッファに保存されている出力を新しいビューに送信
         if (session.totalBufferLength > 0 && session.outputChunks.length > 0) {
             const snapshot = session.outputChunks.join('');
-            console.log(`Restoring ${snapshot.length} characters to new view`);
             this.sendToView(session, snapshot);
             // バッファはクリアしない（次回の接続でも使用するため）
         }
-        
-        console.log(`Connected view to session: ${workspaceKey}`);
     }
 
     /**
@@ -133,7 +128,6 @@ export class TerminalSessionManager {
         if (session && session.currentView === view) {
             session.currentView = undefined;
             session.isConnected = false;
-            console.log(`Disconnected view from session: ${workspaceKey}`);
         }
     }
 
@@ -141,8 +135,6 @@ export class TerminalSessionManager {
      * セッションにデータを追加し、接続されているビューに送信
      */
     public addOutput(workspaceKey: string, data: string): void {
-        const performanceStart = performance.now();
-        
         const session = this.sessions.get(workspaceKey);
         if (!session) {
             console.warn(`No session found for workspace: ${workspaceKey}`);
@@ -159,13 +151,9 @@ export class TerminalSessionManager {
         
         // バッファ制限（文字数/行数の両方）に基づく効率的なトリミング
         if (session.totalBufferLength > session.maxBufferSize || session.totalLineCount > session.maxHistoryLines) {
-            const trimStart = performance.now();
-
             // 目標まで先頭からチャンクを削除
             const targetSize = Math.floor(session.maxBufferSize * TERMINAL_CONSTANTS.BUFFER_TRIM_RATIO);
             const targetLines = Math.floor(session.maxHistoryLines * TERMINAL_CONSTANTS.BUFFER_TRIM_RATIO);
-            const originalSize = session.totalBufferLength;
-            const originalLines = session.totalLineCount;
 
             while (
                 (session.totalBufferLength > targetSize || session.totalLineCount > targetLines) &&
@@ -176,22 +164,11 @@ export class TerminalSessionManager {
                 session.totalBufferLength -= removed.length;
                 session.totalLineCount -= removedNewlines;
             }
-
-            const trimEnd = performance.now();
-            console.log(
-                `[PERF] Buffer trimmed for workspace: ${workspaceKey} ` +
-                `(${originalSize} → ${session.totalBufferLength} chars, ${originalLines} → ${session.totalLineCount} lines, took ${(trimEnd - trimStart).toFixed(2)}ms)`
-            );
         }
 
         // 接続されているビューに送信（デバウンス処理付き）
         if (session.isConnected && session.currentView) {
             this.sendToViewDebounced(session, data);
-        }
-
-        const performanceEnd = performance.now();
-        if (performanceEnd - performanceStart > 1) { // 1ms以上かかった場合のみログ出力
-            console.log(`[PERF] addOutput took ${(performanceEnd - performanceStart).toFixed(2)}ms for ${data.length} chars`);
         }
     }
 
@@ -205,7 +182,6 @@ export class TerminalSessionManager {
             session.totalBufferLength = 0;
             session.outputNewlines = [];
             session.totalLineCount = 0;
-            console.log(`Cleared buffer for workspace: ${workspaceKey}`);
         }
     }
 
@@ -323,7 +299,6 @@ export class TerminalSessionManager {
             session.currentView = undefined;
             session.pendingOutput = '';
             this.sessions.delete(workspaceKey);
-            console.log(`Removed session for workspace: ${workspaceKey}`);
         }
     }
 
@@ -331,8 +306,6 @@ export class TerminalSessionManager {
      * 全てのセッションを削除
      */
     public removeAllSessions(): void {
-        console.log(`Removing ${this.sessions.size} terminal sessions...`);
-        
         // 各セッションのタイマーを確実にクリーンアップ
         for (const [workspaceKey, session] of this.sessions) {
             try {
@@ -340,7 +313,6 @@ export class TerminalSessionManager {
                 if (session.outputTimer) {
                     clearTimeout(session.outputTimer);
                     session.outputTimer = undefined;
-                    console.log(`Cleared output timer for session: ${workspaceKey}`);
                 }
                 
                 // セッション状態をクリア
@@ -352,8 +324,6 @@ export class TerminalSessionManager {
                 session.outputNewlines = [];
                 session.totalLineCount = 0;
                 session.pendingSince = null;
-                
-                console.log(`Cleaned up session: ${workspaceKey}`);
             } catch (error) {
                 console.error(`Error cleaning up session ${workspaceKey}:`, error);
             }
@@ -361,7 +331,6 @@ export class TerminalSessionManager {
         
         // Map をクリア
         this.sessions.clear();
-        console.log('Removed all terminal sessions successfully');
     }
 
     /**

@@ -60,7 +60,6 @@ export function activate(context: vscode.ExtensionContext) {
 
     // Node.js プロセス終了時のクリーンアップ
     const cleanupHandler = () => {
-        console.log('Cleaning up shell processes on exit...');
         try {
             // セッションマネージャーを先にクリーンアップ
             sessionManager.removeAllSessions();
@@ -144,18 +143,15 @@ export function activate(context: vscode.ExtensionContext) {
         })
     );
 
-    console.log('Secondary Terminal が有効化されました！');
+    // Secondary Terminal 拡張機能が正常に有効化された
 }
 
 export function deactivate() {
     // VSCode終了時は非同期処理やAPIを避けて、シンプルに同期処理のみ実行
-    console.log('Secondary Terminal deactivation started...');
-
     try {
         // セッションマネージャーのクリーンアップ
         const sessionManager = TerminalSessionManager.getInstance();
         sessionManager.removeAllSessions();
-        console.log('Sessions cleanup completed');
     } catch (error) {
         console.error('Error during sessions cleanup:', error);
     }
@@ -164,12 +160,9 @@ export function deactivate() {
         // プロセスマネージャーのクリーンアップ（同期版のみ使用）
         const processManager = ShellProcessManager.getInstance();
         processManager.terminateAllProcesses();
-        console.log('Process cleanup initiated');
     } catch (error) {
         console.error('Error during process cleanup:', error);
     }
-
-    console.log('Secondary Terminal deactivation completed');
 
     // VSCode API は呼び出さない（終了時はコンテキストも自動でクリアされる）
 }

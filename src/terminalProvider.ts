@@ -30,7 +30,7 @@ export class TerminalProvider implements vscode.WebviewViewProvider {
                 buildDate: versionData.updatedAt || versionData.buildDate || 'Unknown'
             };
         } catch (error) {
-            console.warn('Failed to read version info:', error);
+            // Failed to read version info - using defaults
             return {
                 version: '0.1.0',
                 buildDate: 'Unknown'
@@ -67,21 +67,16 @@ export class TerminalProvider implements vscode.WebviewViewProvider {
 
         webviewView.webview.onDidReceiveMessage(
             (message: WebViewMessage) => {
-                console.log('Received message from webview:', message);
-
                 // 型ガード関数
                 if (!message || typeof message.type !== 'string') {
-                    console.warn('Invalid message received:', message);
                     return;
                 }
 
                 switch (message.type) {
                     case 'terminalInput':
-                        console.log('Terminal input received:', JSON.stringify(message.data));
                         this.handleInput(message.data);
                         break;
                     case 'terminalReady':
-                        console.log('Terminal ready');
                         // セッションに WebView を接続
                         this._sessionManager.connectView(this._workspaceKey, webviewView);
                         // 既存のバッファがない場合のみウェルカムメッセージを表示
@@ -93,7 +88,6 @@ export class TerminalProvider implements vscode.WebviewViewProvider {
                         this.startShell();
                         break;
                     case 'resize':
-                        console.log('Terminal resize:', message.cols, 'x', message.rows);
                         this._terminalCols = message.cols || 80;
                         this._terminalRows = message.rows || 24;
                         // プロセスマネージャー経由でサイズ更新
@@ -119,7 +113,6 @@ export class TerminalProvider implements vscode.WebviewViewProvider {
                         this.resetTerminal();
                         break;
                     case 'refreshCliAgentStatus':
-                        console.log('Received refreshCliAgentStatus request');
                         // PTY プロセスに強制的な CLI Agent ステータスチェックを要求
                         this.forceRefreshCliAgentStatus();
                         break;
@@ -132,10 +125,9 @@ export class TerminalProvider implements vscode.WebviewViewProvider {
         // WebView が非表示になってもプロセスは維持する
         webviewView.onDidChangeVisibility(() => {
             if (!webviewView.visible) {
-                console.log('WebView is not visible, but keeping shell process alive');
+                // WebView is not visible, but keeping shell process alive
             } else {
                 // WebView が再び表示された時の処理
-                console.log('WebView became visible, ensuring proper state');
                 // セッションを再接続（既に接続されている場合は何もしない）
                 this._sessionManager.connectView(this._workspaceKey, webviewView);
                 
@@ -152,7 +144,6 @@ export class TerminalProvider implements vscode.WebviewViewProvider {
 
         // WebView が破棄されたときはセッションから切断
         webviewView.onDidDispose(() => {
-            console.log('WebView disposed, disconnecting from session');
             this._sessionManager.disconnectView(this._workspaceKey, webviewView);
             this._processManager.deactivateProcess(this._workspaceKey);
         }, null, this._extensionContext.subscriptions);
@@ -160,7 +151,6 @@ export class TerminalProvider implements vscode.WebviewViewProvider {
 
     private handleInput(data: string | undefined) {
         if (typeof data !== 'string') {
-            console.warn('Invalid input data received:', data);
             return;
         }
 
@@ -179,8 +169,6 @@ export class TerminalProvider implements vscode.WebviewViewProvider {
 
 
     private startShell() {
-        console.log('Connecting to shell process');
-
         // プロセスマネージャーからプロセスを取得または作成
         this._processManager.getOrCreateProcess(
             this._workspaceKey,
@@ -189,8 +177,6 @@ export class TerminalProvider implements vscode.WebviewViewProvider {
             this._terminalCols,
             this._terminalRows
         );
-
-        console.log('Connected to shell process successfully');
     }
 
 
@@ -253,8 +239,6 @@ export class TerminalProvider implements vscode.WebviewViewProvider {
     }
 
     public resetTerminal() {
-        console.log('Resetting terminal...');
-        
         // 1. 既存のプロセスを強制終了
         this._processManager.terminateProcess(this._workspaceKey);
         
@@ -274,7 +258,6 @@ export class TerminalProvider implements vscode.WebviewViewProvider {
             
             // プロセス起動後にフロントエンドにリセット完了を通知
             setTimeout(() => {
-                console.log('Sending reset completion message to frontend');
                 this._view?.webview.postMessage({ type: 'reset' });
             }, 100); // startShell の後、少し待ってからリセット完了通知
         }, 500);
@@ -282,7 +265,6 @@ export class TerminalProvider implements vscode.WebviewViewProvider {
 
     private forceRefreshCliAgentStatus() {
         try {
-            console.log('Forcing CLI Agent status refresh');
             // PTY プロセスに特別なシーケンスを送信してステータスを強制チェック
             // この処理では、CLI Agent チェック間隔をリセットして即座に実行させる
             // PTY 側では特別な信号やシーケンスを受信する必要があるが、
