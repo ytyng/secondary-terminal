@@ -501,6 +501,9 @@
                         } else if (cliAgentState.agent_type === 'gemini') {
                             indicator.textContent = 'Gemini';
                             indicator.title = 'Gemini is active - Shift+Enter inputs a newline';
+                        } else if (cliAgentState.agent_type === 'codex') {
+                            indicator.textContent = 'Codex';
+                            indicator.title = 'Codex is active - Shift+Enter sends Ctrl+J';
                         } else {
                             indicator.textContent = 'CLI Agent';
                             indicator.title = 'CLI Agent is active - Shift+Enter inputs a newline';
@@ -553,20 +556,25 @@
                             // CLI エージェント（Claude/Gemini）がアクティブの場合のみ Alt+Enter に変換
                             if (cliAgentState.active) {
                                 const agentType = cliAgentState.agent_type || 'CLI Agent';
-                                
-
                                 // ブラウザのデフォルト動作を完全に停止
                                 event.preventDefault();
                                 event.stopPropagation();
 
-                                // Alt + Enter の正しいエスケープシーケンスを送信
-                                // ESC [ 1 3 ; 3 ~ (Alt+Enter のターミナルシーケンス)
-                                var altEnterSequence = '\x1b\r';
-
-                                vscode.postMessage({
-                                    type: 'terminalInput',
-                                    data: altEnterSequence
-                                });
+                                if (agentType === 'codex') {
+                                    // Codex モード: Ctrl+J をエミュレーション (LF)
+                                    const ctrlJ = '\n';
+                                    vscode.postMessage({
+                                        type: 'terminalInput',
+                                        data: ctrlJ
+                                    });
+                                } else {
+                                    // 既存エージェント(Claude/Gemini): Alt+Enter を送信 (ESC + CR)
+                                    const altEnterSequence = '\x1b\r';
+                                    vscode.postMessage({
+                                        type: 'terminalInput',
+                                        data: altEnterSequence
+                                    });
+                                }
 
                                 // false を返してデフォルト処理を完全に停止
                                 return false;

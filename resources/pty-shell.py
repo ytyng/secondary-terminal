@@ -121,10 +121,15 @@ def check_cli_agent_active(shell_pid):
                         comm = parts[0].lower() if parts else ''
                         args = parts[1].lower() if len(parts) > 1 else ''
 
-                        if 'claude' in comm:
+                        # Claude 検出
+                        if 'claude' in comm or ' claude ' in args:
                             return {'active': True, 'agent_type': 'claude'}
-                        if '/bin/gemini' in args:
+                        # Gemini 検出
+                        if '/bin/gemini' in args or ' gemini ' in args or comm == 'gemini':
                             return {'active': True, 'agent_type': 'gemini'}
+                        # Codex 検出
+                        if 'codex' in comm or ' codex ' in args or '/bin/codex' in args:
+                            return {'active': True, 'agent_type': 'codex'}
                     except Exception:
                         # 行のパース失敗は無視して続行
                         continue
