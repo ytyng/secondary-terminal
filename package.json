@@ -2,7 +2,7 @@
   "name": "secondary-terminal",
   "displayName": "Secondary Terminal",
   "description": "Terminal in sidebar",
-  "version": "0.9.127",
+  "version": "0.10.127",
   "engines": {
     "vscode": "^1.101.0"
   },
