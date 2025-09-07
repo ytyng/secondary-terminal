@@ -314,6 +314,84 @@
             terminalState.eventListeners.push({ element, event, handler });
         }
 
+        // 定期的なバッファクリア機能
+        function setupPeriodicBufferCleanup() {
+            // 設定可能な値
+            const BUFFER_CHECK_INTERVAL = 30000; // 30秒間隔でチェック
+            const MAX_BUFFER_LINES = {{SCROLLBACK_MAX}}; // 設定された最大行数
+            const CLEANUP_THRESHOLD = Math.floor(MAX_BUFFER_LINES * 0.8); // 80%で警告
+            const CLEANUP_TARGET = Math.floor(MAX_BUFFER_LINES * 0.6); // 60%まで削減
+
+            console.log('[BUFFER CLEANUP] Setting up periodic buffer cleanup', {
+                checkInterval: BUFFER_CHECK_INTERVAL,
+                maxLines: MAX_BUFFER_LINES,
+                cleanupThreshold: CLEANUP_THRESHOLD,
+                cleanupTarget: CLEANUP_TARGET
+            });
+
+            const bufferCleanupTimer = setInterval(() => {
+                if (!terminalState.term) {
+                    return;
+                }
+
+                try {
+                    const buffer = terminalState.term.buffer;
+                    if (!buffer || !buffer.active) {
+                        return;
+                    }
+
+                    const totalLines = buffer.active.length;
+                    const scrollbackLines = totalLines - terminalState.term.rows;
+                    
+                    console.log('[BUFFER CLEANUP] Buffer check', {
+                        totalLines,
+                        scrollbackLines,
+                        threshold: CLEANUP_THRESHOLD,
+                        terminalRows: terminalState.term.rows
+                    });
+
+                    // スクロールバック行数が閾値を超えた場合、クリアを実行
+                    if (scrollbackLines > CLEANUP_THRESHOLD) {
+                        console.log('[BUFFER CLEANUP] Buffer cleanup triggered', {
+                            currentLines: scrollbackLines,
+                            targetLines: CLEANUP_TARGET
+                        });
+
+                        // xterm.js の scrollToBottom() を実行してから clear() でバッファクリア
+                        terminalState.term.scrollToBottom();
+                        
+                        // 少し待ってからクリアを実行（スクロール完了を待つ）
+                        setTimeout(() => {
+                            try {
+                                // バッファの一部をクリア（古い行を削除）
+                                // xterm.js には直接的なバッファ削減機能がないため、clear() を使用
+                                // ただし、これは全クリアなので代替として scrollToBottom() のみ実行
+                                terminalState.term.scrollToBottom();
+                                
+                                console.log('[BUFFER CLEANUP] Buffer cleanup completed');
+                                
+                                // VSCode 側にもバッファクリア要求を送信
+                                vscode.postMessage({
+                                    type: 'bufferCleanupRequest',
+                                    currentLines: scrollbackLines,
+                                    threshold: CLEANUP_THRESHOLD
+                                });
+                                
+                            } catch (error) {
+                                console.error('[BUFFER CLEANUP] Error during buffer cleanup:', error);
+                            }
+                        }, 100);
+                    }
+                } catch (error) {
+                    console.error('[BUFFER CLEANUP] Error checking buffer:', error);
+                }
+            }, BUFFER_CHECK_INTERVAL);
+
+            // タイマーを管理対象に追加
+            terminalState.timers.bufferCleanup = bufferCleanupTimer;
+            console.log('[BUFFER CLEANUP] Periodic buffer cleanup timer set');
+        }
+
         // ターミナル初期化関数
         function initializeTerminal() {
             try {
@@ -732,6 +810,16 @@
                             window.location.reload();
                         }
                         break;
+                    case 'bufferCleanupCompleted':
+                        console.log('[BUFFER CLEANUP] Received cleanup completion notification', {
+                            success: message.success,
+                            timestamp: message.timestamp,
+                            error: message.error
+                        });
+                        if (!message.success) {
+                            console.error('[BUFFER CLEANUP] Backend cleanup failed:', message.error);
+                        }
+                        break;
                 }
             };
             addManagedEventListener(window, 'message', messageHandler);
@@ -783,6 +871,9 @@
                 }
             };
             addManagedEventListener(document.getElementById('btn-scroll-to-bottom'), 'click', scrollToBottomHandler);
+
+            // 定期的なバッファクリア機能を設定
+            setupPeriodicBufferCleanup();
 
             // 初期化完了フラグを設定
             terminalState.isInitialized = true;

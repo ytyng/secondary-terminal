@@ -57,7 +57,7 @@ export class TerminalProvider implements vscode.WebviewViewProvider {
 
         // WebView メッセージの型定義
         interface WebViewMessage {
-            type: 'terminalInput' | 'terminalReady' | 'resize' | 'error' | 'buttonSendSelection' | 'buttonCopySelection' | 'buttonReset' | 'buttonResetRequest' | 'refreshCliAgentStatus';
+            type: 'terminalInput' | 'terminalReady' | 'resize' | 'error' | 'buttonSendSelection' | 'buttonCopySelection' | 'buttonReset' | 'buttonResetRequest' | 'refreshCliAgentStatus' | 'bufferCleanupRequest';
             data?: string;
             cols?: number;
             rows?: number;
@@ -115,6 +115,9 @@ export class TerminalProvider implements vscode.WebviewViewProvider {
                     case 'refreshCliAgentStatus':
                         // PTY プロセスに強制的な CLI Agent ステータスチェックを要求
                         this.forceRefreshCliAgentStatus();
+                        break;
+                    case 'bufferCleanupRequest':
+                        this.handleBufferCleanupRequest(message);
                         break;
                 }
             },
@@ -265,6 +268,38 @@ export class TerminalProvider implements vscode.WebviewViewProvider {
             this._processManager.sendToProcess(this._workspaceKey, refreshSignal);
         } catch (error) {
             console.error('Failed to force refresh CLI Agent status:', error);
+        }
+    }
+
+    private handleBufferCleanupRequest(message: any) {
+        try {
+            console.log('[BUFFER CLEANUP] Received buffer cleanup request from frontend', {
+                currentLines: message.currentLines,
+                threshold: message.threshold
+            });
+
+            // TerminalSessionManager を通してバッファクリアを実行
+            this._sessionManager.trimBufferIfNeeded(this._workspaceKey);
+            
+            console.log('[BUFFER CLEANUP] Backend buffer cleanup completed');
+            
+            // 必要に応じて WebView に結果を通知
+            this._view?.webview.postMessage({
+                type: 'bufferCleanupCompleted',
+                success: true,
+                timestamp: Date.now()
+            });
+            
+        } catch (error) {
+            console.error('[BUFFER CLEANUP] Error during backend buffer cleanup:', error);
+            
+            // エラーを WebView に通知
+            this._view?.webview.postMessage({
+                type: 'bufferCleanupCompleted',
+                success: false,
+                error: error instanceof Error ? error.message : String(error),
+                timestamp: Date.now()
+            });
         }
     }
 

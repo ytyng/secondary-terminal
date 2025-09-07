@@ -186,6 +186,52 @@ export class TerminalSessionManager {
     }
 
     /**
+     * セッションのバッファを必要に応じてトリミング（手動実行用）
+     */
+    public trimBufferIfNeeded(workspaceKey: string): void {
+        const session = this.sessions.get(workspaceKey);
+        if (!session) {
+            return;
+        }
+
+        console.log('[BUFFER CLEANUP] Manual trim check', {
+            currentBufferLength: session.totalBufferLength,
+            currentLineCount: session.totalLineCount,
+            maxBufferSize: session.maxBufferSize,
+            maxHistoryLines: session.maxHistoryLines
+        });
+
+        // 現在のサイズが上限を超えている場合にトリミングを実行
+        if (session.totalBufferLength > session.maxBufferSize || session.totalLineCount > session.maxHistoryLines) {
+            const originalSize = session.totalBufferLength;
+            const originalLines = session.totalLineCount;
+
+            const targetSize = Math.floor(session.maxBufferSize * TERMINAL_CONSTANTS.BUFFER_TRIM_RATIO);
+            const targetLines = Math.floor(session.maxHistoryLines * TERMINAL_CONSTANTS.BUFFER_TRIM_RATIO);
+
+            while (
+                (session.totalBufferLength > targetSize || session.totalLineCount > targetLines) &&
+                session.outputChunks.length > 0
+            ) {
+                const removed = session.outputChunks.shift()!;
+                const removedNewlines = session.outputNewlines.shift() || 0;
+                session.totalBufferLength -= removed.length;
+                session.totalLineCount -= removedNewlines;
+            }
+
+            console.log('[BUFFER CLEANUP] Manual trim completed', {
+                beforeSize: originalSize,
+                afterSize: session.totalBufferLength,
+                beforeLines: originalLines,
+                afterLines: session.totalLineCount,
+                chunksRemaining: session.outputChunks.length
+            });
+        } else {
+            console.log('[BUFFER CLEANUP] No trimming needed');
+        }
+    }
+
+    /**
      * ビューにデータを送信（デバウンス機能付き）
      */
     private sendToViewDebounced(session: TerminalSession, data: string): void {
