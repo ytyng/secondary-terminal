@@ -209,6 +209,7 @@
     <script src="{{XTERM_UNICODE11_JS_URI}}"></script>
     <script src="{{XTERM_CANVAS_JS_URI}}"></script>
     <script>
+        const MAX_BUFFER_LINES = parseInt('{{SCROLLBACK_MAX}}'); // 設定された最大行数
         const vscode = acquireVsCodeApi();
 
         // グローバル変数とオブジェクトの管理オブジェクト
@@ -314,7 +315,6 @@
         function setupPeriodicBufferCleanup() {
             // 設定可能な値
             const BUFFER_CHECK_INTERVAL = 30000; // 30秒間隔でチェック
-            const MAX_BUFFER_LINES = parseInt('{{ SCROLLBACK_MAX }}'); // 設定された最大行数
             const CLEANUP_THRESHOLD = Math.floor(MAX_BUFFER_LINES * 0.8); // 80%で警告
             const CLEANUP_TARGET = Math.floor(MAX_BUFFER_LINES * 0.6); // 60%まで削減
 
@@ -422,7 +422,7 @@
                     allowTransparency: false,
                     minimumContrastRatio: 1,
                     // スクロールバック上限を設定（大きな履歴での write/render 負荷を軽減）
-                    scrollback: parseInt('{{ SCROLLBACK_MAX }}')
+                    scrollback: MAX_BUFFER_LINES
                 });
 
                 const terminalElement = document.getElementById('terminal');
@@ -595,12 +595,20 @@
 
                 // 定期的なサイズチェック（VSCode の制約対応）
                 let lastSizeCheck = Date.now();
-                terminalState.timers.sizeCheckInterval = setInterval(() => {
-                    const now = Date.now();
-
-                    lastSizeCheck = now;
+                // リーク検証のため一旦無効化
+                // terminalState.timers.sizeCheckInterval = setInterval(() => {
+                //     const now = Date.now();
+                //     lastSizeCheck = now;
+                //     setTerminalSize();
+                // }, 2000);
+                setTimeout(() => {
                     setTerminalSize();
                 }, 2000);
+                setTimeout(() => {
+                    lastSizeCheck = Date.now();
+                    setTerminalSize();
+                }, 5000);
+
 
                 let cliAgentState = { active: false, agent_type: null }; // CLI エージェントの状態
 
@@ -966,12 +974,14 @@
             // 初回実行を少し遅延させる (Canvas が完全に描画されるのを待つ)
             setTimeout(applyBackgroundColor, 500);
 
-            terminalState.timers.backgroundColorInterval = setInterval(() => {
-                const textLayer = document.querySelector('#terminal canvas.xterm-text-layer');
-                if (textLayer && textLayer.getContext) {
-                    applyBackgroundColor();
-                }
-            }, 3000);
+            // リーク検証のため一旦無効化
+            // terminalState.timers.backgroundColorInterval = setInterval(() => {
+            //     const textLayer = document.querySelector('#terminal canvas.xterm-text-layer');
+            //     if (textLayer && textLayer.getContext) {
+            //         applyBackgroundColor();
+            //     }
+            // }, 3000);
+            setTimeout(applyBackgroundColor, 4000);
         })();
 
 
