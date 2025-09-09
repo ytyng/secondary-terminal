@@ -353,28 +353,43 @@
                             targetLines: CLEANUP_TARGET
                         });
 
-                        // xterm.js の scrollToBottom() を実行してから clear() でバッファクリア
-                        terminalState.term.scrollToBottom();
+                        // 現在のスクロール位置を保存
+                        const currentScrollY = terminalState.term.buffer.active.viewportY;
+                        const isAtBottom = currentScrollY >= (totalLines - terminalState.term.rows);
 
-                        // 少し待ってからクリアを実行（スクロール完了を待つ）
+                        console.log('[BUFFER CLEANUP] Current scroll position', {
+                            currentScrollY,
+                            totalLines,
+                            terminalRows: terminalState.term.rows,
+                            isAtBottom
+                        });
+
+                        // 少し待ってからクリアを実行
                         setTimeout(() => {
                             try {
-                                // バッファの一部をクリア（古い行を削除）
-                                // xterm.js には直接的なバッファ削減機能がないため、clear() を使用
-                                // ただし、これは全クリアなので代替として scrollToBottom() のみ実行
-                                terminalState.term.scrollToBottom();
-
-                                console.log('[BUFFER CLEANUP] Buffer cleanup completed');
-
-                                // VSCode 側にもバッファクリア要求を送信
+                                // VSCode 側にバッファクリア要求を送信
                                 vscode.postMessage({
                                     type: 'bufferCleanupRequest',
                                     currentLines: scrollbackLines,
-                                    threshold: CLEANUP_THRESHOLD
+                                    threshold: CLEANUP_THRESHOLD,
+                                    preserveScrollPosition: !isAtBottom // 最下部にいない場合はスクロール位置を保持
                                 });
+
+                                // 最下部にいない場合はスクロール位置を変更しない
+                                // 最下部にいる場合、または問題がある場合のみ scrollToBottom() を実行
+                                if (isAtBottom) {
+                                    console.log('[BUFFER CLEANUP] User was at bottom, scrolling to bottom');
+                                    terminalState.term.scrollToBottom();
+                                } else {
+                                    console.log('[BUFFER CLEANUP] User was not at bottom, preserving scroll position');
+                                }
+
+                                console.log('[BUFFER CLEANUP] Buffer cleanup completed');
 
                             } catch (error) {
                                 console.error('[BUFFER CLEANUP] Error during buffer cleanup:', error);
+                                // エラーが発生した場合のみ強制的にスクロール
+                                terminalState.term.scrollToBottom();
                             }
                         }, 100);
                     }

@@ -6,6 +6,20 @@ import { ShellProcessManager } from './shellProcessManager';
 import { TerminalSessionManager } from './terminalSessionManager';
 import { createContextTextForSelectedText } from './utils';
 
+// WebView メッセージの型定義
+interface WebViewMessage {
+    type: 'terminalInput' | 'terminalReady' | 'resize' | 'error' | 'buttonSendSelection' | 'buttonCopySelection' | 'buttonReset' | 'buttonResetRequest' | 'refreshCliAgentStatus' | 'bufferCleanupRequest';
+    data?: string;
+    cols?: number;
+    rows?: number;
+    error?: string;
+    timestamp?: number;
+    // Buffer cleanup specific properties
+    currentLines?: number;
+    threshold?: number;
+    preserveScrollPosition?: boolean;
+}
+
 export class TerminalProvider implements vscode.WebviewViewProvider {
     private _view?: vscode.WebviewView;
     private _cwd: string;
@@ -54,16 +68,6 @@ export class TerminalProvider implements vscode.WebviewViewProvider {
         };
 
         webviewView.webview.html = this._getHtmlForWebview(webviewView.webview);
-
-        // WebView メッセージの型定義
-        interface WebViewMessage {
-            type: 'terminalInput' | 'terminalReady' | 'resize' | 'error' | 'buttonSendSelection' | 'buttonCopySelection' | 'buttonReset' | 'buttonResetRequest' | 'refreshCliAgentStatus' | 'bufferCleanupRequest';
-            data?: string;
-            cols?: number;
-            rows?: number;
-            error?: string;
-            timestamp?: number;
-        }
 
         webviewView.webview.onDidReceiveMessage(
             (message: WebViewMessage) => {
@@ -271,24 +275,42 @@ export class TerminalProvider implements vscode.WebviewViewProvider {
         }
     }
 
-    private handleBufferCleanupRequest(message: any) {
+    private handleBufferCleanupRequest(message: WebViewMessage) {
         try {
+            const preserveScrollPosition = message.preserveScrollPosition || false;
+            
             console.log('[BUFFER CLEANUP] Received buffer cleanup request from frontend', {
                 currentLines: message.currentLines,
-                threshold: message.threshold
+                threshold: message.threshold,
+                preserveScrollPosition
             });
 
-            // TerminalSessionManager を通してバッファクリアを実行
-            this._sessionManager.trimBufferIfNeeded(this._workspaceKey);
-            
-            console.log('[BUFFER CLEANUP] Backend buffer cleanup completed');
-            
-            // 必要に応じて WebView に結果を通知
-            this._view?.webview.postMessage({
-                type: 'bufferCleanupCompleted',
-                success: true,
-                timestamp: Date.now()
-            });
+            // スクロール位置を保持する場合は、実際のバッファクリアをスキップするかもしれない
+            // 現時点では、バッファクリアの頻度を下げるかバッファクリアを実行しない
+            if (preserveScrollPosition) {
+                console.log('[BUFFER CLEANUP] Scroll position preservation requested, skipping buffer cleanup');
+                
+                // スクロール位置を保持したい場合は、バッファクリアを実行しない
+                // または、より控えめなクリア処理を実行
+                this._view?.webview.postMessage({
+                    type: 'bufferCleanupCompleted',
+                    success: true,
+                    timestamp: Date.now(),
+                    message: 'Buffer cleanup skipped to preserve scroll position'
+                });
+            } else {
+                // 通常のバッファクリアを実行
+                this._sessionManager.trimBufferIfNeeded(this._workspaceKey);
+                
+                console.log('[BUFFER CLEANUP] Backend buffer cleanup completed');
+                
+                this._view?.webview.postMessage({
+                    type: 'bufferCleanupCompleted',
+                    success: true,
+                    timestamp: Date.now(),
+                    message: 'Buffer cleanup completed'
+                });
+            }
             
         } catch (error) {
             console.error('[BUFFER CLEANUP] Error during backend buffer cleanup:', error);
