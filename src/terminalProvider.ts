@@ -278,7 +278,7 @@ export class TerminalProvider implements vscode.WebviewViewProvider {
     private handleBufferCleanupRequest(message: WebViewMessage) {
         try {
             const preserveScrollPosition = message.preserveScrollPosition || false;
-            
+
             console.log('[BUFFER CLEANUP] Received buffer cleanup request from frontend', {
                 currentLines: message.currentLines,
                 threshold: message.threshold,
@@ -289,7 +289,7 @@ export class TerminalProvider implements vscode.WebviewViewProvider {
             // 現時点では、バッファクリアの頻度を下げるかバッファクリアを実行しない
             if (preserveScrollPosition) {
                 console.log('[BUFFER CLEANUP] Scroll position preservation requested, skipping buffer cleanup');
-                
+
                 // スクロール位置を保持したい場合は、バッファクリアを実行しない
                 // または、より控えめなクリア処理を実行
                 this._view?.webview.postMessage({
@@ -301,9 +301,9 @@ export class TerminalProvider implements vscode.WebviewViewProvider {
             } else {
                 // 通常のバッファクリアを実行
                 this._sessionManager.trimBufferIfNeeded(this._workspaceKey);
-                
+
                 console.log('[BUFFER CLEANUP] Backend buffer cleanup completed');
-                
+
                 this._view?.webview.postMessage({
                     type: 'bufferCleanupCompleted',
                     success: true,
@@ -311,10 +311,10 @@ export class TerminalProvider implements vscode.WebviewViewProvider {
                     message: 'Buffer cleanup completed'
                 });
             }
-            
+
         } catch (error) {
             console.error('[BUFFER CLEANUP] Error during backend buffer cleanup:', error);
-            
+
             // エラーを WebView に通知
             this._view?.webview.postMessage({
                 type: 'bufferCleanupCompleted',
@@ -341,7 +341,7 @@ export class TerminalProvider implements vscode.WebviewViewProvider {
             // VSCode 設定から scrollback 最大行数を取得
             // 設定キー: secondaryTerminal.maxHistoryLines
             // const config = vscode.workspace.getConfiguration('secondaryTerminal');
-            // const maxHistoryLines = Math.max(50, Math.floor(config.get('maxHistoryLines', 300)));
+            // const maxHistoryLines = Math.max(50, Math.floor(config.get('maxHistoryLines', 1000)));
             // 検証のため150。遅いのを防ぎたい
             const maxHistoryLines = 150;
 

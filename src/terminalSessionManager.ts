@@ -25,7 +25,7 @@ interface TerminalSession {
 // 定数定義
 const TERMINAL_CONSTANTS = {
     MAX_BUFFER_SIZE: 50000,  // 50KB に削減してメモリ使用量と CPU 負荷を軽減
-    DEFAULT_MAX_LINES: 300,  // 行数基準の保持上限（設定で上書き）
+    DEFAULT_MAX_LINES: 1000,  // 行数基準の保持上限（設定で上書き）
     BUFFER_TRIM_RATIO: 0.7,  // バッファ削除時により多く削除してトリミング頻度を減らす
     TRIM_THRESHOLD: 55000,   // トリミング開始のしきい値を分離
 } as const;
@@ -49,11 +49,11 @@ export class TerminalSessionManager {
      */
     public getOrCreateSession(workspaceKey: string): TerminalSession {
         const existingSession = this.sessions.get(workspaceKey);
-        
+
         if (existingSession) {
             return existingSession;
         }
-        
+
         // 設定から保持行数を取得（最低 50 行は確保）
         const config = vscode.workspace.getConfiguration('secondaryTerminal');
         const configuredMaxLines = Math.max(50, Math.floor(config.get('maxHistoryLines', TERMINAL_CONSTANTS.DEFAULT_MAX_LINES)));
@@ -73,7 +73,7 @@ export class TerminalSessionManager {
             lastOutputTime: 0,
             pendingSince: null
         };
-        
+
         this.sessions.set(workspaceKey, newSession);
         return newSession;
     }
@@ -103,15 +103,15 @@ export class TerminalSessionManager {
                 }
             }
         }
-        
+
         // 既存の接続がある場合は切断
         if (session.currentView && session.currentView !== view) {
             session.isConnected = false;
         }
-        
+
         session.currentView = view;
         session.isConnected = true;
-        
+
         // バッファに保存されている出力を新しいビューに送信
         if (session.totalBufferLength > 0 && session.outputChunks.length > 0) {
             const snapshot = session.outputChunks.join('');
@@ -148,7 +148,7 @@ export class TerminalSessionManager {
         const newlineCount = countNewlines(data);
         session.outputNewlines.push(newlineCount);
         session.totalLineCount += newlineCount;
-        
+
         // バッファ制限（文字数/行数の両方）に基づく効率的なトリミング
         if (session.totalBufferLength > session.maxBufferSize || session.totalLineCount > session.maxHistoryLines) {
             // 目標まで先頭からチャンクを削除
@@ -340,7 +340,7 @@ export class TerminalSessionManager {
                 clearTimeout(session.outputTimer);
                 session.outputTimer = undefined;
             }
-            
+
             session.isConnected = false;
             session.currentView = undefined;
             session.pendingOutput = '';
@@ -360,7 +360,7 @@ export class TerminalSessionManager {
                     clearTimeout(session.outputTimer);
                     session.outputTimer = undefined;
                 }
-                
+
                 // セッション状態をクリア
                 session.isConnected = false;
                 session.currentView = undefined;
@@ -374,7 +374,7 @@ export class TerminalSessionManager {
                 console.error(`Error cleaning up session ${workspaceKey}:`, error);
             }
         }
-        
+
         // Map をクリア
         this.sessions.clear();
     }
