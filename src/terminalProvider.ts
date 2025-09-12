@@ -343,7 +343,8 @@ export class TerminalProvider implements vscode.WebviewViewProvider {
             // const config = vscode.workspace.getConfiguration('secondaryTerminal');
             // const maxHistoryLines = Math.max(50, Math.floor(config.get('maxHistoryLines', 1000)));
             // 検証のため150。遅いのを防ぎたい
-            const maxHistoryLines = 150;
+            // 少なくしすぎると長いコードのコピペができなくなるため、1000ぐらいは最低必要
+            const maxHistoryLines = 1000;
 
             // プレースホルダーを実際の値に置換
             htmlContent = htmlContent

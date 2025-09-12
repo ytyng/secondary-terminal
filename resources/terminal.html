@@ -619,11 +619,6 @@
                 setTimeout(() => {
                     setTerminalSize();
                 }, 2000);
-                setTimeout(() => {
-                    lastSizeCheck = Date.now();
-                    setTerminalSize();
-                }, 5000);
-
 
                 let cliAgentState = { active: false, agent_type: null }; // CLI エージェントの状態
 
@@ -990,13 +985,13 @@
             setTimeout(applyBackgroundColor, 500);
 
             // リーク検証のため一旦無効化
-            // terminalState.timers.backgroundColorInterval = setInterval(() => {
-            //     const textLayer = document.querySelector('#terminal canvas.xterm-text-layer');
-            //     if (textLayer && textLayer.getContext) {
-            //         applyBackgroundColor();
-            //     }
-            // }, 3000);
-            setTimeout(applyBackgroundColor, 4000);
+            terminalState.timers.backgroundColorInterval = setInterval(() => {
+                const textLayer = document.querySelector('#terminal canvas.xterm-text-layer');
+                if (textLayer && textLayer.getContext) {
+                    applyBackgroundColor();
+                }
+            }, 4000);
+            // setTimeout(applyBackgroundColor, 4000);
         })();
 
 
