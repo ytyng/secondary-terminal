@@ -170,6 +170,64 @@ export class ShellProcessManager {
     }
 
     /**
+     * バックプレッシャー制御付きでプロセスにデータを送信
+     * @returns true if the data was written successfully, false if backpressure occurred
+     */
+    public sendToProcessWithBackpressure(workspaceKey: string, data: Buffer): boolean {
+        const processInfo = this.processes.get(workspaceKey);
+        if (!processInfo || !processInfo.process || !processInfo.process.stdin) {
+            return false;
+        }
+
+        const stdinAny: any = processInfo.process.stdin as any;
+        // リセット直後など、stdin が閉じている場合は書き込まない
+        if (!this.isProcessStdinWritable(processInfo.process)) {
+            console.warn(`Skip write: stdin closed (destroyed=${stdinAny.destroyed}, writable=${stdinAny.writable}, ended=${stdinAny.writableEnded}, finished=${stdinAny.writableFinished}) for ${workspaceKey}`);
+            return false;
+        }
+
+        // write メソッドの戻り値をチェック（false なら内部バッファが満杯）
+        return processInfo.process.stdin.write(data);
+    }
+
+    /**
+     * プロセスの stdin で drain イベントを待つ
+     */
+    public async waitForDrain(workspaceKey: string): Promise<void> {
+        const processInfo = this.processes.get(workspaceKey);
+        if (!processInfo || !processInfo.process || !processInfo.process.stdin) {
+            return;
+        }
+
+        if (!this.isProcessStdinWritable(processInfo.process)) {
+            return;
+        }
+
+        // stdin の drain イベントを待つ
+        return new Promise((resolve) => {
+            const stdin = processInfo.process.stdin;
+            if (!stdin) {
+                resolve();
+                return;
+            }
+
+            const onDrain = () => {
+                stdin.removeListener('drain', onDrain);
+                resolve();
+            };
+
+            stdin.once('drain', onDrain);
+
+            // タイムアウト設定（10秒）
+            setTimeout(() => {
+                stdin.removeListener('drain', onDrain);
+                console.warn('Drain timeout for workspace:', workspaceKey);
+                resolve();
+            }, 10000);
+        });
+    }
+
+    /**
      * プロセスのサイズを更新
      */
     public updateProcessSize(workspaceKey: string, cols: number, rows: number): void {

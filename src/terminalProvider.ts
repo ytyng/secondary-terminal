@@ -8,7 +8,7 @@ import { createContextTextForSelectedText } from './utils';
 
 // WebView メッセージの型定義
 interface WebViewMessage {
-    type: 'terminalInput' | 'terminalReady' | 'resize' | 'error' | 'buttonSendSelection' | 'buttonCopySelection' | 'buttonReset' | 'buttonResetRequest' | 'refreshCliAgentStatus' | 'bufferCleanupRequest';
+    type: 'terminalInput' | 'terminalReady' | 'resize' | 'error' | 'buttonSendSelection' | 'buttonCopySelection' | 'buttonReset' | 'buttonResetRequest' | 'refreshCliAgentStatus' | 'bufferCleanupRequest' | 'terminalInputBegin' | 'terminalInputChunk' | 'terminalInputEnd';
     data?: string;
     cols?: number;
     rows?: number;
@@ -18,6 +18,13 @@ interface WebViewMessage {
     currentLines?: number;
     threshold?: number;
     preserveScrollPosition?: boolean;
+    // Chunked paste properties
+    id?: string;
+    totalBytes?: number;
+    kind?: string;
+    b64?: string;
+    offset?: number;
+    size?: number;
 }
 
 export class TerminalProvider implements vscode.WebviewViewProvider {
@@ -28,6 +35,14 @@ export class TerminalProvider implements vscode.WebviewViewProvider {
     private _workspaceKey: string;
     private _processManager = ShellProcessManager.getInstance();
     private _sessionManager = TerminalSessionManager.getInstance();
+
+    // チャンクペースト用の状態管理
+    private _chunkSessions: Map<string, {
+        buffer: Buffer[];
+        totalBytes: number;
+        receivedBytes: number;
+        kind?: string | undefined;
+    }> = new Map();
 
     constructor(private readonly _extensionContext: vscode.ExtensionContext) {
         this._cwd = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath || os.homedir();
@@ -122,6 +137,15 @@ export class TerminalProvider implements vscode.WebviewViewProvider {
                         break;
                     case 'bufferCleanupRequest':
                         this.handleBufferCleanupRequest(message);
+                        break;
+                    case 'terminalInputBegin':
+                        this.handleChunkedInputBegin(message);
+                        break;
+                    case 'terminalInputChunk':
+                        this.handleChunkedInputChunk(message);
+                        break;
+                    case 'terminalInputEnd':
+                        this.handleChunkedInputEnd(message);
                         break;
                 }
             },
@@ -373,5 +397,113 @@ export class TerminalProvider implements vscode.WebviewViewProvider {
             <body><p style="color: red;">Failed to load terminal template: ${escapedError}</p></body>
             </html>`;
         }
+    }
+
+    // バックプレッシャー制御付きの書き込み関数
+    private async writeWithBackpressure(data: Buffer): Promise<void> {
+        try {
+            const success = this._processManager.sendToProcessWithBackpressure(this._workspaceKey, data);
+            if (!success) {
+                // バックプレッシャーが発生した場合は drain を待つ
+                await this._processManager.waitForDrain(this._workspaceKey);
+            }
+        } catch (error) {
+            console.error('Failed to write with backpressure:', error);
+            throw error;
+        }
+    }
+
+    // チャンク入力開始ハンドラー
+    private handleChunkedInputBegin(message: WebViewMessage): void {
+        if (!message.id) {
+            console.error('Missing id in terminalInputBegin message');
+            return;
+        }
+
+        console.log('[CHUNKED INPUT] Begin session', message.id, 'total bytes:', message.totalBytes);
+
+        // セッション情報を保存
+        this._chunkSessions.set(message.id, {
+            buffer: [],
+            totalBytes: message.totalBytes || 0,
+            receivedBytes: 0,
+            kind: message.kind
+        });
+
+        // 最初の ACK を送信（次のチャンクを要求）
+        this._view?.webview.postMessage({
+            type: 'terminalInputAck',
+            id: message.id
+        });
+    }
+
+    // チャンク受信ハンドラー
+    private async handleChunkedInputChunk(message: WebViewMessage): Promise<void> {
+        if (!message.id || !message.b64) {
+            console.error('Missing id or b64 in terminalInputChunk message');
+            return;
+        }
+
+        const session = this._chunkSessions.get(message.id);
+        if (!session) {
+            console.error('Unknown chunk session:', message.id);
+            return;
+        }
+
+        try {
+            // base64 デコード
+            const chunkData = Buffer.from(message.b64, 'base64');
+            console.log('[CHUNKED INPUT] Received chunk', message.offset, 'size:', chunkData.length);
+
+            // セッションに追加
+            session.buffer.push(chunkData);
+            session.receivedBytes += chunkData.length;
+
+            // バックプレッシャー制御でプロセスに書き込み
+            await this.writeWithBackpressure(chunkData);
+
+            // ACK を送信（次のチャンクを要求）
+            this._view?.webview.postMessage({
+                type: 'terminalInputAck',
+                id: message.id
+            });
+        } catch (error) {
+            console.error('Error handling chunked input:', error);
+            // エラー時はセッションを終了
+            this._chunkSessions.delete(message.id);
+
+            this._view?.webview.postMessage({
+                type: 'terminalInputAck',
+                id: message.id,
+                done: true,
+                error: error instanceof Error ? error.message : String(error)
+            });
+        }
+    }
+
+    // チャンク入力終了ハンドラー
+    private handleChunkedInputEnd(message: WebViewMessage): void {
+        if (!message.id) {
+            console.error('Missing id in terminalInputEnd message');
+            return;
+        }
+
+        const session = this._chunkSessions.get(message.id);
+        if (!session) {
+            console.error('Unknown chunk session:', message.id);
+            return;
+        }
+
+        console.log('[CHUNKED INPUT] End session', message.id, 'received bytes:', session.receivedBytes);
+
+        // セッション完了
+        this._chunkSessions.delete(message.id);
+
+        // 完了 ACK を送信
+        this._view?.webview.postMessage({
+            type: 'terminalInputAck',
+            id: message.id,
+            done: true
+        });
     }
 }

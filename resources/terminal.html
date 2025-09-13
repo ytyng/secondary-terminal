@@ -311,6 +311,70 @@
             terminalState.eventListeners.push({ element, event, handler });
         }
 
+        // 大量ペーストのチャンク送信機能
+        function sendBytesInChunks(bytes, meta) {
+            const CHUNK_SIZE = 32 * 1024; // 32KB チャンクサイズ
+            const id = Math.random().toString(36).slice(2); // ランダム ID
+            let offset = 0;
+
+            // ACK 待ち用のイベントリスナー
+            const onAck = (event) => {
+                const message = event.data;
+                if (!message || message.type !== 'terminalInputAck' || message.id !== id) {
+                    return;
+                }
+
+                if (message.done) {
+                    // 送信完了
+                    window.removeEventListener('message', onAck);
+                    console.log('[PASTE CHUNKS] All chunks sent successfully');
+                    return;
+                }
+
+                // 次のチャンクを送信
+                sendNextChunk();
+            };
+
+            window.addEventListener('message', onAck);
+
+            // 送信開始通知
+            console.log('[PASTE CHUNKS] Starting chunked paste, total bytes:', bytes.length);
+            vscode.postMessage({
+                type: 'terminalInputBegin',
+                id: id,
+                totalBytes: bytes.length,
+                ...meta
+            });
+
+            function sendNextChunk() {
+                if (offset >= bytes.length) {
+                    // 送信終了通知
+                    vscode.postMessage({ type: 'terminalInputEnd', id: id });
+                    return;
+                }
+
+                const chunkEnd = Math.min(offset + CHUNK_SIZE, bytes.length);
+                const slice = bytes.subarray(offset, chunkEnd);
+
+                // base64 エンコーディングで安全に転送
+                const b64 = btoa(String.fromCharCode.apply(null, slice));
+
+                console.log('[PASTE CHUNKS] Sending chunk', offset, 'to', chunkEnd, 'of', bytes.length);
+                vscode.postMessage({
+                    type: 'terminalInputChunk',
+                    id: id,
+                    b64: b64,
+                    offset: offset,
+                    size: slice.length
+                });
+
+                offset = chunkEnd;
+            }
+
+            // 最初のチャンクを送信
+            sendNextChunk();
+        }
+
         // 定期的なバッファクリア機能
         function setupPeriodicBufferCleanup() {
             // 設定可能な値
@@ -436,6 +500,8 @@
                     allowProposedApi: true,
                     allowTransparency: false,
                     minimumContrastRatio: 1,
+                    // ペーストをアプリに「まとまり」として伝える
+                    bracketedPasteMode: true,
                     // スクロールバック上限を設定（大きな履歴での write/render 負荷を軽減）
                     scrollback: MAX_BUFFER_LINES
                 });
@@ -761,6 +827,27 @@
                 }
                 terminalState.xtermListeners.push(dataListener);
                 console.log('[LEAK CHECK] Added onData listener, total listeners: ' + terminalState.xtermListeners.length);
+
+                // ペーストイベントハンドラー（DOM イベントを使用）
+                const pasteHandler = (event) => {
+                    // デフォルトのペースト処理を阻止
+                    event.preventDefault();
+
+                    // クリップボードからデータを取得
+                    const clipboardData = event.clipboardData || window.clipboardData;
+                    if (clipboardData && clipboardData.getData) {
+                        const pastedText = clipboardData.getData('text');
+                        if (pastedText) {
+                            console.log('[PASTE] Intercepted paste event, length:', pastedText.length);
+                            // 大量ペースト時はチャンク送信でフロー制御
+                            sendBytesInChunks(new TextEncoder().encode(pastedText), { kind: 'paste' });
+                        }
+                    }
+                };
+
+                // ターミナル要素にペーストリスナーを追加
+                addManagedEventListener(terminalElement, 'paste', pasteHandler);
+                console.log('[LEAK CHECK] Added DOM paste listener');
 
                 let outputCount = 0;
                 let totalOutputChars = 0;
