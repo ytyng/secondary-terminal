@@ -679,6 +679,22 @@
 
 
                         terminalState.term.attachCustomKeyEventHandler(function (event) {
+                            // ESC キーの処理（vim など対応）
+                            if (event.type === 'keydown' && event.key === 'Escape') {
+                                // ブラウザのデフォルト動作を完全に停止
+                                event.preventDefault();
+                                event.stopPropagation();
+
+                                // 正しいエスケープシーケンスを送信
+                                vscode.postMessage({
+                                    type: 'terminalInput',
+                                    data: '\x1b'  // ESC文字（ASCII 27）を確実に送信
+                                });
+
+                                // false を返してデフォルト処理を完全に停止
+                                return false;
+                            }
+
                             // Shift + Enter の場合（CLI エージェントが動作中のときのみ）
                             if (event.type === 'keydown' &&
                                 event.key === 'Enter' &&
