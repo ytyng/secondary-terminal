@@ -12,8 +12,8 @@ import atexit
 import errno
 import re
 
-# I/O バッファサイズ定数
-IO_BUFFER_SIZE = 8092
+# I/O バッファサイズ定数（vim などの対話的アプリに優しいサイズに調整）
+IO_BUFFER_SIZE = 1024
 
 
 def set_winsize(fd, rows, cols):
@@ -442,12 +442,42 @@ def main():
                                         cleaned_parts.append(text[tail:])
                                     cleaned_text = ''.join(cleaned_parts)
 
-                                    # 通常テキストを PTY に送信
+                                    # 通常テキストを PTY に送信（大量データは分割して送信）
                                     if cleaned_text:
-                                        os.write(
-                                            master,
-                                            cleaned_text.encode('utf-8', errors='ignore'),
-                                        )
+                                        # 大量データ（1KB超）は vim などの対話的アプリのためチャンク分割
+                                        if len(cleaned_text) > 1024:
+                                            # 512バイトずつ分割して送信
+                                            for i in range(0, len(cleaned_text), 512):
+                                                chunk = cleaned_text[i:i+512]
+                                                try:
+                                                    os.write(
+                                                        master,
+                                                        chunk.encode('utf-8', errors='ignore'),
+                                                    )
+                                                    # チャンク間に短い遅延（vim の処理時間確保）
+                                                    if i + 512 < len(cleaned_text):
+                                                        time.sleep(0.01)  # 10ms
+                                                except OSError as e:
+                                                    # EAGAIN などの場合は少し待ってリトライ
+                                                    if e.errno == errno.EAGAIN:
+                                                        time.sleep(0.05)
+                                                        try:
+                                                            os.write(
+                                                                master,
+                                                                chunk.encode('utf-8', errors='ignore'),
+                                                            )
+                                                        except OSError:
+                                                            # 2回目も失敗したら諦める
+                                                            pass
+                                                    else:
+                                                        # EAGAIN 以外のエラーは再発生させる
+                                                        raise
+                                        else:
+                                            # 小さなデータはそのまま送信
+                                            os.write(
+                                                master,
+                                                cleaned_text.encode('utf-8', errors='ignore'),
+                                            )
                                 else:
                                     # デコードされたテキストがない場合は何もしない（バッファに残っている）
                                     pass
@@ -473,8 +503,14 @@ def main():
                                     # エラー時はバイナリデータをそのまま送信
                                     sys.stdout.buffer.write(data)
                                     sys.stdout.buffer.flush()
-                        except OSError:
-                            pass
+                        except OSError as e:
+                            # EAGAIN は PTY バッファが空なので無視
+                            if e.errno == errno.EAGAIN:
+                                pass
+                            elif e.errno in (errno.EIO, errno.ENXIO):
+                                # PTY が閉じられた場合はループを抜ける
+                                break
+                            # その他のエラーも基本的に無視（安定性向上）
 
                 except (select.error, OSError):
                     time.sleep(0.1)  # CPU 負荷軽減のため少し長めに待機
