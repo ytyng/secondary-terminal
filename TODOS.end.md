@@ -80,3 +80,40 @@ claude code を起動し、大量の文字をペーストすると固まって�
 
 **バグ修正:**
 - xterm.js v5.5.0 では onPaste メソッドが利用できないため、DOM の paste イベントを使用する方法に変更
+
+---
+
+# ACE エディタ統合
+
+ターミナルウインドウのペインと下部コントロールの間に、コード入力用のテキストエリアを設置してほしい。
+
+[@/Users/yotsuyanagi/workspace/secondary-terminal/resources/terminal.html (L:185-186)]
+```
+<!-- ここにテキストエリアペインを作成 -->
+        <!-- 単純なテキストエリアではなく ACE エディタを組み込む -->
+```
+
+ここに入れて。
+
+ACE エディタを使って、height = 300 程度のテキストエリアを作る。
+
+ACE エディタの書き方は、
+/Users/yotsuyanagi/workspace/vscode-side-editor
+を参考にして。
+
+エディタで、 Command + Enter を入力したら、その文字をターミナルに入力するようにして。
+
+また、最下部の @section copy のボタンは、押下時はテキストを ACEエディタに入力するようにして。
+
+入力内容は、extension が非アクティブになり、ふたたびアクティブになった時、入力内容を復旧するようにして。
+
+**完了済み (2025-09-24)**
+
+**実装内容:**
+1. ACE エディタを terminal.html に統合 (height: 300px)
+2. Command+Enter でエディタ内容をターミナル送信機能を実装
+3. Copy ボタンでテキストを ACE エディタに入力する機能を実装
+4. 拡張機能の非アクティブ/アクティブ時の状態復旧機能を実装
+5. VSCode テーマに合わせたスタイリング適用
+6. ace-builds 依存関係をパッケージに追加
+7. terminalProvider.ts で ACE エディタ関連メッセージハンドリングを追加

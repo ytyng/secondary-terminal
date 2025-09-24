@@ -175,6 +175,175 @@
                 opacity: 1;
             }
         }
+
+        /* ACE エディタコンテナ */
+        .editor-container {
+            flex-shrink: 0;
+            background-color: var(--vscode-editor-background);
+            border-top: 1px solid var(--vscode-panel-border, #3c3c3c);
+            border-bottom: 1px solid var(--vscode-panel-border, #3c3c3c);
+            height: 200px;
+            overflow: hidden;
+        }
+
+        #ace-editor {
+            width: 100%;
+            height: 100%;
+        }
+
+        /* カスタム ACE テーマ - VSCode ダーク風 */
+        .ace-vscode-dark {
+            background-color: var(--vscode-editor-background);
+            color: var(--vscode-editor-foreground);
+
+            .ace_gutter {
+                background-color: var(--vscode-editorGutter-background);
+                color: var(--vscode-editorLineNumber-foreground);
+                border-right: 1px solid var(--vscode-panel-border, #3c3c3c);
+            }
+
+            .ace_print-margin {
+                width: 1px;
+                background: var(--vscode-editorRuler-foreground);
+            }
+
+            .ace_cursor {
+                color: var(--vscode-editorCursor-foreground);
+            }
+
+            .ace_marker-layer {
+                .ace_selection {
+                    background: var(--vscode-editor-selectionBackground);
+                }
+
+                .ace_step {
+                    background: var(--vscode-debugTokenExpression-number);
+                }
+
+                .ace_bracket {
+                    margin: -1px 0 0 -1px;
+                    border: 1px solid var(--vscode-editorBracketMatch-border);
+                    background: var(--vscode-editorBracketMatch-background);
+                }
+
+                .ace_active-line {
+                    background: var(--vscode-editor-lineHighlightBackground);
+                }
+
+                .ace_selected-word {
+                    border: 1px solid var(--vscode-editor-selectionHighlightBorder);
+                    background: var(--vscode-editor-selectionHighlightBackground);
+                }
+            }
+
+            &.ace_multiselect .ace_selection.ace_start {
+                box-shadow: 0 0 3px 0px var(--vscode-editor-background);
+                border-radius: 2px;
+            }
+
+            .ace_gutter-active-line {
+                background-color: var(--vscode-editor-lineHighlightBackground);
+            }
+
+            .ace_invisible {
+                color: var(--vscode-editorWhitespace-foreground, #404040);
+            }
+
+            .ace_keyword,
+            .ace_meta,
+            .ace_storage,
+            .ace_storage.ace_type,
+            .ace_support.ace_type {
+                color: var(--vscode-debugTokenExpression-name);
+            }
+
+            .ace_keyword.ace_operator {
+                color: var(--vscode-debugTokenExpression-value);
+            }
+
+            .ace_constant.ace_character,
+            .ace_constant.ace_language,
+            .ace_constant.ace_numeric,
+            .ace_keyword.ace_other.ace_unit,
+            .ace_support.ace_constant,
+            .ace_variable.ace_parameter {
+                color: var(--vscode-debugTokenExpression-number);
+            }
+
+            .ace_constant.ace_other {
+                color: var(--vscode-debugTokenExpression-number);
+            }
+
+            .ace_invalid {
+                color: var(--vscode-editorError-foreground);
+                background-color: var(--vscode-editorError-background);
+
+                &.ace_deprecated {
+                    color: var(--vscode-editorWarning-foreground);
+                    background-color: var(--vscode-editorWarning-background);
+                }
+            }
+
+            .ace_fold {
+                background-color: var(--vscode-debugTokenExpression-name);
+                border-color: var(--vscode-debugTokenExpression-name);
+            }
+
+            .ace_entity.ace_name.ace_function,
+            .ace_support.ace_function,
+            .ace_variable {
+                color: var(--vscode-debugTokenExpression-string);
+            }
+
+            .ace_support.ace_class,
+            .ace_support.ace_type {
+                color: var(--vscode-debugTokenExpression-name);
+            }
+
+            .ace_heading,
+            .ace_markup.ace_heading {
+                color: var(--vscode-debugTokenExpression-name);
+                font-weight: bold;
+            }
+
+            .ace_list,
+            .ace_markup.ace_list {
+                color: var(--vscode-debugTokenExpression-string);
+            }
+
+            .ace_list.ace_markup {
+                color: var(--vscode-debugTokenExpression-string);
+            }
+
+            .ace_punctuation.ace_definition.ace_list_begin {
+                color: var(--vscode-debugTokenExpression-value);
+            }
+
+            .ace_entity.ace_name.ace_tag,
+            .ace_entity.ace_other.ace_attribute-name,
+            .ace_meta.ace_tag,
+            .ace_string.ace_regexp,
+            .ace_variable {
+                color: var(--vscode-debugTokenExpression-name);
+            }
+
+            .ace_comment {
+                color: var(--vscode-debugConsole-infoForeground);
+                font-style: italic;
+            }
+
+            .ace_string {
+                color: var(--vscode-debugTokenExpression-string);
+            }
+
+            .ace_entity.ace_other.ace_attribute-name {
+                color: var(--vscode-debugTokenExpression-name);
+            }
+
+            .ace_indent-guide {
+                background: url("data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChAGGzJY5NwAAAABJRU5ErkJggg==") right repeat-y;
+            }
+        }
     </style>
 </head>
 
@@ -182,6 +351,12 @@
     <div class="terminal-container" id="terminal-container">
 
         <div id="terminal"></div>
+
+        <!-- ACE エディタペイン -->
+        <div class="editor-container">
+            <div id="ace-editor"></div>
+        </div>
+
         <!-- 下部コントロールパネル -->
         <div class="control-panel">
             <div class="control-panel-left-controls">
@@ -208,6 +383,11 @@
     <script src="{{XTERM_JS_URI}}"></script>
     <script src="{{XTERM_UNICODE11_JS_URI}}"></script>
     <script src="{{XTERM_CANVAS_JS_URI}}"></script>
+
+    <!-- ACE Editor Scripts -->
+    <script src="{{ACE_JS_URI}}"></script>
+    <script src="{{ACE_MODE_JAVASCRIPT_URI}}"></script>
+    <script src="{{ACE_KEYBINDING_VSCODE_URI}}"></script>
     <script>
         const MAX_BUFFER_LINES = parseInt('{{SCROLLBACK_MAX}}'); // 設定された最大行数
         const vscode = acquireVsCodeApi();
@@ -223,6 +403,171 @@
             eventListeners: [],
             isInitialized: false
         };
+
+        // ACE エディタ用の状態管理
+        const editorState = {
+            editor: null,
+            isInitialized: false
+        };
+
+        // ACE エディタ初期化関数
+        function initializeAceEditor() {
+            try {
+                if (editorState.isInitialized) {
+                    console.warn('[ACE] Editor is already initialized');
+                    return;
+                }
+
+                if (typeof ace === 'undefined') {
+                    throw new Error('ACE is not defined. ace-builds may not have loaded.');
+                }
+
+                console.log('[ACE] Starting editor initialization');
+
+                // VSCode ダークテーマを ACE に登録
+                if (ace.define) {
+                    ace.define('ace/theme/vscode-dark', ['require', 'exports', 'module'], function(require, exports, module) {
+                        exports.isDark = true;
+                        exports.cssClass = "ace-vscode-dark";
+                        exports.cssText = ""; // CSS は HTML のスタイルで定義済み
+                    });
+                }
+
+                // エディタを初期化
+                editorState.editor = ace.edit("ace-editor");
+
+                // 設定を適用
+                editorState.editor.setTheme("ace/theme/vscode-dark");
+                editorState.editor.session.setMode("ace/mode/javascript");
+                // VSCode キーボードハンドラーをコメントアウト（競合する可能性）
+                // editorState.editor.setKeyboardHandler("ace/keyboard/vscode");
+
+                // エディタオプション
+                editorState.editor.setOptions({
+                    fontSize: 13,
+                    fontFamily: '"RobotoMono Nerd Font Mono", "RobotoMono Nerd Font", "Roboto Mono", Consolas, "Courier New", monospace',
+                    showPrintMargin: false,
+                    wrap: false,
+                    enableBasicAutocompletion: true,
+                    enableLiveAutocompletion: true,
+                    enableSnippets: true
+                });
+
+                // 初期値を設定（永続化された値があれば復元）
+                const savedContent = vscode.getState()?.editorContent || '';
+                editorState.editor.setValue(savedContent, -1); // -1 でカーソルを先頭に
+
+                // Command+Enter キーバインドを追加
+                editorState.editor.commands.addCommand({
+                    name: 'sendToTerminal',
+                    bindKey: { win: 'Ctrl-Enter', mac: 'Cmd-Enter' },
+                    exec: function(editor) {
+                        console.log('[ACE] Command+Enter pressed');
+                        const content = editor.getValue();
+                        console.log('[ACE] Editor content:', content);
+
+                        if (content.trim()) {
+                            console.log('[ACE] Processing content for terminal...');
+
+                            // 1. 末尾のホワイトスペース（改行含む）を除去
+                            const trimmedContent = content.trimEnd();
+                            console.log('[ACE] Trimmed content:', trimmedContent);
+
+                            // 2. コンテンツをターミナルに送信
+                            console.log('[ACE] Sending content to terminal');
+                            vscode.postMessage({
+                                type: 'editorSendContent',
+                                data: trimmedContent
+                            });
+                            console.log('[ACE] Content sent to terminal');
+
+                            // 3. 200ms 待機後に Enter を送信
+                            setTimeout(() => {
+                                console.log('[ACE] Sending Enter after 200ms');
+                                vscode.postMessage({
+                                    type: 'terminalInput',
+                                    data: '\r'
+                                });
+                                console.log('[ACE] Enter sent to terminal');
+
+                                // 4. エディタの内容をクリア
+                                editor.setValue('', -1);
+                                console.log('[ACE] Editor content cleared');
+                            }, 200);
+                        } else {
+                            console.log('[ACE] Editor content is empty, not sending');
+                        }
+                    }
+                });
+
+                // エディタの内容が変更された時の処理
+                editorState.editor.on('change', function() {
+                    const content = editorState.editor.getValue();
+                    // 内容を永続化
+                    vscode.setState({
+                        ...vscode.getState(),
+                        editorContent: content
+                    });
+                });
+
+                // DOM レベルでのキーイベント処理を追加（ACE のキーバインディングより優先度高）
+                const aceContainer = document.getElementById('ace-editor');
+                if (aceContainer) {
+                    aceContainer.addEventListener('keydown', function(event) {
+                        // Command+Enter (Mac) または Ctrl+Enter (Windows) をキャッチ
+                        if (event.key === 'Enter' && (event.metaKey || event.ctrlKey) && !event.shiftKey && !event.altKey) {
+                            console.log('[ACE DOM] Command+Enter detected');
+                            event.preventDefault(); // デフォルトの動作を阻止
+                            event.stopPropagation(); // イベントの伝播を停止
+
+                            const content = editorState.editor.getValue();
+                            console.log('[ACE DOM] Editor content:', content);
+
+                            if (content.trim()) {
+                                console.log('[ACE DOM] Processing content for terminal...');
+
+                                // 1. 末尾のホワイトスペース（改行含む）を除去
+                                const trimmedContent = content.trimEnd();
+                                console.log('[ACE DOM] Trimmed content:', trimmedContent);
+
+                                // 2. コンテンツをターミナルに送信
+                                console.log('[ACE DOM] Sending content to terminal');
+                                vscode.postMessage({
+                                    type: 'editorSendContent',
+                                    data: trimmedContent
+                                });
+                                console.log('[ACE DOM] Content sent to terminal');
+
+                                // 3. 200ms 待機後に Enter を送信
+                                setTimeout(() => {
+                                    console.log('[ACE DOM] Sending Enter after 200ms');
+                                    vscode.postMessage({
+                                        type: 'terminalInput',
+                                        data: '\r'
+                                    });
+                                    console.log('[ACE DOM] Enter sent to terminal');
+
+                                    // 4. エディタの内容をクリア
+                                    editorState.editor.setValue('', -1);
+                                    console.log('[ACE DOM] Editor content cleared');
+                                }, 200);
+                            } else {
+                                console.log('[ACE DOM] Editor content is empty, not sending');
+                            }
+
+                            return false; // イベント処理終了
+                        }
+                    }, true); // useCapture = true で早期にキャプチャ
+                    console.log('[ACE] DOM keydown listener added');
+                }
+
+                editorState.isInitialized = true;
+                console.log('[ACE] Editor initialization completed');
+
+            } catch (error) {
+                console.error('[ACE] Error initializing editor:', error);
+            }
+        }
 
         // リソース完全リセット関数
         function resetTerminalResources() {
@@ -929,6 +1274,15 @@
                                 console.error('[BUFFER CLEANUP] Backend cleanup failed:', message.error);
                             }
                             break;
+                        case 'copyToEditor':
+                            // Copy ボタンが押された時、テキストを ACE エディタに入力
+                            if (editorState.editor && message.text) {
+                                const currentContent = editorState.editor.getValue();
+                                const newContent = currentContent + (currentContent ? '\n' : '') + message.text;
+                                editorState.editor.setValue(newContent, -1); // -1 で末尾にカーソル移動
+                                editorState.editor.focus();
+                            }
+                            break;
                     }
                 };
                 addManagedEventListener(window, 'message', messageHandler);
@@ -1003,6 +1357,24 @@
 
         // ターミナル初期化を実行
         initializeTerminal();
+
+        // ACE エディタ初期化を実行
+        setTimeout(() => {
+            console.log('[ACE] Attempting to initialize editor...');
+            initializeAceEditor();
+            // 初期化後の確認
+            if (editorState.editor) {
+                console.log('[ACE] Editor successfully initialized, testing keybindings...');
+                const commands = editorState.editor.commands.byName;
+                if (commands.sendToTerminal) {
+                    console.log('[ACE] sendToTerminal command is registered');
+                } else {
+                    console.error('[ACE] sendToTerminal command NOT found!');
+                }
+            } else {
+                console.error('[ACE] Editor initialization failed!');
+            }
+        }, 100);
 
         // ターミナルの背景色をコンテナの背景色に適用させる
         (function () {

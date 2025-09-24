@@ -8,7 +8,7 @@ import { createContextTextForSelectedText } from './utils';
 
 // WebView メッセージの型定義
 interface WebViewMessage {
-    type: 'terminalInput' | 'terminalReady' | 'resize' | 'error' | 'buttonSendSelection' | 'buttonCopySelection' | 'buttonReset' | 'buttonResetRequest' | 'refreshCliAgentStatus' | 'bufferCleanupRequest' | 'terminalInputBegin' | 'terminalInputChunk' | 'terminalInputEnd';
+    type: 'terminalInput' | 'terminalReady' | 'resize' | 'error' | 'buttonSendSelection' | 'buttonCopySelection' | 'buttonReset' | 'buttonResetRequest' | 'refreshCliAgentStatus' | 'bufferCleanupRequest' | 'terminalInputBegin' | 'terminalInputChunk' | 'terminalInputEnd' | 'editorSendContent';
     data?: string;
     cols?: number;
     rows?: number;
@@ -25,6 +25,8 @@ interface WebViewMessage {
     b64?: string;
     offset?: number;
     size?: number;
+    // Editor specific properties
+    text?: string;
 }
 
 export class TerminalProvider implements vscode.WebviewViewProvider {
@@ -147,6 +149,9 @@ export class TerminalProvider implements vscode.WebviewViewProvider {
                     case 'terminalInputEnd':
                         this.handleChunkedInputEnd(message);
                         break;
+                    case 'editorSendContent':
+                        this.handleEditorSendContent(message);
+                        break;
                 }
             },
             undefined,
@@ -255,6 +260,24 @@ export class TerminalProvider implements vscode.WebviewViewProvider {
         }
         const contextText = createContextTextForSelectedText(editor);
         vscode.env.clipboard.writeText(contextText);
+
+        // ACE エディタにもテキストを送信
+        if (this._view) {
+            this._view.webview.postMessage({
+                type: 'copyToEditor',
+                text: contextText
+            });
+        }
+    }
+
+    private handleEditorSendContent(message: WebViewMessage) {
+        console.log('[Terminal] Received editorSendContent message:', message);
+        if (message.data) {
+            console.log('[Terminal] Sending editor content to terminal:', message.data);
+            this.handleInput(message.data);
+        } else {
+            console.log('[Terminal] No data in editorSendContent message');
+        }
     }
 
     private async handleResetRequest() {
@@ -357,6 +380,11 @@ export class TerminalProvider implements vscode.WebviewViewProvider {
         const xtermCanvasJsUri = webview.asWebviewUri(vscode.Uri.joinPath(this._extensionContext.extensionUri, 'node_modules', '@xterm', 'addon-canvas', 'lib', 'addon-canvas.js'));
         const xtermUnicode11JsUri = webview.asWebviewUri(vscode.Uri.joinPath(this._extensionContext.extensionUri, 'node_modules', '@xterm', 'addon-unicode11', 'lib', 'addon-unicode11.js'));
 
+        // ACE エディタの URI を生成
+        const aceJsUri = webview.asWebviewUri(vscode.Uri.joinPath(this._extensionContext.extensionUri, 'node_modules', 'ace-builds', 'src-min-noconflict', 'ace.js'));
+        const aceModeJavaScriptUri = webview.asWebviewUri(vscode.Uri.joinPath(this._extensionContext.extensionUri, 'node_modules', 'ace-builds', 'src-min-noconflict', 'mode-javascript.js'));
+        const aceKeybindingVscodeUri = webview.asWebviewUri(vscode.Uri.joinPath(this._extensionContext.extensionUri, 'node_modules', 'ace-builds', 'src-min-noconflict', 'keybinding-vscode.js'));
+
         // HTMLテンプレートファイルを読み込み
         try {
             const htmlTemplatePath = path.join(this._extensionContext.extensionPath, 'resources', 'terminal.html');
@@ -375,6 +403,9 @@ export class TerminalProvider implements vscode.WebviewViewProvider {
                 .replace(/{{XTERM_JS_URI}}/g, xtermJsUri.toString())
                 .replace(/{{XTERM_CANVAS_JS_URI}}/g, xtermCanvasJsUri.toString())
                 .replace(/{{XTERM_UNICODE11_JS_URI}}/g, xtermUnicode11JsUri.toString())
+                .replace(/{{ACE_JS_URI}}/g, aceJsUri.toString())
+                .replace(/{{ACE_MODE_JAVASCRIPT_URI}}/g, aceModeJavaScriptUri.toString())
+                .replace(/{{ACE_KEYBINDING_VSCODE_URI}}/g, aceKeybindingVscodeUri.toString())
                 .replace(/{{SCROLLBACK_MAX}}/g, String(maxHistoryLines));
 
             return htmlContent;
