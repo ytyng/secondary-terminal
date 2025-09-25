@@ -249,7 +249,15 @@ export class TerminalProvider implements vscode.WebviewViewProvider {
             vscode.window.showWarningMessage('アクティブなエディターがありません');
             return;
         }
-        this.sendTextToTerminal(createContextTextForSelectedText(editor));
+        const contextText = createContextTextForSelectedText(editor);
+
+        // ACE エディタにテキストを送信
+        if (this._view) {
+            this._view.webview.postMessage({
+                type: 'copyToEditor',
+                text: contextText
+            });
+        }
     }
 
     private handleButtonCopySelection() {
@@ -383,6 +391,7 @@ export class TerminalProvider implements vscode.WebviewViewProvider {
         // ACE エディタの URI を生成
         const aceJsUri = webview.asWebviewUri(vscode.Uri.joinPath(this._extensionContext.extensionUri, 'node_modules', 'ace-builds', 'src-min-noconflict', 'ace.js'));
         const aceModeJavaScriptUri = webview.asWebviewUri(vscode.Uri.joinPath(this._extensionContext.extensionUri, 'node_modules', 'ace-builds', 'src-min-noconflict', 'mode-javascript.js'));
+        const aceModeMarkdownUri = webview.asWebviewUri(vscode.Uri.joinPath(this._extensionContext.extensionUri, 'node_modules', 'ace-builds', 'src-min-noconflict', 'mode-markdown.js'));
         const aceKeybindingVscodeUri = webview.asWebviewUri(vscode.Uri.joinPath(this._extensionContext.extensionUri, 'node_modules', 'ace-builds', 'src-min-noconflict', 'keybinding-vscode.js'));
 
         // HTMLテンプレートファイルを読み込み
@@ -405,6 +414,7 @@ export class TerminalProvider implements vscode.WebviewViewProvider {
                 .replace(/{{XTERM_UNICODE11_JS_URI}}/g, xtermUnicode11JsUri.toString())
                 .replace(/{{ACE_JS_URI}}/g, aceJsUri.toString())
                 .replace(/{{ACE_MODE_JAVASCRIPT_URI}}/g, aceModeJavaScriptUri.toString())
+                .replace(/{{ACE_MODE_MARKDOWN_URI}}/g, aceModeMarkdownUri.toString())
                 .replace(/{{ACE_KEYBINDING_VSCODE_URI}}/g, aceKeybindingVscodeUri.toString())
                 .replace(/{{SCROLLBACK_MAX}}/g, String(maxHistoryLines));
 

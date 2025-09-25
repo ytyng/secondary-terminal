@@ -387,6 +387,7 @@
     <!-- ACE Editor Scripts -->
     <script src="{{ACE_JS_URI}}"></script>
     <script src="{{ACE_MODE_JAVASCRIPT_URI}}"></script>
+    <script src="{{ACE_MODE_MARKDOWN_URI}}"></script>
     <script src="{{ACE_KEYBINDING_VSCODE_URI}}"></script>
     <script>
         const MAX_BUFFER_LINES = parseInt('{{SCROLLBACK_MAX}}'); // 設定された最大行数
@@ -438,7 +439,7 @@
 
                 // 設定を適用
                 editorState.editor.setTheme("ace/theme/vscode-dark");
-                editorState.editor.session.setMode("ace/mode/javascript");
+                editorState.editor.session.setMode("ace/mode/markdown");
                 // VSCode キーボードハンドラーをコメントアウト（競合する可能性）
                 // editorState.editor.setKeyboardHandler("ace/keyboard/vscode");
 
@@ -447,7 +448,8 @@
                     fontSize: 13,
                     fontFamily: '"RobotoMono Nerd Font Mono", "RobotoMono Nerd Font", "Roboto Mono", Consolas, "Courier New", monospace',
                     showPrintMargin: false,
-                    wrap: false,
+                    wrap: true,
+                    showInvisibles: true,
                     enableBasicAutocompletion: true,
                     enableLiveAutocompletion: true,
                     enableSnippets: true
