@@ -95,7 +95,7 @@ export function activate(context: vscode.ExtensionContext) {
 
     // エディターの選択範囲をSecondary Terminalに送信
     context.subscriptions.push(
-        vscode.commands.registerCommand('secondaryTerminal.sendSelection', () => {
+        vscode.commands.registerCommand('secondaryTerminal.sendMainEditorSelection', () => {
             const editor = vscode.window.activeTextEditor;
             if (!editor) {
                 vscode.window.showWarningMessage('アクティブなエディターがありません');
@@ -107,7 +107,7 @@ export function activate(context: vscode.ExtensionContext) {
 
     // ターミナルの選択範囲をクリップボードにコピー→Secondary Terminalに送信
     context.subscriptions.push(
-        vscode.commands.registerCommand('secondaryTerminal.sendTerminalSelection', async () => {
+        vscode.commands.registerCommand('secondaryTerminal.sendMainTerminalSelection', async () => {
             const selectedText = await copyTerminalSelectionWithPrefix();
             if (selectedText) {
                 provider.sendTextToTerminal(selectedText);
@@ -117,7 +117,7 @@ export function activate(context: vscode.ExtensionContext) {
 
     // エディターの選択範囲をコードの位置つきでクリップボードにコピー
     context.subscriptions.push(
-        vscode.commands.registerCommand('secondaryTerminal.copySelectionWithLocation', () => {
+        vscode.commands.registerCommand('secondaryTerminal.copyMainEditorSelection', () => {
             const editor = vscode.window.activeTextEditor;
             if (!editor) {
                 vscode.window.showWarningMessage('アクティブなエディターがありません');
@@ -133,7 +133,7 @@ export function activate(context: vscode.ExtensionContext) {
 
     // ターミナルの選択範囲をクリップボードにコピー（[@terminal]形式）
     context.subscriptions.push(
-        vscode.commands.registerCommand('secondaryTerminal.copyTerminalSelectionWithLocation', async () => {
+        vscode.commands.registerCommand('secondaryTerminal.copyMainTerminalSelection', async () => {
             const selectedText = await copyTerminalSelectionWithPrefix();
             if (selectedText) {
                 await vscode.env.clipboard.writeText(selectedText);

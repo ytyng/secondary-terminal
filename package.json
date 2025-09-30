@@ -45,44 +45,44 @@
         "category": "Secondary Terminal"
       },
       {
-        "command": "secondaryTerminal.sendSelection",
-        "title": "Send Selection to Secondary Terminal",
+        "command": "secondaryTerminal.sendMainEditorSelection",
+        "title": "Send Main Editor Selection to Secondary Terminal",
         "category": "Secondary Terminal"
       },
       {
-        "command": "secondaryTerminal.sendTerminalSelection",
-        "title": "Send Terminal Selection to Secondary Terminal",
+        "command": "secondaryTerminal.sendMainTerminalSelection",
+        "title": "Send Main Terminal Selection to Secondary Terminal",
         "category": "Secondary Terminal"
       },
       {
-        "command": "secondaryTerminal.copySelectionWithLocation",
-        "title": "Copy Selection with Location",
+        "command": "secondaryTerminal.copyMainEditorSelection",
+        "title": "Copy Main Editor Selection with Location",
         "category": "Secondary Terminal"
       },
       {
-        "command": "secondaryTerminal.copyTerminalSelectionWithLocation",
-        "title": "Copy Terminal Selection with Location",
+        "command": "secondaryTerminal.copyMainTerminalSelection",
+        "title": "Copy Main Terminal Selection with Location",
         "category": "Secondary Terminal"
       }
     ],
     "keybindings": [
       {
-        "command": "secondaryTerminal.sendSelection",
+        "command": "secondaryTerminal.sendMainEditorSelection",
         "key": "cmd+l",
         "when": "editorTextFocus"
       },
       {
-        "command": "secondaryTerminal.sendTerminalSelection",
+        "command": "secondaryTerminal.sendMainTerminalSelection",
         "key": "cmd+l",
         "when": "terminalFocus"
       },
       {
-        "command": "secondaryTerminal.copySelectionWithLocation",
+        "command": "secondaryTerminal.copyMainEditorSelection",
         "key": "cmd+shift+l",
         "when": "editorTextFocus"
       },
       {
-        "command": "secondaryTerminal.copyTerminalSelectionWithLocation",
+        "command": "secondaryTerminal.copyMainTerminalSelection",
         "key": "cmd+shift+l",
         "when": "terminalFocus"
       }

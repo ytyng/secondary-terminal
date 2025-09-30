@@ -243,6 +243,23 @@ export class TerminalProvider implements vscode.WebviewViewProvider {
         }
     }
 
+    public sendTextToEditor(text: string) {
+        if (!text) {
+            return;
+        }
+
+        try {
+            // WebView の ACE エディタにテキストを送信
+            this._view?.webview.postMessage({
+                type: 'sendTextToEditor',
+                text: text
+            });
+        } catch (error) {
+            console.error('Failed to send text to editor:', error);
+            vscode.window.showErrorMessage(`エディタへの送信に失敗しました: ${error}`);
+        }
+    }
+
     private handleButtonSendSelection() {
         const editor = vscode.window.activeTextEditor;
         if (!editor) {
@@ -254,7 +271,7 @@ export class TerminalProvider implements vscode.WebviewViewProvider {
         // ACE エディタにテキストを送信
         if (this._view) {
             this._view.webview.postMessage({
-                type: 'copyToEditor',
+                type: 'sendTextToEditor',
                 text: contextText
             });
         }
@@ -272,7 +289,7 @@ export class TerminalProvider implements vscode.WebviewViewProvider {
         // ACE エディタにもテキストを送信
         if (this._view) {
             this._view.webview.postMessage({
-                type: 'copyToEditor',
+                type: 'sendTextToEditor',
                 text: contextText
             });
         }

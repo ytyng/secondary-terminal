@@ -1276,8 +1276,8 @@
                                 console.error('[BUFFER CLEANUP] Backend cleanup failed:', message.error);
                             }
                             break;
-                        case 'copyToEditor':
-                            // Copy ボタンが押された時、テキストを ACE エディタに入力
+                        case 'sendTextToEditor':
+                            // テキストを ACE エディタに入力
                             if (editorState.editor && message.text) {
                                 const currentContent = editorState.editor.getValue();
                                 const newContent = currentContent + (currentContent ? '\n' : '') + message.text;
