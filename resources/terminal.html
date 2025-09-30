@@ -399,10 +399,13 @@
             resizeObserver: null,
             timers: {
                 sizeCheckInterval: null,
-                backgroundColorInterval: null
+                backgroundColorInterval: null,
+                writeBuffer: null
             },
             eventListeners: [],
-            isInitialized: false
+            isInitialized: false,
+            writeBufferData: '',
+            writeBufferPending: false
         };
 
         // ACE エディタ用の状態管理
@@ -630,6 +633,7 @@
             Object.keys(terminalState.timers).forEach(timerKey => {
                 if (terminalState.timers[timerKey]) {
                     try {
+                        clearTimeout(terminalState.timers[timerKey]);
                         clearInterval(terminalState.timers[timerKey]);
                     } catch (error) {
                         console.error(`Error clearing timer ${timerKey}:`, error);
@@ -637,6 +641,10 @@
                     terminalState.timers[timerKey] = null;
                 }
             });
+
+            // バッファもクリア
+            terminalState.writeBufferData = '';
+            terminalState.writeBufferPending = false;
 
             // イベントリスナーをすべて削除
             terminalState.eventListeners.forEach(({ element, event, handler }) => {
@@ -817,13 +825,24 @@
         // ターミナル初期化関数
         function initializeTerminal() {
             try {
-                // 重複初期化をチェック
+                // 重複初期化を厳密にチェック
                 if (terminalState.isInitialized) {
-                    console.warn('[LEAK CHECK] Terminal is already initialized, skipping duplicate initialization');
+                    console.warn('[INIT] Terminal is already initialized, skipping duplicate initialization');
+
+                    // 既に初期化済みの場合は、サイズ調整とフォーカスのみ実行
+                    if (terminalState.term) {
+                        setTimeout(() => {
+                            setTerminalSize();
+                            terminalState.term.focus();
+                        }, 50);
+                    }
                     return;
                 }
 
-                console.log('[LEAK CHECK] Starting terminal initialization');
+                // 二重初期化を防ぐため、最初にフラグを立てる
+                terminalState.isInitialized = true;
+
+                console.log('[INIT] Starting terminal initialization');
 
 
                 if (typeof Terminal === 'undefined') {
@@ -1209,9 +1228,23 @@
 
                             // ステータスメッセージをチェック
                             handleStatusMessage(message.data);
-                            // 通常の出力として書き込み
-                            if (terminalState.term) {
-                                terminalState.term.write(message.data);
+
+                            // バッチ処理: データをバッファに追加
+                            terminalState.writeBufferData += message.data;
+
+                            // まだタイマーがセットされていない場合のみ
+                            if (!terminalState.writeBufferPending && terminalState.term) {
+                                terminalState.writeBufferPending = true;
+
+                                // 16ms 後 (約60fps) に一括書き込み
+                                terminalState.timers.writeBuffer = setTimeout(() => {
+                                    if (terminalState.term && terminalState.writeBufferData) {
+                                        terminalState.term.write(terminalState.writeBufferData);
+                                        terminalState.writeBufferData = '';
+                                    }
+                                    terminalState.writeBufferPending = false;
+                                    terminalState.timers.writeBuffer = null;
+                                }, 16);
                             }
 
                             const outputEnd = performance.now();
