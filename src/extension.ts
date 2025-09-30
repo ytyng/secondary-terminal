@@ -93,7 +93,7 @@ export function activate(context: vscode.ExtensionContext) {
         })
     );
 
-    // エディターの選択範囲をSecondary Terminalに送信
+    // エディターの選択範囲をSecondary Terminal の下部エディターに送信
     context.subscriptions.push(
         vscode.commands.registerCommand('secondaryTerminal.sendMainEditorSelection', () => {
             const editor = vscode.window.activeTextEditor;
@@ -101,16 +101,16 @@ export function activate(context: vscode.ExtensionContext) {
                 vscode.window.showWarningMessage('アクティブなエディターがありません');
                 return;
             }
-            provider.sendTextToTerminal(createContextTextForSelectedText(editor));
+            provider.sendTextToEditor(createContextTextForSelectedText(editor));
         })
     );
 
-    // ターミナルの選択範囲をクリップボードにコピー→Secondary Terminalに送信
+    // ターミナルの選択範囲をクリップボードにコピー → Secondary Terminal の下部エディターに送信
     context.subscriptions.push(
         vscode.commands.registerCommand('secondaryTerminal.sendMainTerminalSelection', async () => {
             const selectedText = await copyTerminalSelectionWithPrefix();
             if (selectedText) {
-                provider.sendTextToTerminal(selectedText);
+                provider.sendTextToEditor(selectedText);
             }
         })
     );
