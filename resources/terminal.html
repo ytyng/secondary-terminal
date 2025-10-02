@@ -176,6 +176,72 @@
             }
         }
 
+        /* パフォーマンス計測 HUD */
+        .performance-hud {
+            position: fixed;
+            top: 10px;
+            right: 10px;
+            background-color: rgba(0, 0, 0, 0.85);
+            color: #00ff00;
+            font-family: "RobotoMono Nerd Font Mono", "Roboto Mono", Consolas, "Courier New", monospace;
+            font-size: 11px;
+            padding: 10px 12px;
+            border-radius: 4px;
+            border: 1px solid rgba(0, 255, 0, 0.3);
+            z-index: 10000;
+            min-width: 220px;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.5);
+            display: none;
+
+            &.visible {
+                display: block;
+            }
+        }
+
+        .performance-hud-title {
+            font-weight: bold;
+            margin-bottom: 6px;
+            padding-bottom: 6px;
+            border-bottom: 1px solid rgba(0, 255, 0, 0.3);
+            color: #00ffff;
+        }
+
+        .performance-hud-item {
+            display: flex;
+            justify-content: space-between;
+            margin: 3px 0;
+            line-height: 1.4;
+
+            .label {
+                color: #aaaaaa;
+            }
+
+            .value {
+                color: #00ff00;
+                font-weight: bold;
+            }
+        }
+
+        .performance-hud-toggle {
+            position: fixed;
+            top: 10px;
+            right: 10px;
+            background-color: rgba(0, 255, 0, 0.2);
+            color: #00ff00;
+            border: 1px solid rgba(0, 255, 0, 0.5);
+            border-radius: 3px;
+            padding: 4px 8px;
+            font-size: 11px;
+            cursor: pointer;
+            font-family: inherit;
+            z-index: 9999;
+            transition: background-color 0.2s;
+
+            &:hover {
+                background-color: rgba(0, 255, 0, 0.3);
+            }
+        }
+
         /* ACE エディタコンテナ */
         .editor-container {
             flex-shrink: 0;
@@ -348,6 +414,46 @@
 </head>
 
 <body>
+    <!-- パフォーマンス HUD トグルボタン -->
+    <button class="performance-hud-toggle" id="perf-hud-toggle" title="Toggle Performance HUD">📊</button>
+
+    <!-- パフォーマンス HUD -->
+    <div class="performance-hud" id="perf-hud">
+        <div class="performance-hud-title">📊 Performance Metrics</div>
+        <div class="performance-hud-item">
+            <span class="label">Buffer:</span>
+            <span class="value" id="hud-buffer-size">0 KB</span>
+        </div>
+        <div class="performance-hud-item">
+            <span class="label">Scrollback:</span>
+            <span class="value" id="hud-scrollback">0 lines</span>
+        </div>
+        <div class="performance-hud-item">
+            <span class="label">Write Avg:</span>
+            <span class="value" id="hud-write-avg">0 ms</span>
+        </div>
+        <div class="performance-hud-item">
+            <span class="label">Write Max:</span>
+            <span class="value" id="hud-write-max">0 ms</span>
+        </div>
+        <div class="performance-hud-item">
+            <span class="label">Output:</span>
+            <span class="value" id="hud-output-count">0 msgs</span>
+        </div>
+        <div class="performance-hud-item">
+            <span class="label">Total Chars:</span>
+            <span class="value" id="hud-total-chars">0</span>
+        </div>
+        <div class="performance-hud-item">
+            <span class="label">Resize:</span>
+            <span class="value" id="hud-resize-count">0</span>
+        </div>
+        <div class="performance-hud-item">
+            <span class="label">Session:</span>
+            <span class="value" id="hud-session-time">0s</span>
+        </div>
+    </div>
+
     <div class="terminal-container" id="terminal-container">
 
         <div id="terminal"></div>
@@ -413,6 +519,101 @@
             editor: null,
             isInitialized: false
         };
+
+        // パフォーマンス計測用のオブジェクト
+        const performanceMetrics = {
+            // メモリ関連
+            writeBufferSize: 0,
+            scrollbackLines: 0,
+            terminalBufferSize: 0,
+
+            // 処理時間関連
+            lastWriteTime: 0,
+            avgWriteTime: 0,
+            maxWriteTime: 0,
+            writeTimeSum: 0,
+            writeTimeCount: 0,
+
+            // カウンター
+            outputCount: 0,
+            totalOutputChars: 0,
+            resizeObserverCount: 0,
+
+            // タイミング
+            sessionStartTime: Date.now(),
+            lastUpdateTime: Date.now()
+        };
+
+        // HUD 更新関数
+        function updatePerformanceHUD() {
+            try {
+                // バッファサイズを取得
+                if (terminalState.term && terminalState.term.buffer) {
+                    const buffer = terminalState.term.buffer.active;
+                    if (buffer) {
+                        performanceMetrics.scrollbackLines = buffer.length - (terminalState.term.rows || 24);
+                        performanceMetrics.terminalBufferSize = buffer.length;
+                    }
+                }
+
+                // 各要素を更新
+                document.getElementById('hud-buffer-size').textContent =
+                    (performanceMetrics.writeBufferSize / 1024).toFixed(2) + ' KB';
+
+                document.getElementById('hud-scrollback').textContent =
+                    performanceMetrics.scrollbackLines + ' lines';
+
+                document.getElementById('hud-write-avg').textContent =
+                    performanceMetrics.avgWriteTime.toFixed(2) + ' ms';
+
+                document.getElementById('hud-write-max').textContent =
+                    performanceMetrics.maxWriteTime.toFixed(2) + ' ms';
+
+                document.getElementById('hud-output-count').textContent =
+                    performanceMetrics.outputCount + ' msgs';
+
+                document.getElementById('hud-total-chars').textContent =
+                    (performanceMetrics.totalOutputChars / 1024).toFixed(1) + ' KB';
+
+                document.getElementById('hud-resize-count').textContent =
+                    performanceMetrics.resizeObserverCount.toString();
+
+                // セッション時間を計算
+                const sessionDuration = (Date.now() - performanceMetrics.sessionStartTime) / 1000;
+                const minutes = Math.floor(sessionDuration / 60);
+                const seconds = Math.floor(sessionDuration % 60);
+                document.getElementById('hud-session-time').textContent =
+                    minutes > 0 ? `${minutes}m ${seconds}s` : `${seconds}s`;
+
+                performanceMetrics.lastUpdateTime = Date.now();
+            } catch (error) {
+                console.error('[PERF HUD] Error updating HUD:', error);
+            }
+        }
+
+        // HUD 表示トグル機能
+        function setupPerformanceHUD() {
+            const hudElement = document.getElementById('perf-hud');
+            const toggleButton = document.getElementById('perf-hud-toggle');
+
+            // トグルボタンのクリックイベント
+            toggleButton.addEventListener('click', () => {
+                hudElement.classList.toggle('visible');
+
+                // 表示状態を localStorage に保存
+                const isVisible = hudElement.classList.contains('visible');
+                localStorage.setItem('performanceHUDVisible', isVisible ? 'true' : 'false');
+            });
+
+            // 初期状態を localStorage から復元
+            const savedState = localStorage.getItem('performanceHUDVisible');
+            if (savedState === 'true') {
+                hudElement.classList.add('visible');
+            }
+
+            // 500ms ごとに HUD を更新
+            setInterval(updatePerformanceHUD, 500);
+        }
 
         // ACE エディタ初期化関数
         function initializeAceEditor() {
@@ -1019,6 +1220,9 @@
                     const now = Date.now();
                     resizeCount++;
 
+                    // パフォーマンス計測を更新
+                    performanceMetrics.resizeObserverCount++;
+
                     // デバウンス処理：連続する resize を制限
                     if (now - lastResizeTime < 100) {
 
@@ -1226,6 +1430,10 @@
                             outputCount++;
                             totalOutputChars += message.data.length;
 
+                            // パフォーマンス計測を更新
+                            performanceMetrics.outputCount++;
+                            performanceMetrics.totalOutputChars += message.data.length;
+
                             // ステータスメッセージをチェック
                             handleStatusMessage(message.data);
 
@@ -1239,7 +1447,20 @@
                                 // 16ms 後 (約60fps) に一括書き込み
                                 terminalState.timers.writeBuffer = setTimeout(() => {
                                     if (terminalState.term && terminalState.writeBufferData) {
+                                        // write 処理の時間を計測
+                                        const writeStart = performance.now();
                                         terminalState.term.write(terminalState.writeBufferData);
+                                        const writeEnd = performance.now();
+                                        const writeTime = writeEnd - writeStart;
+
+                                        // 計測データを更新
+                                        performanceMetrics.lastWriteTime = writeTime;
+                                        performanceMetrics.writeTimeSum += writeTime;
+                                        performanceMetrics.writeTimeCount++;
+                                        performanceMetrics.avgWriteTime = performanceMetrics.writeTimeSum / performanceMetrics.writeTimeCount;
+                                        performanceMetrics.maxWriteTime = Math.max(performanceMetrics.maxWriteTime, writeTime);
+                                        performanceMetrics.writeBufferSize = terminalState.writeBufferData.length;
+
                                         terminalState.writeBufferData = '';
                                     }
                                     terminalState.writeBufferPending = false;
@@ -1390,6 +1611,9 @@
 
         // ターミナル初期化を実行
         initializeTerminal();
+
+        // パフォーマンス HUD を初期化
+        setupPerformanceHUD();
 
         // ACE エディタ初期化を実行
         setTimeout(() => {

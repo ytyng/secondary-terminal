@@ -117,3 +117,40 @@ ACE エディタの書き方は、
 5. VSCode テーマに合わせたスタイリング適用
 6. ace-builds 依存関係をパッケージに追加
 7. terminalProvider.ts で ACE エディタ関連メッセージハンドリングを追加
+
+---
+
+# パフォーマンス計測 HUD の実装
+
+長時間使用時のスクロール遅延の原因を特定するため、リアルタイムパフォーマンス計測 HUD を実装。
+
+**完了済み (2025-10-02)**
+
+**実装内容:**
+1. パフォーマンス計測オブジェクト (performanceMetrics) を追加
+   - メモリ関連: writeBufferSize, scrollbackLines, terminalBufferSize
+   - 処理時間関連: lastWriteTime, avgWriteTime, maxWriteTime
+   - カウンター: outputCount, totalOutputChars, resizeObserverCount
+   - セッション時間: sessionStartTime, lastUpdateTime
+
+2. 計測ポイントの実装
+   - term.write() 実行時間の測定と平均/最大値の記録
+   - output メッセージ受信時のカウント更新
+   - ResizeObserver 実行回数の記録
+   - xterm.js scrollback buffer サイズの取得
+
+3. HUD UI の実装
+   - 右上に position: fixed で半透明オーバーレイを配置
+   - 緑色のサイバーな見た目で計測データを表示
+   - 500ms ごとにポーリングで自動更新
+   - 表示項目: Buffer サイズ, Scrollback 行数, Write 平均/最大時間, Output メッセージ数, 総文字数, Resize 回数, セッション時間
+
+4. 表示切り替え機能
+   - 右上に 📊 ボタンを配置
+   - クリックで HUD の表示/非表示を切り替え
+   - localStorage で状態を永続化
+
+**期待効果:**
+- 遅延発生時にどの値が増加しているかをリアルタイムで可視化
+- Reset 前後の数値比較で効果測定が可能
+- 問題箇所の特定が容易になる
