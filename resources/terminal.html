@@ -507,6 +507,14 @@
             <span class="value" id="hud-long-tasks">0</span>
         </div>
         <div class="performance-hud-item">
+            <span class="label">Long Task Max:</span>
+            <span class="value" id="hud-long-task-max">0.00 ms</span>
+        </div>
+        <div class="performance-hud-item">
+            <span class="label">Last Long Task:</span>
+            <span class="value" id="hud-last-long-task">never</span>
+        </div>
+        <div class="performance-hud-item">
             <span class="label">Backend Processes:</span>
             <span class="value" id="hud-backend-processes">0</span>
         </div>
@@ -617,11 +625,16 @@
             activeTimerCount: 0,
             longTaskCount: 0,
             backendProcessCount: 0,
-            backendSessionCount: 0
+            backendSessionCount: 0,
+
+            // Long Task 詳細メトリクス
+            maxLongTaskDuration: 0,      // 最大 Long Task 実行時間 (ms)
+            lastLongTaskTime: 0          // 最終 Long Task 発生時刻 (Date.now())
         };
 
         // HUD 更新関数
         function updatePerformanceHUD() {
+            const hudStart = performance.now();
             try {
                 // バッファサイズを取得
                 if (terminalState.term && terminalState.term.buffer) {
@@ -703,6 +716,25 @@
                 document.getElementById('hud-long-tasks').textContent =
                     performanceMetrics.longTaskCount.toString();
 
+                // Long Task Max の表示
+                document.getElementById('hud-long-task-max').textContent =
+                    (performanceMetrics.maxLongTaskDuration || 0).toFixed(2) + ' ms';
+
+                // Last Long Task の表示 (経過時間として表示)
+                const lastLongTaskEl = document.getElementById('hud-last-long-task');
+                if (performanceMetrics.lastLongTaskTime > 0) {
+                    const elapsed = Math.floor((Date.now() - performanceMetrics.lastLongTaskTime) / 1000);
+                    if (elapsed < 60) {
+                        lastLongTaskEl.textContent = elapsed + 's ago';
+                    } else if (elapsed < 3600) {
+                        lastLongTaskEl.textContent = Math.floor(elapsed / 60) + 'm ' + (elapsed % 60) + 's ago';
+                    } else {
+                        lastLongTaskEl.textContent = Math.floor(elapsed / 3600) + 'h ' + Math.floor((elapsed % 3600) / 60) + 'm ago';
+                    }
+                } else {
+                    lastLongTaskEl.textContent = 'never';
+                }
+
                 document.getElementById('hud-backend-processes').textContent =
                     performanceMetrics.backendProcessCount.toString();
 
@@ -710,6 +742,18 @@
                     performanceMetrics.backendSessionCount.toString();
 
                 performanceMetrics.lastUpdateTime = Date.now();
+
+                const hudEnd = performance.now();
+                const hudExecutionTime = hudEnd - hudStart;
+
+                // 実行時間が 50ms 以上の場合は警告ログを出力
+                if (hudExecutionTime >= 50) {
+                    console.warn('[PERF] ⚠️ updatePerformanceHUD() took ' + hudExecutionTime.toFixed(2) + 'ms', {
+                        domNodeCount: performanceMetrics.domNodeCount,
+                        bufferSize: performanceMetrics.terminalBufferSize
+                    });
+                }
+
             } catch (error) {
                 console.error('[PERF HUD] Error updating HUD:', error);
             }
@@ -763,7 +807,39 @@
                             // 50ms 以上かかったタスクをカウント
                             if (entry.duration >= 50) {
                                 performanceMetrics.longTaskCount++;
-                                console.warn('[PERF] Long task detected:', entry.duration.toFixed(2) + 'ms', entry);
+
+                                // 詳細ログを出力
+                                const logDetails = {
+                                    duration: entry.duration.toFixed(2) + 'ms',
+                                    startTime: entry.startTime.toFixed(2) + 'ms',
+                                    name: entry.name || 'unknown',
+                                    entryType: entry.entryType,
+                                    count: performanceMetrics.longTaskCount
+                                };
+
+                                // attribution 情報があれば追加
+                                if (entry.attribution && entry.attribution.length > 0) {
+                                    logDetails.attribution = entry.attribution.map(attr => ({
+                                        name: attr.name,
+                                        entryType: attr.entryType,
+                                        startTime: attr.startTime,
+                                        duration: attr.duration,
+                                        containerType: attr.containerType,
+                                        containerSrc: attr.containerSrc,
+                                        containerId: attr.containerId,
+                                        containerName: attr.containerName
+                                    }));
+                                }
+
+                                console.warn('[PERF] ⚠️ Long Task Detected (#' + performanceMetrics.longTaskCount + '):', logDetails);
+                                console.warn('[PERF] Full entry object:', entry);
+
+                                // 最大実行時間と最終発生時刻を更新
+                                performanceMetrics.maxLongTaskDuration = Math.max(
+                                    performanceMetrics.maxLongTaskDuration || 0,
+                                    entry.duration
+                                );
+                                performanceMetrics.lastLongTaskTime = Date.now();
                             }
                         }
                     });
@@ -1298,6 +1374,8 @@
 
                 // ターミナルサイズを動的に設定（元の手動計算方式）
                 function setTerminalSize() {
+                    const sizeStart = performance.now();
+
                     const container = document.querySelector('.terminal-container');
                     const terminal = document.getElementById('terminal');
 
@@ -1360,6 +1438,21 @@
                         });
 
 
+                    }
+
+                    const sizeEnd = performance.now();
+                    const sizeExecutionTime = sizeEnd - sizeStart;
+
+                    // 実行時間が 50ms 以上の場合は警告ログを出力
+                    if (sizeExecutionTime >= 50) {
+                        console.warn('[PERF] ⚠️ setTerminalSize() took ' + sizeExecutionTime.toFixed(2) + 'ms', {
+                            cols: finalCols,
+                            rows: finalRows,
+                            availableWidth: availableWidth,
+                            availableHeight: availableHeight,
+                            charWidth: adjustedCharWidth.toFixed(2),
+                            lineHeight: adjustedLineHeight.toFixed(2)
+                        });
                     }
                 }
 
@@ -1615,6 +1708,7 @@
                                     if (terminalState.term && terminalState.writeBufferData) {
                                         // write 処理の時間を計測
                                         const writeStart = performance.now();
+                                        const bufferLength = terminalState.writeBufferData.length;
                                         terminalState.term.write(terminalState.writeBufferData);
                                         const writeEnd = performance.now();
                                         const writeTime = writeEnd - writeStart;
@@ -1625,7 +1719,17 @@
                                         performanceMetrics.writeTimeCount++;
                                         performanceMetrics.avgWriteTime = performanceMetrics.writeTimeSum / performanceMetrics.writeTimeCount;
                                         performanceMetrics.maxWriteTime = Math.max(performanceMetrics.maxWriteTime, writeTime);
-                                        performanceMetrics.writeBufferSize = terminalState.writeBufferData.length;
+                                        performanceMetrics.writeBufferSize = bufferLength;
+
+                                        // 実行時間が 50ms 以上の場合は警告ログを出力
+                                        if (writeTime >= 50) {
+                                            console.warn('[PERF] ⚠️ term.write() took ' + writeTime.toFixed(2) + 'ms', {
+                                                bufferSize: bufferLength,
+                                                avgWriteTime: performanceMetrics.avgWriteTime.toFixed(2) + 'ms',
+                                                maxWriteTime: performanceMetrics.maxWriteTime.toFixed(2) + 'ms',
+                                                writeCount: performanceMetrics.writeTimeCount
+                                            });
+                                        }
 
                                         terminalState.writeBufferData = '';
                                     }
@@ -1880,6 +1984,21 @@
                     }
 
                     const performanceEnd = performance.now();
+                    const executionTime = performanceEnd - performanceStart;
+
+                    // 実行時間が 50ms 以上の場合は警告ログを出力
+                    if (executionTime >= 50) {
+                        console.warn('[PERF] ⚠️ applyBackgroundColor() took ' + executionTime.toFixed(2) + 'ms', {
+                            checkCount: backgroundColorCheckCount,
+                            isStable: isBackgroundStable,
+                            canvasWidth: width,
+                            canvasHeight: height,
+                            cornersChecked: corners.length
+                        });
+                    } else if (executionTime >= 10) {
+                        // 10ms 以上の場合は info ログ
+                        console.log('[PERF] applyBackgroundColor() took ' + executionTime.toFixed(2) + 'ms (count: ' + backgroundColorCheckCount + ')');
+                    }
 
                 } catch (error) {
                     console.error('[PERF] Error reading canvas pixel data:', error);
