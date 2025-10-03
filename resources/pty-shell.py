@@ -142,6 +142,57 @@ def check_cli_agent_active(shell_pid):
         return {'active': False, 'agent_type': None}
 
 
+def get_child_process_count(shell_pid):
+    """シェルプロセス配下の子プロセス総数を取得"""
+    try:
+        # BFS で深さ 5 までの子孫 PID を列挙
+        def list_children(parent_pid):
+            try:
+                r = subprocess.run(
+                    ['pgrep', '-P', str(parent_pid)],
+                    capture_output=True,
+                    text=True,
+                    timeout=1,
+                    encoding='utf-8',
+                    errors='ignore',
+                )
+                if r.returncode not in (0, 1):
+                    return []
+                lines = r.stdout.strip().split('\n') if r.stdout else []
+                result = []
+                for line in lines:
+                    line = line.strip()
+                    if not line:
+                        continue
+                    try:
+                        result.append(int(line))
+                    except ValueError:
+                        pass
+                return result
+            except (subprocess.TimeoutExpired, subprocess.SubprocessError, FileNotFoundError):
+                return []
+
+        max_depth = 5
+        descendants = []
+        queue = [(shell_pid, 0)]
+        seen = {shell_pid}
+
+        while queue:
+            pid, depth = queue.pop(0)
+            if depth >= max_depth:
+                continue
+            for c in list_children(pid):
+                if c in seen:
+                    continue
+                seen.add(c)
+                descendants.append(c)
+                queue.append((c, depth + 1))
+
+        return len(descendants)
+    except Exception:
+        return 0
+
+
 def send_status_message(message_type, data):
     """ステータスメッセージをフロントエンドに送信"""
     try:
@@ -340,6 +391,11 @@ def main():
                         send_status_message(
                             'cli_agent_status', current_agent_state
                         )
+
+                    # 子プロセス数を取得して送信
+                    child_count = get_child_process_count(p.pid)
+                    send_status_message('child_process_count', {'count': child_count})
+
                     last_agent_check = current_time
 
                 # 標準入力から PTY マスターへの入力を処理

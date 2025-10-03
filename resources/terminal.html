@@ -204,6 +204,25 @@
             padding-bottom: 6px;
             border-bottom: 1px solid rgba(0, 255, 0, 0.3);
             color: #00ffff;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .performance-hud-close {
+            background: none;
+            border: none;
+            color: #ff6666;
+            font-size: 16px;
+            cursor: pointer;
+            padding: 0;
+            margin: 0;
+            line-height: 1;
+            transition: color 0.2s;
+
+            &:hover {
+                color: #ff3333;
+            }
         }
 
         .performance-hud-item {
@@ -419,7 +438,10 @@
 
     <!-- パフォーマンス HUD -->
     <div class="performance-hud" id="perf-hud">
-        <div class="performance-hud-title">📊 Performance Metrics</div>
+        <div class="performance-hud-title">
+            <span>📊 Performance Metrics</span>
+            <button class="performance-hud-close" id="perf-hud-close" title="Close Performance HUD">×</button>
+        </div>
         <div class="performance-hud-item">
             <span class="label">Buffer:</span>
             <span class="value" id="hud-buffer-size">0 KB</span>
@@ -427,6 +449,18 @@
         <div class="performance-hud-item">
             <span class="label">Scrollback:</span>
             <span class="value" id="hud-scrollback">0 lines</span>
+        </div>
+        <div class="performance-hud-item">
+            <span class="label">Buffer Chars:</span>
+            <span class="value" id="hud-buffer-chars">0</span>
+        </div>
+        <div class="performance-hud-item">
+            <span class="label">DOM Nodes:</span>
+            <span class="value" id="hud-dom-nodes">0</span>
+        </div>
+        <div class="performance-hud-item">
+            <span class="label">Child Procs:</span>
+            <span class="value" id="hud-child-procs">0</span>
         </div>
         <div class="performance-hud-item">
             <span class="label">Write Avg:</span>
@@ -441,7 +475,7 @@
             <span class="value" id="hud-output-count">0 msgs</span>
         </div>
         <div class="performance-hud-item">
-            <span class="label">Total Chars:</span>
+            <span class="label">Total Chars (累積):</span>
             <span class="value" id="hud-total-chars">0</span>
         </div>
         <div class="performance-hud-item">
@@ -526,6 +560,11 @@
             writeBufferSize: 0,
             scrollbackLines: 0,
             terminalBufferSize: 0,
+            bufferCharCount: 0,      // xterm.js バッファの総文字数
+            domNodeCount: 0,         // DOM ノード数
+
+            // プロセス関連
+            childProcessCount: 0,    // 子プロセス数
 
             // 処理時間関連
             lastWriteTime: 0,
@@ -553,7 +592,16 @@
                     if (buffer) {
                         performanceMetrics.scrollbackLines = buffer.length - (terminalState.term.rows || 24);
                         performanceMetrics.terminalBufferSize = buffer.length;
+
+                        // xterm.js バッファの総文字数を計算
+                        performanceMetrics.bufferCharCount = buffer.length * (terminalState.term.cols || 80);
                     }
+                }
+
+                // DOM ノード数を取得
+                const terminalElement = document.querySelector('#terminal');
+                if (terminalElement) {
+                    performanceMetrics.domNodeCount = terminalElement.querySelectorAll('*').length;
                 }
 
                 // 各要素を更新
@@ -562,6 +610,15 @@
 
                 document.getElementById('hud-scrollback').textContent =
                     performanceMetrics.scrollbackLines + ' lines';
+
+                document.getElementById('hud-buffer-chars').textContent =
+                    (performanceMetrics.bufferCharCount / 1000).toFixed(1) + 'K';
+
+                document.getElementById('hud-dom-nodes').textContent =
+                    performanceMetrics.domNodeCount.toString();
+
+                document.getElementById('hud-child-procs').textContent =
+                    performanceMetrics.childProcessCount.toString();
 
                 document.getElementById('hud-write-avg').textContent =
                     performanceMetrics.avgWriteTime.toFixed(2) + ' ms';
@@ -595,6 +652,7 @@
         function setupPerformanceHUD() {
             const hudElement = document.getElementById('perf-hud');
             const toggleButton = document.getElementById('perf-hud-toggle');
+            const closeButton = document.getElementById('perf-hud-close');
 
             // トグルボタンのクリックイベント
             toggleButton.addEventListener('click', () => {
@@ -603,6 +661,14 @@
                 // 表示状態を localStorage に保存
                 const isVisible = hudElement.classList.contains('visible');
                 localStorage.setItem('performanceHUDVisible', isVisible ? 'true' : 'false');
+            });
+
+            // 閉じるボタンのクリックイベント
+            closeButton.addEventListener('click', () => {
+                hudElement.classList.remove('visible');
+
+                // 表示状態を localStorage に保存
+                localStorage.setItem('performanceHUDVisible', 'false');
             });
 
             // 初期状態を localStorage から復元
@@ -1300,6 +1366,10 @@
                                     cliAgentState = message.data;
 
                                     updateCliAgentIndicator(); // インジケーター表示を更新
+                                }
+
+                                if (message.type === 'child_process_count') {
+                                    performanceMetrics.childProcessCount = message.data.count || 0;
                                 }
                             }
                         }
