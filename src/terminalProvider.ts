@@ -288,14 +288,6 @@ export class TerminalProvider implements vscode.WebviewViewProvider {
         }
         const contextText = createContextTextForSelectedText(editor);
         vscode.env.clipboard.writeText(contextText);
-
-        // ACE エディタにもテキストを送信
-        if (this._view) {
-            this._view.webview.postMessage({
-                type: 'sendTextToEditor',
-                text: contextText
-            });
-        }
     }
 
     private handleEditorSendContent(message: WebViewMessage) {
