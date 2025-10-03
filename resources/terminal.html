@@ -486,6 +486,34 @@
             <span class="label">Session:</span>
             <span class="value" id="hud-session-time">0s</span>
         </div>
+        <div class="performance-hud-item">
+            <span class="label">Event Listeners:</span>
+            <span class="value" id="hud-event-listeners">0</span>
+        </div>
+        <div class="performance-hud-item">
+            <span class="label">Xterm Listeners:</span>
+            <span class="value" id="hud-xterm-listeners">0</span>
+        </div>
+        <div class="performance-hud-item">
+            <span class="label">Addons:</span>
+            <span class="value" id="hud-addons">0</span>
+        </div>
+        <div class="performance-hud-item">
+            <span class="label">Active Timers:</span>
+            <span class="value" id="hud-active-timers">0</span>
+        </div>
+        <div class="performance-hud-item">
+            <span class="label">Long Tasks:</span>
+            <span class="value" id="hud-long-tasks">0</span>
+        </div>
+        <div class="performance-hud-item">
+            <span class="label">Backend Processes:</span>
+            <span class="value" id="hud-backend-processes">0</span>
+        </div>
+        <div class="performance-hud-item">
+            <span class="label">Backend Sessions:</span>
+            <span class="value" id="hud-backend-sessions">0</span>
+        </div>
     </div>
 
     <div class="terminal-container" id="terminal-container">
@@ -580,7 +608,16 @@
 
             // タイミング
             sessionStartTime: Date.now(),
-            lastUpdateTime: Date.now()
+            lastUpdateTime: Date.now(),
+
+            // リーク検出用の追加メトリクス
+            eventListenerCount: 0,
+            xtermListenerCount: 0,
+            addonCount: 0,
+            activeTimerCount: 0,
+            longTaskCount: 0,
+            backendProcessCount: 0,
+            backendSessionCount: 0
         };
 
         // HUD 更新関数
@@ -603,6 +640,14 @@
                 if (terminalElement) {
                     performanceMetrics.domNodeCount = terminalElement.querySelectorAll('*').length;
                 }
+
+                // リーク検出メトリクスを計測
+                performanceMetrics.eventListenerCount = terminalState.eventListeners ? terminalState.eventListeners.length : 0;
+                performanceMetrics.xtermListenerCount = terminalState.xtermListeners ? terminalState.xtermListeners.length : 0;
+                performanceMetrics.addonCount = terminalState.addons ? terminalState.addons.length : 0;
+
+                // アクティブなタイマー数を計測
+                performanceMetrics.activeTimerCount = Object.values(terminalState.timers).filter(t => t !== null).length;
 
                 // 各要素を更新
                 document.getElementById('hud-buffer-size').textContent =
@@ -642,6 +687,28 @@
                 document.getElementById('hud-session-time').textContent =
                     minutes > 0 ? `${minutes}m ${seconds}s` : `${seconds}s`;
 
+                // リーク検出メトリクスを表示
+                document.getElementById('hud-event-listeners').textContent =
+                    performanceMetrics.eventListenerCount.toString();
+
+                document.getElementById('hud-xterm-listeners').textContent =
+                    performanceMetrics.xtermListenerCount.toString();
+
+                document.getElementById('hud-addons').textContent =
+                    performanceMetrics.addonCount.toString();
+
+                document.getElementById('hud-active-timers').textContent =
+                    performanceMetrics.activeTimerCount.toString();
+
+                document.getElementById('hud-long-tasks').textContent =
+                    performanceMetrics.longTaskCount.toString();
+
+                document.getElementById('hud-backend-processes').textContent =
+                    performanceMetrics.backendProcessCount.toString();
+
+                document.getElementById('hud-backend-sessions').textContent =
+                    performanceMetrics.backendSessionCount.toString();
+
                 performanceMetrics.lastUpdateTime = Date.now();
             } catch (error) {
                 console.error('[PERF HUD] Error updating HUD:', error);
@@ -679,6 +746,35 @@
 
             // 500ms ごとに HUD を更新
             setInterval(updatePerformanceHUD, 500);
+
+            // 5秒ごとにバックエンドメトリクスをリクエスト
+            setInterval(() => {
+                vscode.postMessage({
+                    type: 'requestBackendMetrics',
+                    timestamp: Date.now()
+                });
+            }, 5000);
+
+            // Long Task の検出 (PerformanceObserver)
+            try {
+                if (typeof PerformanceObserver !== 'undefined') {
+                    const observer = new PerformanceObserver((list) => {
+                        for (const entry of list.getEntries()) {
+                            // 50ms 以上かかったタスクをカウント
+                            if (entry.duration >= 50) {
+                                performanceMetrics.longTaskCount++;
+                                console.warn('[PERF] Long task detected:', entry.duration.toFixed(2) + 'ms', entry);
+                            }
+                        }
+                    });
+                    observer.observe({ entryTypes: ['longtask'] });
+                    console.log('[PERF] PerformanceObserver for long tasks is active');
+                } else {
+                    console.warn('[PERF] PerformanceObserver is not supported in this browser');
+                }
+            } catch (error) {
+                console.warn('[PERF] Failed to setup PerformanceObserver:', error);
+            }
         }
 
         // ACE エディタ初期化関数
@@ -1605,6 +1701,13 @@
                             if (editorState.editor && message.text) {
                                 editorState.editor.insert(message.text);
                                 editorState.editor.focus();
+                            }
+                            break;
+                        case 'backendMetrics':
+                            // バックエンドメトリクスを受信して更新
+                            if (message.data) {
+                                performanceMetrics.backendProcessCount = message.data.processCount || 0;
+                                performanceMetrics.backendSessionCount = message.data.sessionCount || 0;
                             }
                             break;
                     }

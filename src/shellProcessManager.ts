@@ -499,4 +499,24 @@ export class ShellProcessManager {
             console.error('Error during synchronous process termination:', error);
         });
     }
+
+    /**
+     * 管理しているプロセス数を取得
+     */
+    public getProcessCount(): number {
+        return this.processes.size;
+    }
+
+    /**
+     * アクティブなプロセス数を取得
+     */
+    public getActiveProcessCount(): number {
+        let activeCount = 0;
+        for (const processInfo of this.processes.values()) {
+            if (processInfo.isActive) {
+                activeCount++;
+            }
+        }
+        return activeCount;
+    }
 }

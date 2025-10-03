@@ -349,6 +349,13 @@ export class TerminalSessionManager {
     }
 
     /**
+     * 管理しているセッション数を取得
+     */
+    public getSessionCount(): number {
+        return this.sessions.size;
+    }
+
+    /**
      * 全てのセッションを削除
      */
     public removeAllSessions(): void {
