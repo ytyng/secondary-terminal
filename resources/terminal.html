@@ -522,6 +522,18 @@
             <span class="label">Backend Sessions:</span>
             <span class="value" id="hud-backend-sessions">0</span>
         </div>
+        <div class="performance-hud-item">
+            <span class="label">BG Color Time:</span>
+            <span class="value" id="hud-bg-color-time">0.00 ms</span>
+        </div>
+        <div class="performance-hud-item">
+            <span class="label">Canvas Size:</span>
+            <span class="value" id="hud-canvas-size">0x0</span>
+        </div>
+        <div class="performance-hud-item">
+            <span class="label">Canvas Memory:</span>
+            <span class="value" id="hud-canvas-memory">0 KB</span>
+        </div>
     </div>
 
     <div class="terminal-container" id="terminal-container">
@@ -629,7 +641,13 @@
 
             // Long Task 詳細メトリクス
             maxLongTaskDuration: 0,      // 最大 Long Task 実行時間 (ms)
-            lastLongTaskTime: 0          // 最終 Long Task 発生時刻 (Date.now())
+            lastLongTaskTime: 0,         // 最終 Long Task 発生時刻 (Date.now())
+
+            // applyBackgroundColor メトリクス
+            bgColorTime: 0,              // applyBackgroundColor の実行時間 (ms)
+            canvasWidth: 0,              // Canvas の幅 (px)
+            canvasHeight: 0,             // Canvas の高さ (px)
+            canvasMemoryKB: 0            // Canvas のメモリサイズ (KB)
         };
 
         // HUD 更新関数
@@ -740,6 +758,16 @@
 
                 document.getElementById('hud-backend-sessions').textContent =
                     performanceMetrics.backendSessionCount.toString();
+
+                // applyBackgroundColor メトリクスを表示
+                document.getElementById('hud-bg-color-time').textContent =
+                    (performanceMetrics.bgColorTime || 0).toFixed(2) + ' ms';
+
+                document.getElementById('hud-canvas-size').textContent =
+                    performanceMetrics.canvasWidth + 'x' + performanceMetrics.canvasHeight;
+
+                document.getElementById('hud-canvas-memory').textContent =
+                    (performanceMetrics.canvasMemoryKB || 0).toFixed(2) + ' KB';
 
                 performanceMetrics.lastUpdateTime = Date.now();
 
@@ -1985,6 +2013,13 @@
 
                     const performanceEnd = performance.now();
                     const executionTime = performanceEnd - performanceStart;
+
+                    // メトリクスに記録
+                    performanceMetrics.bgColorTime = executionTime;
+                    performanceMetrics.canvasWidth = width;
+                    performanceMetrics.canvasHeight = height;
+                    // Canvas のメモリサイズを計算 (width * height * 4 bytes per pixel / 1024)
+                    performanceMetrics.canvasMemoryKB = (width * height * 4) / 1024;
 
                     // 実行時間が 50ms 以上の場合は警告ログを出力
                     if (executionTime >= 50) {
