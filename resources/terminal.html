@@ -570,7 +570,7 @@
 
     <script src="{{XTERM_JS_URI}}"></script>
     <script src="{{XTERM_UNICODE11_JS_URI}}"></script>
-    <script src="{{XTERM_CANVAS_JS_URI}}"></script>
+    <script src="{{XTERM_WEBGL_JS_URI}}"></script>
 
     <!-- ACE Editor Scripts -->
     <script src="{{ACE_JS_URI}}"></script>
@@ -1360,21 +1360,31 @@
                     }
                 }
 
-                // Canvas アドオンをロード
-                if (typeof CanvasAddon !== 'undefined') {
+                // WebGL アドオンをロード
+                if (typeof WebglAddon !== 'undefined') {
                     try {
-                        const canvas = new CanvasAddon.CanvasAddon();
-                        terminalState.term.loadAddon(canvas);
-                        console.log('[LEAK CHECK] Canvas addon loaded');
+                        const webgl = new WebglAddon.WebglAddon();
+
+                        // WebGL context loss のハンドリング
+                        webgl.onContextLoss(() => {
+                            console.error('[RENDERER] WebGL context lost!');
+                            webgl.dispose();
+                        });
+
+                        terminalState.term.loadAddon(webgl);
+                        console.log('[RENDERER] WebGL addon loaded successfully');
 
                         // アドオンを管理対象に追加
                         if (!terminalState.addons) {
                             terminalState.addons = [];
                         }
-                        terminalState.addons.push(canvas);
+                        terminalState.addons.push(webgl);
                     } catch (error) {
-                        console.error('Failed to load Canvas addon:', error);
+                        console.error('[RENDERER] Failed to load WebGL addon:', error);
+                        throw error;
                     }
+                } else {
+                    throw new Error('WebglAddon is not defined');
                 }
 
                 // ターミナル要素のサイズが確定するまで待機

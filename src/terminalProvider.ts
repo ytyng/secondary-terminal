@@ -397,7 +397,7 @@ export class TerminalProvider implements vscode.WebviewViewProvider {
         const xtermJsUri = webview.asWebviewUri(vscode.Uri.joinPath(this._extensionContext.extensionUri, 'resources', 'xterm.js'));
 
         // アドオンの URI を生成
-        const xtermCanvasJsUri = webview.asWebviewUri(vscode.Uri.joinPath(this._extensionContext.extensionUri, 'node_modules', '@xterm', 'addon-canvas', 'lib', 'addon-canvas.js'));
+        const xtermWebglJsUri = webview.asWebviewUri(vscode.Uri.joinPath(this._extensionContext.extensionUri, 'node_modules', '@xterm', 'addon-webgl', 'lib', 'addon-webgl.js'));
         const xtermUnicode11JsUri = webview.asWebviewUri(vscode.Uri.joinPath(this._extensionContext.extensionUri, 'node_modules', '@xterm', 'addon-unicode11', 'lib', 'addon-unicode11.js'));
 
         // ACE エディタの URI を生成
@@ -422,7 +422,7 @@ export class TerminalProvider implements vscode.WebviewViewProvider {
                 .replace(/{{CSP_SOURCE}}/g, webview.cspSource)
                 .replace(/{{XTERM_CSS_URI}}/g, xtermCssUri.toString())
                 .replace(/{{XTERM_JS_URI}}/g, xtermJsUri.toString())
-                .replace(/{{XTERM_CANVAS_JS_URI}}/g, xtermCanvasJsUri.toString())
+                .replace(/{{XTERM_WEBGL_JS_URI}}/g, xtermWebglJsUri.toString())
                 .replace(/{{XTERM_UNICODE11_JS_URI}}/g, xtermUnicode11JsUri.toString())
                 .replace(/{{ACE_JS_URI}}/g, aceJsUri.toString())
                 .replace(/{{ACE_MODE_JAVASCRIPT_URI}}/g, aceModeJavaScriptUri.toString())
