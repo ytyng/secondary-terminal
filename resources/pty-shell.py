@@ -164,20 +164,6 @@ def check_cli_agent_active(shell_pid):
         return {'active': False, 'agent_type': None}
 
 
-def get_terminal_bg_color():
-    """
-    環境変数 TERMINAL_BG_COLOR を取得
-    しかし、 echo "\x1b]11;#${TERMINAL_BG_COLOR}\x07" した結果が取得できるわけではないので、
-    ターミナルの背景色を変更した場合は、環境変数 TERMINAL_BG_COLOR も同時に更新するようにして、
-    それをここで吸い上げる
-    """
-    bgcolor = os.environ.get('TERMINAL_BG_COLOR', '')
-    log(f'get_terminal_bg_color: {bgcolor=}')
-    if bgcolor and re.match(r'^([0-9a-fA-F]{6}|[0-9a-fA-F]{3})$', bgcolor):
-        return f'#{bgcolor}'
-    return None
-
-
 def get_child_process_count(shell_pid):
     """シェルプロセス配下の子プロセス総数を取得"""
     try:
@@ -330,6 +316,7 @@ def main():
         os.environ['TERM'] = 'xterm-256color'
         os.environ['COLUMNS'] = str(initial_cols)
         os.environ['LINES'] = str(initial_rows)
+        os.environ['TERM_PROGRAM'] = 'secondary-terminal'
 
         # PTY を作成
         master, slave = pty.openpty()
@@ -444,13 +431,6 @@ def main():
                     send_status_message(
                         'child_process_count', {'count': child_count}
                     )
-
-                    # 環境変数 TERMINAL_BG_COLOR を送信
-                    terminal_bg_color = get_terminal_bg_color()
-                    if terminal_bg_color:
-                        send_status_message(
-                            'terminal_bg_color', {'color': terminal_bg_color}
-                        )
 
                     last_agent_check = current_time
 

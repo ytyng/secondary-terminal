@@ -43,7 +43,6 @@
             display: flex;
             flex-direction: column;
             overflow: hidden;
-            /* ↓ TERMINAL_BG_COLOR で上書きされる */
             background-color: var(--vscode-sideBar-background);
         }
 
@@ -1316,7 +1315,6 @@
 
                 log('[INIT] Starting terminal initialization');
 
-
                 if (typeof Terminal === 'undefined') {
                     throw new Error('Terminal is not defined. xterm.js may not have loaded.');
                 }
@@ -1324,10 +1322,11 @@
                 terminalState.term = new Terminal({
                     theme: {
                         // ↓ おそらく、ターミナル内で上書きされる
-                        background: 'var(--vscode-sideBar-background)',
-                        foreground: 'var(--vscode-terminal-foreground)',
-                        cursor: 'var(--vscode-terminal-cursor-foreground)',
-                        selection: 'var(--vscode-terminal-selection-background)'
+                        // background: 'var(--vscode-sideBar-background)',
+                        background: document.documentElement.style.getPropertyValue('--vscode-sideBar-background') || '#111111',
+                        foreground: document.documentElement.style.getPropertyValue('--vscode-terminal-foreground') || '#ffffff',
+                        cursor: document.documentElement.style.getPropertyValue('--vscode-terminal-cursor-foreground') || '#ffffff',
+                        selection: document.documentElement.style.getPropertyValue('--vscode-terminal-selection-background') || '#ffffff'
                     },
                     fontFamily: '"RobotoMono Nerd Font Mono", "RobotoMono Nerd Font", "Roboto Mono", Consolas, "Courier New", monospace',
                     fontSize: 13,
@@ -1607,11 +1606,6 @@
 
                                     if (message.type === 'child_process_count') {
                                         performanceMetrics.childProcessCount = message.data.count || 0;
-                                    }
-
-                                    if (message.type === 'terminal_bg_color') {
-                                        // 背景色を適用
-                                        applyContainerBackgroundColor(message.data.color);
                                     }
 
                                     if (message.type === 'log') {
@@ -1966,27 +1960,6 @@
                 log('[ACE] Editor initialization failed!');
             }
         }, 100);
-
-        /**
-         * コンテナ(枠)の背景色を適用
-         */
-        function applyContainerBackgroundColor(colorCode) {
-            log('[BG COLOR] applyContainerBackgroundColor called:', colorCode);
-            if (!colorCode || typeof colorCode !== 'string') {
-                return;
-            }
-            if (colorCode === terminalState.currentContainerBackgroundColor) {
-                return;
-            }
-            // colorCode = '#00ff00'; // テスト用
-            log('[BG COLOR] Applying container background color:', colorCode);
-            // CSSVar を更新
-            document.documentElement.style.setProperty('--vscode-sideBar-background', colorCode);
-
-            // const terminalContainer = document.getElementById('terminal-container');
-            // terminalContainer.style.backgroundColor = colorCode;
-            terminalState.currentContainerBackgroundColor = colorCode;
-        }
 
     </script>
 </body>
