@@ -44,7 +44,7 @@
             flex-direction: column;
             overflow: hidden;
             /* ↓ TERMINAL_BG_COLOR で上書きされる */
-            background-color: var(--vscode-terminal-background);
+            background-color: var(--vscode-sideBar-background);
         }
 
         #terminal {
@@ -1321,7 +1321,7 @@
                 terminalState.term = new Terminal({
                     theme: {
                         // ↓ ターミナル内で TERMINAL_BG_COLOR で上書きされる
-                        background: 'var(--vscode-terminal-background)',
+                        background: 'var(--vscode-sideBar-background)',
                         foreground: 'var(--vscode-terminal-foreground)',
                         cursor: 'var(--vscode-terminal-cursor-foreground)',
                         selection: 'var(--vscode-terminal-selection-background)'
@@ -1971,9 +1971,12 @@
             if (colorCode === terminalState.currentContainerBackgroundColor) {
                 return;
             }
-            const terminalContainer = document.getElementById('terminal-container');
-            terminalContainer.style.backgroundColor = colorCode;
-            terminalState.currentContainerBackgroundColor = colorCode;
+            // CSSVar を更新
+            document.documentElement.style.setProperty('--vscode-sideBar-background', colorCode);
+
+            // const terminalContainer = document.getElementById('terminal-container');
+            // terminalContainer.style.backgroundColor = colorCode;
+            // terminalState.currentContainerBackgroundColor = colorCode;
         }
 
     </script>
