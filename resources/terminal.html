@@ -593,7 +593,8 @@
             eventListeners: [],
             isInitialized: false,
             writeBufferData: '',
-            writeBufferPending: false
+            writeBufferPending: false,
+            currentContainerBackgroundColor: null,
         };
 
         // ACE エディタ用の状態管理
@@ -1581,22 +1582,44 @@
 
                 // ステータスメッセージの処理
                 function handleStatusMessage(data) {
+                    console.log('handleStatusMessage: Received status message:', JSON.stringify(data));
+
                     try {
                         // CSI シーケンス ]777; で始まるメッセージを処理（実際のESC文字を検索）
                         if (data.includes('\x1b]777;')) {
-                            const match = data.match(/\x1b\]777;(.+?)\x07/);
-                            if (match) {
-                                const messageJson = match[1];
-                                const message = JSON.parse(messageJson);
+                            // 複数のエスケープシーケンスに対応するため matchAll を使用
+                            const matches = data.matchAll(/\x1b\]777;(.+?)\x07/g);
+                            const matchesArray = [...matches];
 
-                                if (message.type === 'cli_agent_status') {
-                                    cliAgentState = message.data;
+                            console.log(`Found ${matchesArray.length} status message(s)`, matchesArray);
 
-                                    updateCliAgentIndicator(); // インジケーター表示を更新
-                                }
+                            for (const match of matchesArray) {
+                                console.log('match:', match);
+                                try {
+                                    const messageJson = match[1];
+                                    console.log('Parsed status message JSON:', messageJson);
+                                    const message = JSON.parse(messageJson);
+                                    console.log('Parsed status message:', message);
 
-                                if (message.type === 'child_process_count') {
-                                    performanceMetrics.childProcessCount = message.data.count || 0;
+                                    if (message.type === 'cli_agent_status') {
+                                        cliAgentState = message.data;
+
+                                        updateCliAgentIndicator(); // インジケーター表示を更新
+                                    }
+
+                                    if (message.type === 'child_process_count') {
+                                        console.log('child_process_count', message.data);
+                                        performanceMetrics.childProcessCount = message.data.count || 0;
+                                    }
+
+                                    if (message.type === 'terminal_bg_color') {
+                                        // 背景色を適用
+                                        console.log('Setting terminal background color', message);
+                                        applyContainerBackgroundColor(message.data.color);
+                                    }
+                                } catch (parseError) {
+                                    // 個別メッセージのパースエラーは無視
+                                    console.debug('Individual message parse error:', parseError);
                                 }
                             }
                         }
@@ -1948,121 +1971,17 @@
             }
         }, 100);
 
-        // ターミナルの背景色をコンテナの背景色に適用させる
-        (function () {
-            const terminalContainer = document.getElementById('terminal-container');
-            let backgroundColorCheckCount = 0;
-            let lastBackgroundCheck = Date.now();
-            let isBackgroundStable = false; // 背景色が安定したかのフラグ
-
-            function applyBackgroundColor() {
-                const now = Date.now();
-                backgroundColorCheckCount++;
-
-                lastBackgroundCheck = now;
-
-                const textLayer = document.querySelector('#terminal canvas.xterm-text-layer');
-                if (!textLayer) {
-
-                    return;
-                }
-
-                const ctx = textLayer.getContext('2d');
-                if (!ctx || !textLayer.width || !textLayer.height) {
-
-                    return;
-                }
-
-                const performanceStart = performance.now();
-
-                // Canvas のサイズを取得
-                const width = textLayer.width;
-                const height = textLayer.height;
-
-                // 四隅の座標を定義
-                const corners = [
-                    { x: 0, y: 0 },              // 左上
-                    { x: width - 1, y: 0 },      // 右上
-                    { x: 0, y: height - 1 },     // 左下
-                    { x: width - 1, y: height - 1 } // 右下
-                ];
-
-                try {
-                    // 各隅の色を取得
-                    const colors = corners.map(corner => {
-                        const imageData = ctx.getImageData(corner.x, corner.y, 1, 1);
-                        const data = imageData.data;
-                        return {
-                            r: data[0],
-                            g: data[1],
-                            b: data[2],
-                            a: data[3]
-                        };
-                    });
-
-                    // すべての色が同じかチェック
-                    const firstColor = colors[0];
-                    const allSameColor = colors.every(color =>
-                        color.r === firstColor.r &&
-                        color.g === firstColor.g &&
-                        color.b === firstColor.b &&
-                        color.a === firstColor.a
-                    );
-
-                    // すべて同じ色の場合のみ背景色を変更
-                    if (allSameColor) {
-                        const rgba = `rgba(${firstColor.r}, ${firstColor.g}, ${firstColor.b}, ${firstColor.a / 255})`;
-
-                        // 背景色が変わった場合のみ更新
-                        const currentBg = terminalContainer.style.backgroundColor;
-                        if (currentBg !== rgba) {
-                            terminalContainer.style.backgroundColor = rgba;
-
-                        }
-                    }
-
-                    const performanceEnd = performance.now();
-                    const executionTime = performanceEnd - performanceStart;
-
-                    // メトリクスに記録
-                    performanceMetrics.bgColorTime = executionTime;
-                    performanceMetrics.canvasWidth = width;
-                    performanceMetrics.canvasHeight = height;
-                    // Canvas のメモリサイズを計算 (width * height * 4 bytes per pixel / 1024)
-                    performanceMetrics.canvasMemoryKB = (width * height * 4) / 1024;
-
-                    // 実行時間が 50ms 以上の場合は警告ログを出力
-                    if (executionTime >= 50) {
-                        console.warn('[PERF] ⚠️ applyBackgroundColor() took ' + executionTime.toFixed(2) + 'ms', {
-                            checkCount: backgroundColorCheckCount,
-                            isStable: isBackgroundStable,
-                            canvasWidth: width,
-                            canvasHeight: height,
-                            cornersChecked: corners.length
-                        });
-                    } else if (executionTime >= 10) {
-                        // 10ms 以上の場合は info ログ
-                        console.log('[PERF] applyBackgroundColor() took ' + executionTime.toFixed(2) + 'ms (count: ' + backgroundColorCheckCount + ')');
-                    }
-
-                } catch (error) {
-                    console.error('[PERF] Error reading canvas pixel data:', error);
-                }
+        /**
+         * コンテナ(枠)の背景色を適用
+         */
+        function applyContainerBackgroundColor(colorCode) {
+            if (colorCode === terminalState.currentContainerBackgroundColor) {
+                return;
             }
-
-            // 初回実行を少し遅延させる (Canvas が完全に描画されるのを待つ)
-            setTimeout(applyBackgroundColor, 500);
-
-            // リーク検証のため一旦無効化
-            terminalState.timers.backgroundColorInterval = setInterval(() => {
-                const textLayer = document.querySelector('#terminal canvas.xterm-text-layer');
-                if (textLayer && textLayer.getContext) {
-                    applyBackgroundColor();
-                }
-            }, 4000);
-            // setTimeout(applyBackgroundColor, 4000);
-        })();
-
+            const terminalContainer = document.getElementById('terminal-container');
+            terminalContainer.style.backgroundColor = colorCode;
+            terminalState.currentContainerBackgroundColor = colorCode;
+        }
 
     </script>
 </body>

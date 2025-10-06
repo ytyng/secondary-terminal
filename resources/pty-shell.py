@@ -61,7 +61,11 @@ def check_cli_agent_active(shell_pid):
                     except ValueError:
                         pass
                 return result
-            except (subprocess.TimeoutExpired, subprocess.SubprocessError, FileNotFoundError):
+            except (
+                subprocess.TimeoutExpired,
+                subprocess.SubprocessError,
+                FileNotFoundError,
+            ):
                 return []
 
         max_depth = 5
@@ -101,7 +105,13 @@ def check_cli_agent_active(shell_pid):
         for chunk in batched(descendants, 50):
             try:
                 r = subprocess.run(
-                    ['ps', '-o', 'comm=,args=', '-p', ','.join(str(x) for x in chunk)],
+                    [
+                        'ps',
+                        '-o',
+                        'comm=,args=',
+                        '-p',
+                        ','.join(str(x) for x in chunk),
+                    ],
                     capture_output=True,
                     text=True,
                     timeout=1,
@@ -125,21 +135,41 @@ def check_cli_agent_active(shell_pid):
                         if 'claude' in comm or ' claude ' in args:
                             return {'active': True, 'agent_type': 'claude'}
                         # Gemini 検出
-                        if '/bin/gemini' in args or ' gemini ' in args or comm == 'gemini':
+                        if (
+                            '/bin/gemini' in args
+                            or ' gemini ' in args
+                            or comm == 'gemini'
+                        ):
                             return {'active': True, 'agent_type': 'gemini'}
                         # Codex 検出
-                        if 'codex' in comm or ' codex ' in args or '/bin/codex' in args:
+                        if (
+                            'codex' in comm
+                            or ' codex ' in args
+                            or '/bin/codex' in args
+                        ):
                             return {'active': True, 'agent_type': 'codex'}
                     except Exception:
                         # 行のパース失敗は無視して続行
                         continue
-            except (subprocess.TimeoutExpired, subprocess.SubprocessError, FileNotFoundError):
+            except (
+                subprocess.TimeoutExpired,
+                subprocess.SubprocessError,
+                FileNotFoundError,
+            ):
                 continue
 
         return {'active': False, 'agent_type': None}
     except Exception:
         # 想定外のエラーは検出無効として扱う
         return {'active': False, 'agent_type': None}
+
+
+def get_terminal_bg_color():
+    """環境変数 TERMINAL_BG_COLOR を取得"""
+    bgcolor = os.environ.get('TERMINAL_BG_COLOR', '')
+    if bgcolor and re.match(r'^([0-9a-fA-F]{6}|[0-9a-fA-F]{3})$', bgcolor):
+        return f'#{bgcolor}'
+    return None
 
 
 def get_child_process_count(shell_pid):
@@ -169,7 +199,11 @@ def get_child_process_count(shell_pid):
                     except ValueError:
                         pass
                 return result
-            except (subprocess.TimeoutExpired, subprocess.SubprocessError, FileNotFoundError):
+            except (
+                subprocess.TimeoutExpired,
+                subprocess.SubprocessError,
+                FileNotFoundError,
+            ):
                 return []
 
         max_depth = 5
@@ -394,7 +428,16 @@ def main():
 
                     # 子プロセス数を取得して送信
                     child_count = get_child_process_count(p.pid)
-                    send_status_message('child_process_count', {'count': child_count})
+                    send_status_message(
+                        'child_process_count', {'count': child_count}
+                    )
+
+                    # 環境変数 TERMINAL_BG_COLOR を送信
+                    terminal_bg_color = get_terminal_bg_color()
+                    if terminal_bg_color:
+                        send_status_message(
+                            'terminal_bg_color', {'color': terminal_bg_color}
+                        )
 
                     last_agent_check = current_time
 
@@ -428,7 +471,9 @@ def main():
                                     # デコードエラーが発生した場合、完全にデコードできる部分だけを取り出す
                                     if e.start > 0:
                                         # エラー開始位置より前は正常にデコードできる
-                                        text = input_buffer[: e.start].decode('utf-8')
+                                        text = input_buffer[: e.start].decode(
+                                            'utf-8'
+                                        )
                                         # 未処理部分をバッファに残す
                                         input_buffer = input_buffer[e.start :]
                                     else:
@@ -451,18 +496,32 @@ def main():
                                     # CLI Agent ステータス強制チェック信号を検出し、取り除く
                                     if '\x00' in text:
                                         # NULL 文字は取り除いたうえで残余を処理する
-                                        if current_time - last_forced_check >= forced_check_cooldown:
-                                            new_agent_state = check_cli_agent_active(p.pid)
+                                        if (
+                                            current_time - last_forced_check
+                                            >= forced_check_cooldown
+                                        ):
+                                            new_agent_state = (
+                                                check_cli_agent_active(p.pid)
+                                            )
                                             if new_agent_state:
-                                                current_agent_state = new_agent_state
-                                                send_status_message('cli_agent_status', current_agent_state)
+                                                current_agent_state = (
+                                                    new_agent_state
+                                                )
+                                                send_status_message(
+                                                    'cli_agent_status',
+                                                    current_agent_state,
+                                                )
                                                 last_agent_check = current_time
-                                                last_forced_check = current_time
+                                                last_forced_check = (
+                                                    current_time
+                                                )
                                         text = text.replace('\x00', '')
 
                                     # リサイズシーケンスを全て処理し、入力から取り除く
                                     # パターン: ESC [ 8 ; rows ; cols t
-                                    resize_pattern = re.compile(r"\x1b\[8;(\d+);(\d+)t")
+                                    resize_pattern = re.compile(
+                                        r"\x1b\[8;(\d+);(\d+)t"
+                                    )
 
                                     def handle_resize_match(m: re.Match[str]):
                                         """リサイズ指示を反映する。
@@ -479,7 +538,10 @@ def main():
                                         # シェルへウィンドウサイズ変更通知
                                         if p.pid:
                                             try:
-                                                os.killpg(os.getpgid(p.pid), signal.SIGWINCH)
+                                                os.killpg(
+                                                    os.getpgid(p.pid),
+                                                    signal.SIGWINCH,
+                                                )
                                             except OSError:
                                                 pass
 
@@ -489,7 +551,9 @@ def main():
                                     for m in resize_pattern.finditer(text):
                                         # マッチ前の通常テキストを溜める
                                         if m.start() > tail:
-                                            cleaned_parts.append(text[tail:m.start()])
+                                            cleaned_parts.append(
+                                                text[tail : m.start()]
+                                            )
                                         # マッチ処理
                                         handle_resize_match(m)
                                         tail = m.end()
@@ -503,16 +567,27 @@ def main():
                                         # 大量データ（1KB超）は vim などの対話的アプリのためチャンク分割
                                         if len(cleaned_text) > 1024:
                                             # 512バイトずつ分割して送信
-                                            for i in range(0, len(cleaned_text), 512):
-                                                chunk = cleaned_text[i:i+512]
+                                            for i in range(
+                                                0, len(cleaned_text), 512
+                                            ):
+                                                chunk = cleaned_text[
+                                                    i : i + 512
+                                                ]
                                                 try:
                                                     os.write(
                                                         master,
-                                                        chunk.encode('utf-8', errors='ignore'),
+                                                        chunk.encode(
+                                                            'utf-8',
+                                                            errors='ignore',
+                                                        ),
                                                     )
                                                     # チャンク間に短い遅延（vim の処理時間確保）
-                                                    if i + 512 < len(cleaned_text):
-                                                        time.sleep(0.01)  # 10ms
+                                                    if i + 512 < len(
+                                                        cleaned_text
+                                                    ):
+                                                        time.sleep(
+                                                            0.01
+                                                        )  # 10ms
                                                 except OSError as e:
                                                     # EAGAIN などの場合は少し待ってリトライ
                                                     if e.errno == errno.EAGAIN:
@@ -520,7 +595,10 @@ def main():
                                                         try:
                                                             os.write(
                                                                 master,
-                                                                chunk.encode('utf-8', errors='ignore'),
+                                                                chunk.encode(
+                                                                    'utf-8',
+                                                                    errors='ignore',
+                                                                ),
                                                             )
                                                         except OSError:
                                                             # 2回目も失敗したら諦める
@@ -532,7 +610,9 @@ def main():
                                             # 小さなデータはそのまま送信
                                             os.write(
                                                 master,
-                                                cleaned_text.encode('utf-8', errors='ignore'),
+                                                cleaned_text.encode(
+                                                    'utf-8', errors='ignore'
+                                                ),
                                             )
                                 else:
                                     # デコードされたテキストがない場合は何もしない（バッファに残っている）
@@ -551,11 +631,16 @@ def main():
                             if data:
                                 # UTF-8 でデコードしてから再エンコード（文字化け対策）
                                 try:
-                                    decoded_text = data.decode('utf-8', errors='ignore')
+                                    decoded_text = data.decode(
+                                        'utf-8', errors='ignore'
+                                    )
                                     encoded_data = decoded_text.encode('utf-8')
                                     sys.stdout.buffer.write(encoded_data)
                                     sys.stdout.buffer.flush()
-                                except (UnicodeDecodeError, UnicodeEncodeError):
+                                except (
+                                    UnicodeDecodeError,
+                                    UnicodeEncodeError,
+                                ):
                                     # エラー時はバイナリデータをそのまま送信
                                     sys.stdout.buffer.write(data)
                                     sys.stdout.buffer.flush()

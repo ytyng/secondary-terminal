@@ -8,7 +8,7 @@ import { createContextTextForSelectedText } from './utils';
 
 // WebView メッセージの型定義
 interface WebViewMessage {
-    type: 'terminalInput' | 'terminalReady' | 'resize' | 'error' | 'buttonSendSelection' | 'buttonCopySelection' | 'buttonReset' | 'buttonResetRequest' | 'refreshCliAgentStatus' | 'bufferCleanupRequest' | 'terminalInputBegin' | 'terminalInputChunk' | 'terminalInputEnd' | 'editorSendContent' | 'requestBackendMetrics';
+    type: 'terminalInput' | 'terminalReady' | 'resize' | 'error' | 'buttonSendSelection' | 'buttonCopySelection' | 'buttonReset' | 'buttonResetRequest' | 'refreshCliAgentStatus' | 'bufferCleanupRequest' | 'terminalInputBegin' | 'terminalInputChunk' | 'terminalInputEnd' | 'editorSendContent' | 'requestBackendMetrics' | 'getEnv';
     data?: string;
     cols?: number;
     rows?: number;
@@ -27,6 +27,8 @@ interface WebViewMessage {
     size?: number;
     // Editor specific properties
     text?: string;
+    // Environment variable properties
+    name?: string;
 }
 
 export class TerminalProvider implements vscode.WebviewViewProvider {
@@ -117,6 +119,17 @@ export class TerminalProvider implements vscode.WebviewViewProvider {
                             this._terminalCols,
                             this._terminalRows
                         );
+                        break;
+                    case 'getEnv':
+                        // 環境変数を取得して WebView に返す
+                        if (message.name && typeof message.name === 'string') {
+                            const envValue = process.env[message.name];
+                            webviewView.webview.postMessage({
+                                type: 'envValue',
+                                name: message.name,
+                                value: envValue || null
+                            });
+                        }
                         break;
                     case 'error':
                         console.error('WebView error:', message.error);
