@@ -8,7 +8,7 @@ import { createContextTextForSelectedText } from './utils';
 
 // WebView メッセージの型定義
 interface WebViewMessage {
-    type: 'terminalInput' | 'terminalReady' | 'resize' | 'error' | 'buttonSendSelection' | 'buttonCopySelection' | 'buttonReset' | 'buttonResetRequest' | 'refreshCliAgentStatus' | 'bufferCleanupRequest' | 'terminalInputBegin' | 'terminalInputChunk' | 'terminalInputEnd' | 'editorSendContent' | 'requestBackendMetrics';
+    type: 'terminalInput' | 'terminalReady' | 'resize' | 'error' | 'buttonSendSelection' | 'buttonCopySelection' | 'buttonReset' | 'buttonResetRequest' | 'refreshCliAgentStatus' | 'bufferCleanupRequest' | 'terminalInputBegin' | 'terminalInputChunk' | 'terminalInputEnd' | 'editorSendContent' | 'requestBackendMetrics' | 'getEnv';
     data?: string;
     cols?: number;
     rows?: number;
@@ -27,6 +27,8 @@ interface WebViewMessage {
     size?: number;
     // Editor specific properties
     text?: string;
+    // Environment variable properties
+    name?: string;
 }
 
 export class TerminalProvider implements vscode.WebviewViewProvider {
@@ -117,6 +119,17 @@ export class TerminalProvider implements vscode.WebviewViewProvider {
                             this._terminalCols,
                             this._terminalRows
                         );
+                        break;
+                    case 'getEnv':
+                        // 環境変数を取得して WebView に返す
+                        if (message.name && typeof message.name === 'string') {
+                            const envValue = process.env[message.name];
+                            webviewView.webview.postMessage({
+                                type: 'envValue',
+                                name: message.name,
+                                value: envValue || null
+                            });
+                        }
                         break;
                     case 'error':
                         console.error('WebView error:', message.error);
@@ -397,7 +410,7 @@ export class TerminalProvider implements vscode.WebviewViewProvider {
         const xtermJsUri = webview.asWebviewUri(vscode.Uri.joinPath(this._extensionContext.extensionUri, 'resources', 'xterm.js'));
 
         // アドオンの URI を生成
-        const xtermCanvasJsUri = webview.asWebviewUri(vscode.Uri.joinPath(this._extensionContext.extensionUri, 'node_modules', '@xterm', 'addon-canvas', 'lib', 'addon-canvas.js'));
+        const xtermWebglJsUri = webview.asWebviewUri(vscode.Uri.joinPath(this._extensionContext.extensionUri, 'node_modules', '@xterm', 'addon-webgl', 'lib', 'addon-webgl.js'));
         const xtermUnicode11JsUri = webview.asWebviewUri(vscode.Uri.joinPath(this._extensionContext.extensionUri, 'node_modules', '@xterm', 'addon-unicode11', 'lib', 'addon-unicode11.js'));
 
         // ACE エディタの URI を生成
@@ -422,7 +435,7 @@ export class TerminalProvider implements vscode.WebviewViewProvider {
                 .replace(/{{CSP_SOURCE}}/g, webview.cspSource)
                 .replace(/{{XTERM_CSS_URI}}/g, xtermCssUri.toString())
                 .replace(/{{XTERM_JS_URI}}/g, xtermJsUri.toString())
-                .replace(/{{XTERM_CANVAS_JS_URI}}/g, xtermCanvasJsUri.toString())
+                .replace(/{{XTERM_WEBGL_JS_URI}}/g, xtermWebglJsUri.toString())
                 .replace(/{{XTERM_UNICODE11_JS_URI}}/g, xtermUnicode11JsUri.toString())
                 .replace(/{{ACE_JS_URI}}/g, aceJsUri.toString())
                 .replace(/{{ACE_MODE_JAVASCRIPT_URI}}/g, aceModeJavaScriptUri.toString())
