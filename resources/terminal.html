@@ -43,7 +43,8 @@
             display: flex;
             flex-direction: column;
             overflow: hidden;
-            /* 追加：はみ出し防止 */
+            /* ↓ TERMINAL_BG_COLOR で上書きされる */
+            background-color: var(--vscode-terminal-background);
         }
 
         #terminal {
@@ -1319,7 +1320,8 @@
 
                 terminalState.term = new Terminal({
                     theme: {
-                        background: 'transparent',
+                        // ↓ ターミナル内で TERMINAL_BG_COLOR で上書きされる
+                        background: 'var(--vscode-terminal-background)',
                         foreground: 'var(--vscode-terminal-foreground)',
                         cursor: 'var(--vscode-terminal-cursor-foreground)',
                         selection: 'var(--vscode-terminal-selection-background)'
@@ -1582,7 +1584,6 @@
 
                 // ステータスメッセージの処理
                 function handleStatusMessage(data) {
-                    console.log('handleStatusMessage: Received status message:', JSON.stringify(data));
 
                     try {
                         // CSI シーケンス ]777; で始まるメッセージを処理（実際のESC文字を検索）
@@ -1591,30 +1592,22 @@
                             const matches = data.matchAll(/\x1b\]777;(.+?)\x07/g);
                             const matchesArray = [...matches];
 
-                            console.log(`Found ${matchesArray.length} status message(s)`, matchesArray);
-
                             for (const match of matchesArray) {
-                                console.log('match:', match);
                                 try {
                                     const messageJson = match[1];
-                                    console.log('Parsed status message JSON:', messageJson);
                                     const message = JSON.parse(messageJson);
-                                    console.log('Parsed status message:', message);
 
                                     if (message.type === 'cli_agent_status') {
                                         cliAgentState = message.data;
-
                                         updateCliAgentIndicator(); // インジケーター表示を更新
                                     }
 
                                     if (message.type === 'child_process_count') {
-                                        console.log('child_process_count', message.data);
                                         performanceMetrics.childProcessCount = message.data.count || 0;
                                     }
 
                                     if (message.type === 'terminal_bg_color') {
                                         // 背景色を適用
-                                        console.log('Setting terminal background color', message);
                                         applyContainerBackgroundColor(message.data.color);
                                     }
                                 } catch (parseError) {
