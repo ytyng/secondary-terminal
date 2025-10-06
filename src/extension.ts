@@ -143,6 +143,28 @@ export function activate(context: vscode.ExtensionContext) {
         })
     );
 
+    // ターミナルを再起動
+    context.subscriptions.push(
+        vscode.commands.registerCommand('secondaryTerminal.restart', async () => {
+            const result = await vscode.window.showWarningMessage(
+                'ターミナルをリセットしますか？\n実行中のプロセスはすべて終了します。',
+                { modal: true },
+                'リセット'
+            );
+
+            if (result === 'リセット') {
+                await provider.resetTerminal();
+            }
+        })
+    );
+
+    // ログを表示
+    context.subscriptions.push(
+        vscode.commands.registerCommand('secondaryTerminal.showLogs', () => {
+            provider.showLogs();
+        })
+    );
+
     // Secondary Terminal 拡張機能が正常に有効化された
 }
 

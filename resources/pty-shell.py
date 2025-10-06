@@ -241,6 +241,13 @@ def send_status_message(message_type, data):
         pass
 
 
+def log(message):
+    """
+    フロントにログを送る
+    """
+    send_status_message('log', message)
+
+
 def main():
     # コマンドライン引数から初期設定を取得
     initial_cols = int(sys.argv[1]) if len(sys.argv) > 1 else 80
@@ -254,10 +261,7 @@ def main():
             startup_commands = json.loads(sys.argv[5])
             # セキュリティチェック: 配列であることを確認
             if not isinstance(startup_commands, list):
-                print(
-                    f"Warning: Invalid startup commands format, ignoring",
-                    file=sys.stderr,
-                )
+                log(f"Warning: Invalid startup commands format, ignoring")
                 startup_commands = []
             else:
                 # 各コマンドが文字列であることを確認
@@ -265,10 +269,7 @@ def main():
                     cmd for cmd in startup_commands if isinstance(cmd, str)
                 ]
         except (IndexError, json.JSONDecodeError) as e:
-            print(
-                f"Warning: Failed to parse startup commands: {e}",
-                file=sys.stderr,
-            )
+            log(f"Warning: Failed to parse startup commands: {e}")
             startup_commands = []
 
     # グローバル変数でプロセス参照を保持
@@ -302,11 +303,11 @@ def main():
                     pass
 
         except Exception as e:
-            print(f"Error during cleanup: {e}", file=sys.stderr)
+            log(f"Error during cleanup: {e}")
 
     def signal_handler(signum, frame):
         """シグナルハンドラー"""
-        print(f"Received signal {signum}, cleaning up...", file=sys.stderr)
+        log(f"Received signal {signum}, cleaning up...")
         cleanup_handler()
         sys.exit(0)
 
@@ -345,6 +346,11 @@ def main():
             )
             current_shell_process = p  # グローバル変数に保存
         except Exception as e:
+            log(
+                'zsh launch failed, falling back to bash. '
+                f'{e.__class__.__name__}: {e}'
+            )
+
             # zsh が失敗した場合は bash にフォールバック
             shell_cmd = ['/bin/bash', '-l', '-i']
             p = subprocess.Popen(
@@ -373,6 +379,7 @@ def main():
                 sys.stdin.fileno(), fcntl.F_SETFL, stdin_flags | os.O_NONBLOCK
             )
         except (ImportError, OSError):
+            log("fcntl: Warning: Failed to set non-blocking I/O")
             pass
 
         # CLI エージェント監視のための変数

@@ -63,8 +63,34 @@
         "command": "secondaryTerminal.copyMainTerminalSelection",
         "title": "Copy Main Terminal Selection with Location",
         "category": "Secondary Terminal"
+      },
+      {
+        "command": "secondaryTerminal.restart",
+        "title": "Restart Terminal",
+        "category": "Secondary Terminal",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "secondaryTerminal.showLogs",
+        "title": "Show Logs",
+        "category": "Secondary Terminal",
+        "icon": "$(output)"
       }
     ],
+    "menus": {
+      "view/title": [
+        {
+          "command": "secondaryTerminal.restart",
+          "when": "view == secondaryTerminalMainView",
+          "group": "navigation"
+        },
+        {
+          "command": "secondaryTerminal.showLogs",
+          "when": "view == secondaryTerminalMainView",
+          "group": "navigation"
+        }
+      ]
+    },
     "keybindings": [
       {
         "command": "secondaryTerminal.sendMainEditorSelection",

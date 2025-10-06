@@ -8,11 +8,12 @@ import { createContextTextForSelectedText } from './utils';
 
 // WebView メッセージの型定義
 interface WebViewMessage {
-    type: 'terminalInput' | 'terminalReady' | 'resize' | 'error' | 'buttonSendSelection' | 'buttonCopySelection' | 'buttonReset' | 'buttonResetRequest' | 'refreshCliAgentStatus' | 'bufferCleanupRequest' | 'terminalInputBegin' | 'terminalInputChunk' | 'terminalInputEnd' | 'editorSendContent' | 'requestBackendMetrics' | 'getEnv';
+    type: 'terminalInput' | 'terminalReady' | 'resize' | 'error' | 'buttonSendSelection' | 'buttonCopySelection' | 'refreshCliAgentStatus' | 'bufferCleanupRequest' | 'terminalInputBegin' | 'terminalInputChunk' | 'terminalInputEnd' | 'editorSendContent' | 'requestBackendMetrics' | 'getEnv' | 'log';
     data?: string;
     cols?: number;
     rows?: number;
     error?: string;
+    message?: string;
     timestamp?: number;
     // Buffer cleanup specific properties
     currentLines?: number;
@@ -47,6 +48,9 @@ export class TerminalProvider implements vscode.WebviewViewProvider {
         receivedBytes: number;
         kind?: string | undefined;
     }> = new Map();
+
+    // ログ管理
+    private _logs: string[] = [];
 
     constructor(private readonly _extensionContext: vscode.ExtensionContext) {
         this._cwd = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath || os.homedir();
@@ -107,6 +111,9 @@ export class TerminalProvider implements vscode.WebviewViewProvider {
                             const versionInfo = this.getVersionInfo();
                             const welcomeMessage = `Welcome to Secondary Terminal v${versionInfo.version} (${versionInfo.buildDate}).\r\n`;
                             this._sessionManager.addOutput(this._workspaceKey, welcomeMessage);
+                            this.appendLog('Terminal ready - starting shell');
+                        } else {
+                            this.appendLog('Terminal ready - reconnecting to existing session');
                         }
                         this.startShell();
                         break;
@@ -133,18 +140,13 @@ export class TerminalProvider implements vscode.WebviewViewProvider {
                         break;
                     case 'error':
                         console.error('WebView error:', message.error);
+                        this.appendLog(`WebView error: ${message.error}`);
                         break;
                     case 'buttonSendSelection':
                         this.handleButtonSendSelection();
                         break;
                     case 'buttonCopySelection':
                         this.handleButtonCopySelection();
-                        break;
-                    case 'buttonResetRequest':
-                        this.handleResetRequest();
-                        break;
-                    case 'buttonReset':
-                        this.resetTerminal();
                         break;
                     case 'refreshCliAgentStatus':
                         // PTY プロセスに強制的な CLI Agent ステータスチェックを要求
@@ -167,6 +169,11 @@ export class TerminalProvider implements vscode.WebviewViewProvider {
                         break;
                     case 'requestBackendMetrics':
                         this.handleBackendMetricsRequest();
+                        break;
+                    case 'log':
+                        if (message.message) {
+                            this.appendLog(message.message);
+                        }
                         break;
                 }
             },
@@ -211,6 +218,7 @@ export class TerminalProvider implements vscode.WebviewViewProvider {
             this._processManager.sendToProcess(this._workspaceKey, data);
         } catch (error) {
             console.error('Failed to send input to process:', error);
+            this.appendLog(`Failed to send input to process: ${error}`);
             // エラーをWebViewに通知
             this._view?.webview.postMessage({
                 type: 'output',
@@ -233,6 +241,7 @@ export class TerminalProvider implements vscode.WebviewViewProvider {
 
 
     public clearTerminal() {
+        this.appendLog('Clear terminal requested');
         // セッションバッファをクリア
         this._sessionManager.clearBuffer(this._workspaceKey);
         // WebView をクリア
@@ -313,19 +322,9 @@ export class TerminalProvider implements vscode.WebviewViewProvider {
         }
     }
 
-    private async handleResetRequest() {
-        const result = await vscode.window.showWarningMessage(
-            'ターミナルをリセットしますか？\n実行中のプロセスはすべて終了します。',
-            { modal: true },
-            'リセット'
-        );
-
-        if (result === 'リセット') {
-            await this.resetTerminal();
-        }
-    }
-
     public async resetTerminal() {
+        this.appendLog('Terminal reset requested');
+
         // 1. 既存のプロセスを明示的に終了完了まで待つ
         await this._processManager.terminateProcessAsync(this._workspaceKey);
 
@@ -340,6 +339,8 @@ export class TerminalProvider implements vscode.WebviewViewProvider {
         const versionInfo = this.getVersionInfo();
         const welcomeMessage = `Terminal has been reset.\r\nWelcome to Secondary Terminal v${versionInfo.version} (${versionInfo.buildDate}).\r\n`;
         this._sessionManager.addOutput(this._workspaceKey, welcomeMessage);
+
+        this.appendLog('Terminal reset completed');
     }
 
     private forceRefreshCliAgentStatus() {
@@ -595,5 +596,82 @@ export class TerminalProvider implements vscode.WebviewViewProvider {
         } catch (error) {
             console.error('[BACKEND METRICS] Error collecting backend metrics:', error);
         }
+    }
+
+    /**
+     * ログを追加する
+     * 500項目を超えた場合は300項目に削減する
+     */
+    private appendLog(message: string): void {
+        const timestamp = new Date().toISOString();
+        this._logs.push(`[${timestamp}] ${message}`);
+
+        if (this._logs.length > 500) {
+            this._logs = this._logs.slice(-300);
+        }
+    }
+
+    /**
+     * ログを表示する WebView パネルを開く
+     */
+    public showLogs(): void {
+        const panel = vscode.window.createWebviewPanel(
+            'secondaryTerminalLogs',
+            'Secondary Terminal Logs',
+            vscode.ViewColumn.One,
+            {
+                enableScripts: false
+            }
+        );
+
+        const logsText = this._logs.length > 0
+            ? this._logs.join('\n')
+            : 'No logs available.';
+
+        panel.webview.html = this._getLogsHtml(logsText);
+    }
+
+    /**
+     * ログ表示用の HTML を生成
+     */
+    private _getLogsHtml(logsText: string): string {
+        const escapedLogs = logsText
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#39;');
+
+        return `<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline';">
+    <title>Secondary Terminal Logs</title>
+    <style>
+        body {
+            font-family: 'Courier New', Consolas, monospace;
+            padding: 10px;
+            background-color: var(--vscode-editor-background);
+            color: var(--vscode-editor-foreground);
+        }
+        textarea {
+            width: 100%;
+            height: calc(100vh - 40px);
+            background-color: var(--vscode-input-background);
+            color: var(--vscode-input-foreground);
+            border: 1px solid var(--vscode-input-border);
+            font-family: 'Courier New', Consolas, monospace;
+            font-size: 12px;
+            padding: 8px;
+            resize: none;
+        }
+    </style>
+</head>
+<body>
+    <textarea readonly>${escapedLogs}</textarea>
+</body>
+</html>`;
     }
 }

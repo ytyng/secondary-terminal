@@ -151,18 +151,6 @@
             }
         }
 
-        .reset-button {
-            background: transparent;
-            color: var(--vscode-button-secondaryForeground, #cccccc);
-            border: none;
-            font-family: inherit;
-            font-size: 12px;
-            opacity: 0.5;
-
-            &:hover {
-                opacity: 1;
-            }
-        }
 
         /* CLI エージェントアクティブ表示 */
         .cli-agent-indicator {
@@ -564,7 +552,6 @@
                 <!-- CLI エージェントインジケーター -->
                 <div class="cli-agent-indicator" id="cli-agent-indicator"
                     title="CLI Agent is active - Shift+Enter inputs a newline">CLI Agent</div>
-                <button id="reset-button" class="reset-button">Reset</button>
             </div>
         </div>
     </div>
@@ -778,14 +765,14 @@
 
                 // 実行時間が 50ms 以上の場合は警告ログを出力
                 if (hudExecutionTime >= 50) {
-                    console.warn('[PERF] ⚠️ updatePerformanceHUD() took ' + hudExecutionTime.toFixed(2) + 'ms', {
+                    log('[PERF] ⚠️ updatePerformanceHUD() took ' + hudExecutionTime.toFixed(2) + 'ms', {
                         domNodeCount: performanceMetrics.domNodeCount,
                         bufferSize: performanceMetrics.terminalBufferSize
                     });
                 }
 
             } catch (error) {
-                console.error('[PERF HUD] Error updating HUD:', error);
+                log('[PERF HUD] Error updating HUD:', error);
             }
         }
 
@@ -861,8 +848,8 @@
                                     }));
                                 }
 
-                                console.warn('[PERF] ⚠️ Long Task Detected (#' + performanceMetrics.longTaskCount + '):', logDetails);
-                                console.warn('[PERF] Full entry object:', entry);
+                                log('[PERF] ⚠️ Long Task Detected (#' + performanceMetrics.longTaskCount + '):', logDetails);
+                                log('[PERF] Full entry object:', entry);
 
                                 // 最大実行時間と最終発生時刻を更新
                                 performanceMetrics.maxLongTaskDuration = Math.max(
@@ -874,20 +861,33 @@
                         }
                     });
                     observer.observe({ entryTypes: ['longtask'] });
-                    console.log('[PERF] PerformanceObserver for long tasks is active');
+                    log('[PERF] PerformanceObserver for long tasks is active');
                 } else {
-                    console.warn('[PERF] PerformanceObserver is not supported in this browser');
+                    log('[PERF] PerformanceObserver is not supported in this browser');
                 }
             } catch (error) {
-                console.warn('[PERF] Failed to setup PerformanceObserver:', error);
+                log('[PERF] Failed to setup PerformanceObserver:', error);
             }
+        }
+
+        /**
+         * ログメッセージを送信する
+         */
+        function log(...args) {
+            const message = args.map(arg =>
+                typeof arg === 'object' ? JSON.stringify(arg) : String(arg)
+            ).join(' ');
+            vscode.postMessage({
+                type: 'log',
+                message: `[terminal.html] ${message}`
+            })
         }
 
         // ACE エディタ初期化関数
         function initializeAceEditor() {
             try {
                 if (editorState.isInitialized) {
-                    console.warn('[ACE] Editor is already initialized');
+                    log('[ACE] Editor is already initialized');
                     return;
                 }
 
@@ -895,7 +895,7 @@
                     throw new Error('ACE is not defined. ace-builds may not have loaded.');
                 }
 
-                console.log('[ACE] Starting editor initialization');
+                log('[ACE] Starting editor initialization');
 
                 // VSCode ダークテーマを ACE に登録
                 if (ace.define) {
@@ -936,40 +936,40 @@
                     name: 'sendToTerminal',
                     bindKey: { win: 'Ctrl-Enter', mac: 'Cmd-Enter' },
                     exec: function(editor) {
-                        console.log('[ACE] Command+Enter pressed');
+                        log('[ACE] Command+Enter pressed');
                         const content = editor.getValue();
-                        console.log('[ACE] Editor content:', content);
+                        log('[ACE] Editor content:', content);
 
                         if (content.trim()) {
-                            console.log('[ACE] Processing content for terminal...');
+                            log('[ACE] Processing content for terminal...');
 
                             // 1. 末尾のホワイトスペース（改行含む）を除去
                             const trimmedContent = content.trimEnd();
-                            console.log('[ACE] Trimmed content:', trimmedContent);
+                            log('[ACE] Trimmed content:', trimmedContent);
 
                             // 2. コンテンツをターミナルに送信
-                            console.log('[ACE] Sending content to terminal');
+                            log('[ACE] Sending content to terminal');
                             vscode.postMessage({
                                 type: 'editorSendContent',
                                 data: trimmedContent
                             });
-                            console.log('[ACE] Content sent to terminal');
+                            log('[ACE] Content sent to terminal');
 
                             // 3. 200ms 待機後に Enter を送信
                             setTimeout(() => {
-                                console.log('[ACE] Sending Enter after 200ms');
+                                log('[ACE] Sending Enter after 200ms');
                                 vscode.postMessage({
                                     type: 'terminalInput',
                                     data: '\r'
                                 });
-                                console.log('[ACE] Enter sent to terminal');
+                                log('[ACE] Enter sent to terminal');
 
                                 // 4. エディタの内容をクリア
                                 editor.setValue('', -1);
-                                console.log('[ACE] Editor content cleared');
+                                log('[ACE] Editor content cleared');
                             }, 200);
                         } else {
-                            console.log('[ACE] Editor content is empty, not sending');
+                            log('[ACE] Editor content is empty, not sending');
                         }
                     }
                 });
@@ -990,73 +990,73 @@
                     aceContainer.addEventListener('keydown', function(event) {
                         // Command+Enter (Mac) または Ctrl+Enter (Windows) をキャッチ
                         if (event.key === 'Enter' && (event.metaKey || event.ctrlKey) && !event.shiftKey && !event.altKey) {
-                            console.log('[ACE DOM] Command+Enter detected');
+                            log('[ACE DOM] Command+Enter detected');
                             event.preventDefault(); // デフォルトの動作を阻止
                             event.stopPropagation(); // イベントの伝播を停止
 
                             const content = editorState.editor.getValue();
-                            console.log('[ACE DOM] Editor content:', content);
+                            log('[ACE DOM] Editor content:', content);
 
                             if (content.trim()) {
-                                console.log('[ACE DOM] Processing content for terminal...');
+                                log('[ACE DOM] Processing content for terminal...');
 
                                 // 1. 末尾のホワイトスペース（改行含む）を除去
                                 const trimmedContent = content.trimEnd();
-                                console.log('[ACE DOM] Trimmed content:', trimmedContent);
+                                log('[ACE DOM] Trimmed content:', trimmedContent);
 
                                 // 2. コンテンツをターミナルに送信
-                                console.log('[ACE DOM] Sending content to terminal');
+                                log('[ACE DOM] Sending content to terminal');
                                 vscode.postMessage({
                                     type: 'editorSendContent',
                                     data: trimmedContent
                                 });
-                                console.log('[ACE DOM] Content sent to terminal');
+                                log('[ACE DOM] Content sent to terminal');
 
                                 // 3. 200ms 待機後に Enter を送信
                                 setTimeout(() => {
-                                    console.log('[ACE DOM] Sending Enter after 200ms');
+                                    log('[ACE DOM] Sending Enter after 200ms');
                                     vscode.postMessage({
                                         type: 'terminalInput',
                                         data: '\r'
                                     });
-                                    console.log('[ACE DOM] Enter sent to terminal');
+                                    log('[ACE DOM] Enter sent to terminal');
 
                                     // 4. エディタの内容をクリア
                                     editorState.editor.setValue('', -1);
-                                    console.log('[ACE DOM] Editor content cleared');
+                                    log('[ACE DOM] Editor content cleared');
                                 }, 200);
                             } else {
-                                console.log('[ACE DOM] Editor content is empty, not sending');
+                                log('[ACE DOM] Editor content is empty, not sending');
                             }
 
                             return false; // イベント処理終了
                         }
                     }, true); // useCapture = true で早期にキャプチャ
-                    console.log('[ACE] DOM keydown listener added');
+                    log('[ACE] DOM keydown listener added');
                 }
 
                 editorState.isInitialized = true;
-                console.log('[ACE] Editor initialization completed');
+                log('[ACE] Editor initialization completed');
 
             } catch (error) {
-                console.error('[ACE] Error initializing editor:', error);
+                log('[ACE] Error initializing editor:', error);
             }
         }
 
         // リソース完全リセット関数
         function resetTerminalResources() {
-            console.log('[LEAK CHECK] Starting resource reset');
+            log('[LEAK CHECK] Starting resource reset');
 
             // xterm のリスナーを先に dispose
             if (terminalState.xtermListeners && terminalState.xtermListeners.length > 0) {
-                console.log('[LEAK CHECK] Disposing ' + terminalState.xtermListeners.length + ' xterm listeners');
+                log('[LEAK CHECK] Disposing ' + terminalState.xtermListeners.length + ' xterm listeners');
                 terminalState.xtermListeners.forEach(listener => {
                     try {
                         if (listener && listener.dispose) {
                             listener.dispose();
                         }
                     } catch (error) {
-                        console.error('[LEAK CHECK] Error disposing xterm listener:', error);
+                        log('[LEAK CHECK] Error disposing xterm listener:', error);
                     }
                 });
                 terminalState.xtermListeners = [];
@@ -1064,14 +1064,14 @@
 
             // アドオンを dispose
             if (terminalState.addons && terminalState.addons.length > 0) {
-                console.log('[LEAK CHECK] Disposing ' + terminalState.addons.length + ' addons');
+                log('[LEAK CHECK] Disposing ' + terminalState.addons.length + ' addons');
                 terminalState.addons.forEach(addon => {
                     try {
                         if (addon && addon.dispose) {
                             addon.dispose();
                         }
                     } catch (error) {
-                        console.error('[LEAK CHECK] Error disposing addon:', error);
+                        log('[LEAK CHECK] Error disposing addon:', error);
                     }
                 });
                 terminalState.addons = [];
@@ -1080,10 +1080,10 @@
             // 既存のターミナルを破棄
             if (terminalState.term) {
                 try {
-                    console.log('[LEAK CHECK] Disposing terminal instance');
+                    log('[LEAK CHECK] Disposing terminal instance');
                     terminalState.term.dispose();
                 } catch (error) {
-                    console.error('Error disposing terminal:', error);
+                    log('Error disposing terminal:', error);
                 }
                 terminalState.term = null;
             }
@@ -1093,7 +1093,7 @@
                 try {
                     terminalState.resizeObserver.disconnect();
                 } catch (error) {
-                    console.error('Error disconnecting ResizeObserver:', error);
+                    log('Error disconnecting ResizeObserver:', error);
                 }
                 terminalState.resizeObserver = null;
             }
@@ -1105,7 +1105,7 @@
                         clearTimeout(terminalState.timers[timerKey]);
                         clearInterval(terminalState.timers[timerKey]);
                     } catch (error) {
-                        console.error(`Error clearing timer ${timerKey}:`, error);
+                        log(`Error clearing timer ${timerKey}:`, error);
                     }
                     terminalState.timers[timerKey] = null;
                 }
@@ -1120,7 +1120,7 @@
                 try {
                     element.removeEventListener(event, handler);
                 } catch (error) {
-                    console.error('Error removing event listener:', error);
+                    log('Error removing event listener:', error);
                 }
             });
             terminalState.eventListeners = [];
@@ -1151,7 +1151,7 @@
                 if (message.done) {
                     // 送信完了
                     window.removeEventListener('message', onAck);
-                    console.log('[PASTE CHUNKS] All chunks sent successfully');
+                    log('[PASTE CHUNKS] All chunks sent successfully');
                     return;
                 }
 
@@ -1162,7 +1162,7 @@
             window.addEventListener('message', onAck);
 
             // 送信開始通知
-            console.log('[PASTE CHUNKS] Starting chunked paste, total bytes:', bytes.length);
+            log('[PASTE CHUNKS] Starting chunked paste, total bytes:', bytes.length);
             vscode.postMessage({
                 type: 'terminalInputBegin',
                 id: id,
@@ -1183,7 +1183,7 @@
                 // base64 エンコーディングで安全に転送
                 const b64 = btoa(String.fromCharCode.apply(null, slice));
 
-                console.log('[PASTE CHUNKS] Sending chunk', offset, 'to', chunkEnd, 'of', bytes.length);
+                log('[PASTE CHUNKS] Sending chunk', offset, 'to', chunkEnd, 'of', bytes.length);
                 vscode.postMessage({
                     type: 'terminalInputChunk',
                     id: id,
@@ -1206,7 +1206,7 @@
             const CLEANUP_THRESHOLD = Math.floor(MAX_BUFFER_LINES * 0.8); // 80%で警告
             const CLEANUP_TARGET = Math.floor(MAX_BUFFER_LINES * 0.6); // 60%まで削減
 
-            console.log('[BUFFER CLEANUP] Setting up periodic buffer cleanup', {
+            log('[BUFFER CLEANUP] Setting up periodic buffer cleanup', {
                 checkInterval: BUFFER_CHECK_INTERVAL,
                 maxLines: MAX_BUFFER_LINES,
                 cleanupThreshold: CLEANUP_THRESHOLD,
@@ -1227,7 +1227,7 @@
                     const totalLines = buffer.active.length;
                     const scrollbackLines = totalLines - terminalState.term.rows;
 
-                    console.log('[BUFFER CLEANUP] Buffer check', {
+                    log('[BUFFER CLEANUP] Buffer check', {
                         totalLines,
                         scrollbackLines,
                         threshold: CLEANUP_THRESHOLD,
@@ -1236,7 +1236,7 @@
 
                     // スクロールバック行数が閾値を超えた場合、クリアを実行
                     if (scrollbackLines > CLEANUP_THRESHOLD) {
-                        console.log('[BUFFER CLEANUP] Buffer cleanup triggered', {
+                        log('[BUFFER CLEANUP] Buffer cleanup triggered', {
                             currentLines: scrollbackLines,
                             targetLines: CLEANUP_TARGET
                         });
@@ -1245,7 +1245,7 @@
                         const currentScrollY = terminalState.term.buffer.active.viewportY;
                         const isAtBottom = currentScrollY >= (totalLines - terminalState.term.rows);
 
-                        console.log('[BUFFER CLEANUP] Current scroll position', {
+                        log('[BUFFER CLEANUP] Current scroll position', {
                             currentScrollY,
                             totalLines,
                             terminalRows: terminalState.term.rows,
@@ -1266,29 +1266,29 @@
                                 // 最下部にいない場合はスクロール位置を変更しない
                                 // 最下部にいる場合、または問題がある場合のみ scrollToBottom() を実行
                                 if (isAtBottom) {
-                                    console.log('[BUFFER CLEANUP] User was at bottom, scrolling to bottom');
+                                    log('[BUFFER CLEANUP] User was at bottom, scrolling to bottom');
                                     terminalState.term.scrollToBottom();
                                 } else {
-                                    console.log('[BUFFER CLEANUP] User was not at bottom, preserving scroll position');
+                                    log('[BUFFER CLEANUP] User was not at bottom, preserving scroll position');
                                 }
 
-                                console.log('[BUFFER CLEANUP] Buffer cleanup completed');
+                                log('[BUFFER CLEANUP] Buffer cleanup completed');
 
                             } catch (error) {
-                                console.error('[BUFFER CLEANUP] Error during buffer cleanup:', error);
+                                log('[BUFFER CLEANUP] Error during buffer cleanup:', error);
                                 // エラーが発生した場合のみ強制的にスクロール
                                 terminalState.term.scrollToBottom();
                             }
                         }, 100);
                     }
                 } catch (error) {
-                    console.error('[BUFFER CLEANUP] Error checking buffer:', error);
+                    log('[BUFFER CLEANUP] Error checking buffer:', error);
                 }
             }, BUFFER_CHECK_INTERVAL);
 
             // タイマーを管理対象に追加
             terminalState.timers.bufferCleanup = bufferCleanupTimer;
-            console.log('[BUFFER CLEANUP] Periodic buffer cleanup timer set');
+            log('[BUFFER CLEANUP] Periodic buffer cleanup timer set');
         }
 
         // ターミナル初期化関数
@@ -1296,7 +1296,7 @@
             try {
                 // 重複初期化を厳密にチェック
                 if (terminalState.isInitialized) {
-                    console.warn('[INIT] Terminal is already initialized, skipping duplicate initialization');
+                    log('[INIT] Terminal is already initialized, skipping duplicate initialization');
 
                     // 既に初期化済みの場合は、サイズ調整とフォーカスのみ実行
                     if (terminalState.term) {
@@ -1308,10 +1308,13 @@
                     return;
                 }
 
+                // CSS変数をデバッグ
+                log(`[INIT] CSS Variables: vscode-sideBar-background:${document.documentElement.style.getPropertyValue('--vscode-sideBar-background')}, vscode-terminal-foreground:${document.documentElement.style.getPropertyValue('--vscode-terminal-foreground')}, vscode-terminal-cursor-foreground:${document.documentElement.style.getPropertyValue('--vscode-terminal-cursor-foreground')}, vscode-terminal-selection-background:${document.documentElement.style.getPropertyValue('--vscode-terminal-selection-background')}`);
+
                 // 二重初期化を防ぐため、最初にフラグを立てる
                 terminalState.isInitialized = true;
 
-                console.log('[INIT] Starting terminal initialization');
+                log('[INIT] Starting terminal initialization');
 
 
                 if (typeof Terminal === 'undefined') {
@@ -1351,7 +1354,7 @@
                         const unicode11 = new Unicode11Addon.Unicode11Addon();
                         terminalState.term.loadAddon(unicode11);
                         unicode11.activate(terminalState.term);
-                        console.log('[LEAK CHECK] Unicode11 addon loaded');
+                        log('[LEAK CHECK] Unicode11 addon loaded');
 
                         // アドオンを管理対象に追加
                         if (!terminalState.addons) {
@@ -1359,7 +1362,7 @@
                         }
                         terminalState.addons.push(unicode11);
                     } catch (error) {
-                        console.error('Failed to load Unicode 11 addon:', error);
+                        log('Failed to load Unicode 11 addon:', error);
                     }
                 }
 
@@ -1370,12 +1373,12 @@
 
                         // WebGL context loss のハンドリング
                         webgl.onContextLoss(() => {
-                            console.error('[RENDERER] WebGL context lost!');
+                            log('[RENDERER] WebGL context lost!');
                             webgl.dispose();
                         });
 
                         terminalState.term.loadAddon(webgl);
-                        console.log('[RENDERER] WebGL addon loaded successfully');
+                        log('[RENDERER] WebGL addon loaded successfully');
 
                         // アドオンを管理対象に追加
                         if (!terminalState.addons) {
@@ -1383,7 +1386,7 @@
                         }
                         terminalState.addons.push(webgl);
                     } catch (error) {
-                        console.error('[RENDERER] Failed to load WebGL addon:', error);
+                        log('[RENDERER] Failed to load WebGL addon:', error);
                         throw error;
                     }
                 } else {
@@ -1421,7 +1424,7 @@
                     const terminal = document.getElementById('terminal');
 
                     if (!container || !terminal) {
-                        console.warn('Terminal container not found');
+                        log('Terminal container not found');
                         return;
                     }
 
@@ -1486,7 +1489,7 @@
 
                     // 実行時間が 50ms 以上の場合は警告ログを出力
                     if (sizeExecutionTime >= 50) {
-                        console.warn('[PERF] ⚠️ setTerminalSize() took ' + sizeExecutionTime.toFixed(2) + 'ms', {
+                        log('[PERF] ⚠️ setTerminalSize() took ' + sizeExecutionTime.toFixed(2) + 'ms', {
                             cols: finalCols,
                             rows: finalRows,
                             availableWidth: availableWidth,
@@ -1509,7 +1512,7 @@
 
                 // 既存の ResizeObserver があれば警告
                 if (terminalState.resizeObserver) {
-                    console.warn('[LEAK CHECK] ResizeObserver already exists! This might be a duplicate.');
+                    log('[LEAK CHECK] ResizeObserver already exists! This might be a duplicate.');
                 }
 
                 terminalState.resizeObserver = new ResizeObserver((entries) => {
@@ -1610,15 +1613,23 @@
                                         // 背景色を適用
                                         applyContainerBackgroundColor(message.data.color);
                                     }
+
+                                    if (message.type === 'log') {
+                                        // Python からのログメッセージを VSCode 側に転送
+                                        vscode.postMessage({
+                                            type: 'log',
+                                            message: `[pty-shell.py] ${message.data}`
+                                        });
+                                    }
                                 } catch (parseError) {
                                     // 個別メッセージのパースエラーは無視
-                                    console.debug('Individual message parse error:', parseError);
+                                    log('Individual message parse error:', parseError);
                                 }
                             }
                         }
                     } catch (error) {
                         // JSON パースエラーは無視
-                        console.debug('Status message parse error:', error);
+                        log('Status message parse error:', error);
                     }
                 }
 
@@ -1690,10 +1701,10 @@
 
 
                     } else {
-                        console.warn('attachCustomKeyEventHandler is not available');
+                        log('attachCustomKeyEventHandler is not available');
                     }
                 } catch (error) {
-                    console.error('Failed to attach custom key handler:', error);
+                    log('Failed to attach custom key handler:', error);
                 }
 
                 // onData のリスナーを保存して後で dispose できるようにする
@@ -1709,7 +1720,7 @@
                     terminalState.xtermListeners = [];
                 }
                 terminalState.xtermListeners.push(dataListener);
-                console.log('[LEAK CHECK] Added onData listener, total listeners: ' + terminalState.xtermListeners.length);
+                log('[LEAK CHECK] Added onData listener, total listeners: ' + terminalState.xtermListeners.length);
 
                 // ペーストイベントハンドラー（DOM イベントを使用）
                 const pasteHandler = (event) => {
@@ -1721,7 +1732,7 @@
                     if (clipboardData && clipboardData.getData) {
                         const pastedText = clipboardData.getData('text');
                         if (pastedText) {
-                            console.log('[PASTE] Intercepted paste event, length:', pastedText.length);
+                            log('[PASTE] Intercepted paste event, length:', pastedText.length);
                             // 大量ペースト時はチャンク送信でフロー制御
                             sendBytesInChunks(new TextEncoder().encode(pastedText), { kind: 'paste' });
                         }
@@ -1730,7 +1741,7 @@
 
                 // ターミナル要素にペーストリスナーを追加
                 addManagedEventListener(terminalElement, 'paste', pasteHandler);
-                console.log('[LEAK CHECK] Added DOM paste listener');
+                log('[LEAK CHECK] Added DOM paste listener');
 
                 let outputCount = 0;
                 let totalOutputChars = 0;
@@ -1777,7 +1788,7 @@
 
                                         // 実行時間が 50ms 以上の場合は警告ログを出力
                                         if (writeTime >= 50) {
-                                            console.warn('[PERF] ⚠️ term.write() took ' + writeTime.toFixed(2) + 'ms', {
+                                            log('[PERF] ⚠️ term.write() took ' + writeTime.toFixed(2) + 'ms', {
                                                 bufferSize: bufferLength,
                                                 avgWriteTime: performanceMetrics.avgWriteTime.toFixed(2) + 'ms',
                                                 maxWriteTime: performanceMetrics.maxWriteTime.toFixed(2) + 'ms',
@@ -1821,11 +1832,11 @@
                             break;
                         case 'visibility_restored':
                             // WebView の可視状態が復元された時の処理
-                            console.log('[LEAK CHECK] visibility_restored event received');
+                            log('[LEAK CHECK] visibility_restored event received');
                             if (terminalState.term) {
                                 // ターミナルが存在する場合は、サイズを再調整
                                 setTimeout(() => {
-                                    console.log('[LEAK CHECK] Calling setTerminalSize from visibility_restored');
+                                    log('[LEAK CHECK] Calling setTerminalSize from visibility_restored');
                                     setTerminalSize();
                                     // フォーカスを復元
                                     terminalState.term.focus();
@@ -1838,20 +1849,20 @@
                                 }, 50);
                             } else if (terminalState.isInitialized) {
                                 // ターミナルが破棄されているが初期化済みの場合は、状態をリセット
-                                console.warn('Terminal was disposed unexpectedly, resetting state');
+                                log('Terminal was disposed unexpectedly, resetting state');
                                 resetTerminalResources();
                                 // ページを再読み込みして完全に復元
                                 window.location.reload();
                             }
                             break;
                         case 'bufferCleanupCompleted':
-                            console.log('[BUFFER CLEANUP] Received cleanup completion notification', {
+                            log('[BUFFER CLEANUP] Received cleanup completion notification', {
                                 success: message.success,
                                 timestamp: message.timestamp,
                                 error: message.error
                             });
                             if (!message.success) {
-                                console.error('[BUFFER CLEANUP] Backend cleanup failed:', message.error);
+                                log('[BUFFER CLEANUP] Backend cleanup failed:', message.error);
                             }
                             break;
                         case 'sendTextToEditor':
@@ -1901,14 +1912,6 @@
                 };
                 addManagedEventListener(document.getElementById('btn-copy-selection'), 'click', copySelectionHandler);
 
-                // リセットボタンのイベント設定
-                const resetButtonHandler = () => {
-
-                    // VSCode 側で確認ダイアログを表示してもらう
-                    vscode.postMessage({ type: 'buttonResetRequest' });
-                };
-                addManagedEventListener(document.getElementById('reset-button'), 'click', resetButtonHandler);
-
                 // スクロールボタンのイベント設定
                 const scrollToBottomHandler = () => {
                     // ターミナルを一番下までスクロール
@@ -1934,7 +1937,7 @@
                 vscode.postMessage({ type: 'terminalReady' });
 
             } catch (error) {
-                console.error('Error initializing terminal:', error);
+                log('Error initializing terminal:', error);
                 vscode.postMessage({ type: 'error', error: error.message });
                 document.getElementById('terminal').innerHTML = '<p style="color: red;">Error loading terminal: ' + error.message + '</p>';
             }
@@ -1948,19 +1951,19 @@
 
         // ACE エディタ初期化を実行
         setTimeout(() => {
-            console.log('[ACE] Attempting to initialize editor...');
+            log('[ACE] Attempting to initialize editor...');
             initializeAceEditor();
             // 初期化後の確認
             if (editorState.editor) {
-                console.log('[ACE] Editor successfully initialized, testing keybindings...');
+                log('[ACE] Editor successfully initialized, testing keybindings...');
                 const commands = editorState.editor.commands.byName;
                 if (commands.sendToTerminal) {
-                    console.log('[ACE] sendToTerminal command is registered');
+                    log('[ACE] sendToTerminal command is registered');
                 } else {
-                    console.error('[ACE] sendToTerminal command NOT found!');
+                    log('[ACE] sendToTerminal command NOT found!');
                 }
             } else {
-                console.error('[ACE] Editor initialization failed!');
+                log('[ACE] Editor initialization failed!');
             }
         }, 100);
 
@@ -1968,9 +1971,13 @@
          * コンテナ(枠)の背景色を適用
          */
         function applyContainerBackgroundColor(colorCode) {
+            if (!colorCode || typeof colorCode !== 'string') {
+                return;
+            }
             if (colorCode === terminalState.currentContainerBackgroundColor) {
                 return;
             }
+            log('[BG COLOR] Applying container background color:', colorCode);
             // CSSVar を更新
             document.documentElement.style.setProperty('--vscode-sideBar-background', colorCode);
 
