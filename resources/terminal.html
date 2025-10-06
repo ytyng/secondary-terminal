@@ -964,7 +964,6 @@
                     // コンテナの実際のサイズを取得
                     const terminalRect = terminal.getBoundingClientRect();
                     const availableWidth = terminalRect.width - 20; // パディング考慮
-                    // const availableHeight = Math.max(terminalRect.height - 20, 200); // パディング考慮
                     const availableHeight = terminalRect.height - 5;
 
                     // フォント情報から文字サイズを正確に計算
@@ -989,7 +988,6 @@
                     // サイズ調整係数（微調整用）
                     // 大きくするほど表示サイズは小さくなる。はみ出したら大きくする。
                     const widthAdjustment = 0.88; // 横幅を少し詰める（右余白を減らす）
-                    //const widthAdjustment = 1.0; // 横幅を少し詰める（右余白を減らす）
                     const heightAdjustment = 1.34; // 縦幅を少し詰める（はみ出し防止）
 
                     const adjustedCharWidth = rawCharWidth * widthAdjustment;
@@ -1059,13 +1057,6 @@
                 }
 
                 // 定期的なサイズチェック（VSCode の制約対応）
-                let lastSizeCheck = Date.now();
-                // リーク検証のため一旦無効化
-                // terminalState.timers.sizeCheckInterval = setInterval(() => {
-                //     const now = Date.now();
-                //     lastSizeCheck = now;
-                //     setTerminalSize();
-                // }, 2000);
                 setTimeout(() => {
                     setTerminalSize();
                 }, 2000);
@@ -1249,16 +1240,10 @@
                 addManagedEventListener(terminalElement, 'paste', pasteHandler);
                 log('[LEAK CHECK] Added DOM paste listener');
 
-                let outputCount = 0;
-                let totalOutputChars = 0;
-
                 const messageHandler = (event) => {
                     const message = event.data;
                     switch (message.type) {
                         case 'output':
-                            outputCount++;
-                            totalOutputChars += message.data.length;
-
                             // ステータスメッセージをチェック
                             handleStatusMessage(message.data);
 
