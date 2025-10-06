@@ -1309,7 +1309,7 @@
                 }
 
                 // CSS変数をデバッグ
-                log(`[INIT] CSS Variables: vscode-sideBar-background:${document.documentElement.style.getPropertyValue('--vscode-sideBar-background')}, vscode-terminal-foreground:${document.documentElement.style.getPropertyValue('--vscode-terminal-foreground')}, vscode-terminal-cursor-foreground:${document.documentElement.style.getPropertyValue('--vscode-terminal-cursor-foreground')}, vscode-terminal-selection-background:${document.documentElement.style.getPropertyValue('--vscode-terminal-selection-background')}`);
+                log(`[INIT] CSS Variables: vscode-sideBar-background:${document.documentElement.style.getPropertyValue('--vscode-sideBar-background')}, vscode-terminal-foreground:${document.documentElement.style.getPropertyValue('--vscode-terminal-foreground')}, vscode-terminal-background:${document.documentElement.style.getPropertyValue('--vscode-terminal-background')}`);
 
                 // 二重初期化を防ぐため、最初にフラグを立てる
                 terminalState.isInitialized = true;
@@ -1323,7 +1323,7 @@
 
                 terminalState.term = new Terminal({
                     theme: {
-                        // ↓ ターミナル内で TERMINAL_BG_COLOR で上書きされる
+                        // ↓ おそらく、ターミナル内で上書きされる
                         background: 'var(--vscode-sideBar-background)',
                         foreground: 'var(--vscode-terminal-foreground)',
                         cursor: 'var(--vscode-terminal-cursor-foreground)',
@@ -1977,13 +1977,14 @@
             if (colorCode === terminalState.currentContainerBackgroundColor) {
                 return;
             }
+            // colorCode = '#00ff00'; // テスト用
             log('[BG COLOR] Applying container background color:', colorCode);
             // CSSVar を更新
             document.documentElement.style.setProperty('--vscode-sideBar-background', colorCode);
 
             // const terminalContainer = document.getElementById('terminal-container');
             // terminalContainer.style.backgroundColor = colorCode;
-            // terminalState.currentContainerBackgroundColor = colorCode;
+            terminalState.currentContainerBackgroundColor = colorCode;
         }
 
     </script>
