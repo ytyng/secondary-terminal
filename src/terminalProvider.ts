@@ -8,7 +8,7 @@ import { createContextTextForSelectedText } from './utils';
 
 // WebView メッセージの型定義
 interface WebViewMessage {
-    type: 'terminalInput' | 'terminalReady' | 'resize' | 'error' | 'buttonSendSelection' | 'buttonCopySelection' | 'refreshCliAgentStatus' | 'bufferCleanupRequest' | 'terminalInputBegin' | 'terminalInputChunk' | 'terminalInputEnd' | 'editorSendContent' | 'requestBackendMetrics' | 'getEnv' | 'log';
+    type: 'terminalInput' | 'terminalReady' | 'resize' | 'error' | 'buttonSendSelection' | 'buttonCopySelection' | 'refreshCliAgentStatus' | 'bufferCleanupRequest' | 'terminalInputBegin' | 'terminalInputChunk' | 'terminalInputEnd' | 'editorSendContent' | 'getEnv' | 'log';
     data?: string;
     cols?: number;
     rows?: number;
@@ -166,9 +166,6 @@ export class TerminalProvider implements vscode.WebviewViewProvider {
                         break;
                     case 'editorSendContent':
                         this.handleEditorSendContent(message);
-                        break;
-                    case 'requestBackendMetrics':
-                        this.handleBackendMetricsRequest();
                         break;
                     case 'log':
                         if (message.message) {
@@ -574,29 +571,6 @@ export class TerminalProvider implements vscode.WebviewViewProvider {
         });
     }
 
-    private handleBackendMetricsRequest(): void {
-        try {
-            // ShellProcessManager から管理プロセス数を取得
-            const processCount = this._processManager.getProcessCount();
-            const activeProcessCount = this._processManager.getActiveProcessCount();
-
-            // TerminalSessionManager からセッション数を取得
-            const sessionCount = this._sessionManager.getSessionCount();
-
-            // WebView にメトリクスを送信
-            this._view?.webview.postMessage({
-                type: 'backendMetrics',
-                data: {
-                    processCount: processCount,
-                    activeProcessCount: activeProcessCount,
-                    sessionCount: sessionCount
-                },
-                timestamp: Date.now()
-            });
-        } catch (error) {
-            console.error('[BACKEND METRICS] Error collecting backend metrics:', error);
-        }
-    }
 
     /**
      * ログを追加する

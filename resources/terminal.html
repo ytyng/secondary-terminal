@@ -164,90 +164,6 @@
             }
         }
 
-        /* パフォーマンス計測 HUD */
-        .performance-hud {
-            position: fixed;
-            top: 10px;
-            right: 10px;
-            background-color: rgba(0, 0, 0, 0.85);
-            color: #00ff00;
-            font-family: "RobotoMono Nerd Font Mono", "Roboto Mono", Consolas, "Courier New", monospace;
-            font-size: 11px;
-            padding: 10px 12px;
-            border-radius: 4px;
-            border: 1px solid rgba(0, 255, 0, 0.3);
-            z-index: 10000;
-            min-width: 220px;
-            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.5);
-            display: none;
-
-            &.visible {
-                display: block;
-            }
-        }
-
-        .performance-hud-title {
-            font-weight: bold;
-            margin-bottom: 6px;
-            padding-bottom: 6px;
-            border-bottom: 1px solid rgba(0, 255, 0, 0.3);
-            color: #00ffff;
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-        }
-
-        .performance-hud-close {
-            background: none;
-            border: none;
-            color: #ff6666;
-            font-size: 16px;
-            cursor: pointer;
-            padding: 0;
-            margin: 0;
-            line-height: 1;
-            transition: color 0.2s;
-
-            &:hover {
-                color: #ff3333;
-            }
-        }
-
-        .performance-hud-item {
-            display: flex;
-            justify-content: space-between;
-            margin: 3px 0;
-            line-height: 1.4;
-
-            .label {
-                color: #aaaaaa;
-            }
-
-            .value {
-                color: #00ff00;
-                font-weight: bold;
-            }
-        }
-
-        .performance-hud-toggle {
-            position: fixed;
-            top: 10px;
-            right: 10px;
-            background-color: rgba(0, 255, 0, 0.2);
-            color: #00ff00;
-            border: 1px solid rgba(0, 255, 0, 0.5);
-            border-radius: 3px;
-            padding: 4px 8px;
-            font-size: 11px;
-            cursor: pointer;
-            font-family: inherit;
-            z-index: 9999;
-            transition: background-color 0.2s;
-
-            &:hover {
-                background-color: rgba(0, 255, 0, 0.3);
-            }
-        }
 
         /* ACE エディタコンテナ */
         .editor-container {
@@ -421,109 +337,6 @@
 </head>
 
 <body>
-    <!-- パフォーマンス HUD トグルボタン -->
-    <button class="performance-hud-toggle" id="perf-hud-toggle" title="Toggle Performance HUD">📊</button>
-
-    <!-- パフォーマンス HUD -->
-    <div class="performance-hud" id="perf-hud">
-        <div class="performance-hud-title">
-            <span>📊 Performance Metrics</span>
-            <button class="performance-hud-close" id="perf-hud-close" title="Close Performance HUD">×</button>
-        </div>
-        <div class="performance-hud-item">
-            <span class="label">Buffer:</span>
-            <span class="value" id="hud-buffer-size">0 KB</span>
-        </div>
-        <div class="performance-hud-item">
-            <span class="label">Scrollback:</span>
-            <span class="value" id="hud-scrollback">0 lines</span>
-        </div>
-        <div class="performance-hud-item">
-            <span class="label">Buffer Chars:</span>
-            <span class="value" id="hud-buffer-chars">0</span>
-        </div>
-        <div class="performance-hud-item">
-            <span class="label">DOM Nodes:</span>
-            <span class="value" id="hud-dom-nodes">0</span>
-        </div>
-        <div class="performance-hud-item">
-            <span class="label">Child Procs:</span>
-            <span class="value" id="hud-child-procs">0</span>
-        </div>
-        <div class="performance-hud-item">
-            <span class="label">Write Avg:</span>
-            <span class="value" id="hud-write-avg">0 ms</span>
-        </div>
-        <div class="performance-hud-item">
-            <span class="label">Write Max:</span>
-            <span class="value" id="hud-write-max">0 ms</span>
-        </div>
-        <div class="performance-hud-item">
-            <span class="label">Output:</span>
-            <span class="value" id="hud-output-count">0 msgs</span>
-        </div>
-        <div class="performance-hud-item">
-            <span class="label">Total Chars (累積):</span>
-            <span class="value" id="hud-total-chars">0</span>
-        </div>
-        <div class="performance-hud-item">
-            <span class="label">Resize:</span>
-            <span class="value" id="hud-resize-count">0</span>
-        </div>
-        <div class="performance-hud-item">
-            <span class="label">Session:</span>
-            <span class="value" id="hud-session-time">0s</span>
-        </div>
-        <div class="performance-hud-item">
-            <span class="label">Event Listeners:</span>
-            <span class="value" id="hud-event-listeners">0</span>
-        </div>
-        <div class="performance-hud-item">
-            <span class="label">Xterm Listeners:</span>
-            <span class="value" id="hud-xterm-listeners">0</span>
-        </div>
-        <div class="performance-hud-item">
-            <span class="label">Addons:</span>
-            <span class="value" id="hud-addons">0</span>
-        </div>
-        <div class="performance-hud-item">
-            <span class="label">Active Timers:</span>
-            <span class="value" id="hud-active-timers">0</span>
-        </div>
-        <div class="performance-hud-item">
-            <span class="label">Long Tasks:</span>
-            <span class="value" id="hud-long-tasks">0</span>
-        </div>
-        <div class="performance-hud-item">
-            <span class="label">Long Task Max:</span>
-            <span class="value" id="hud-long-task-max">0.00 ms</span>
-        </div>
-        <div class="performance-hud-item">
-            <span class="label">Last Long Task:</span>
-            <span class="value" id="hud-last-long-task">never</span>
-        </div>
-        <div class="performance-hud-item">
-            <span class="label">Backend Processes:</span>
-            <span class="value" id="hud-backend-processes">0</span>
-        </div>
-        <div class="performance-hud-item">
-            <span class="label">Backend Sessions:</span>
-            <span class="value" id="hud-backend-sessions">0</span>
-        </div>
-        <div class="performance-hud-item">
-            <span class="label">BG Color Time:</span>
-            <span class="value" id="hud-bg-color-time">0.00 ms</span>
-        </div>
-        <div class="performance-hud-item">
-            <span class="label">Canvas Size:</span>
-            <span class="value" id="hud-canvas-size">0x0</span>
-        </div>
-        <div class="performance-hud-item">
-            <span class="label">Canvas Memory:</span>
-            <span class="value" id="hud-canvas-memory">0 KB</span>
-        </div>
-    </div>
-
     <div class="terminal-container" id="terminal-container">
 
         <div id="terminal"></div>
@@ -590,284 +403,7 @@
             isInitialized: false
         };
 
-        // パフォーマンス計測用のオブジェクト
-        const performanceMetrics = {
-            // メモリ関連
-            writeBufferSize: 0,
-            scrollbackLines: 0,
-            terminalBufferSize: 0,
-            bufferCharCount: 0,      // xterm.js バッファの総文字数
-            domNodeCount: 0,         // DOM ノード数
 
-            // プロセス関連
-            childProcessCount: 0,    // 子プロセス数
-
-            // 処理時間関連
-            lastWriteTime: 0,
-            avgWriteTime: 0,
-            maxWriteTime: 0,
-            writeTimeSum: 0,
-            writeTimeCount: 0,
-
-            // カウンター
-            outputCount: 0,
-            totalOutputChars: 0,
-            resizeObserverCount: 0,
-
-            // タイミング
-            sessionStartTime: Date.now(),
-            lastUpdateTime: Date.now(),
-
-            // リーク検出用の追加メトリクス
-            eventListenerCount: 0,
-            xtermListenerCount: 0,
-            addonCount: 0,
-            activeTimerCount: 0,
-            longTaskCount: 0,
-            backendProcessCount: 0,
-            backendSessionCount: 0,
-
-            // Long Task 詳細メトリクス
-            maxLongTaskDuration: 0,      // 最大 Long Task 実行時間 (ms)
-            lastLongTaskTime: 0,         // 最終 Long Task 発生時刻 (Date.now())
-
-            // applyBackgroundColor メトリクス
-            bgColorTime: 0,              // applyBackgroundColor の実行時間 (ms)
-            canvasWidth: 0,              // Canvas の幅 (px)
-            canvasHeight: 0,             // Canvas の高さ (px)
-            canvasMemoryKB: 0            // Canvas のメモリサイズ (KB)
-        };
-
-        // HUD 更新関数
-        function updatePerformanceHUD() {
-            const hudStart = performance.now();
-            try {
-                // バッファサイズを取得
-                if (terminalState.term && terminalState.term.buffer) {
-                    const buffer = terminalState.term.buffer.active;
-                    if (buffer) {
-                        performanceMetrics.scrollbackLines = buffer.length - (terminalState.term.rows || 24);
-                        performanceMetrics.terminalBufferSize = buffer.length;
-
-                        // xterm.js バッファの総文字数を計算
-                        performanceMetrics.bufferCharCount = buffer.length * (terminalState.term.cols || 80);
-                    }
-                }
-
-                // DOM ノード数を取得
-                const terminalElement = document.querySelector('#terminal');
-                if (terminalElement) {
-                    performanceMetrics.domNodeCount = terminalElement.querySelectorAll('*').length;
-                }
-
-                // リーク検出メトリクスを計測
-                performanceMetrics.eventListenerCount = terminalState.eventListeners ? terminalState.eventListeners.length : 0;
-                performanceMetrics.xtermListenerCount = terminalState.xtermListeners ? terminalState.xtermListeners.length : 0;
-                performanceMetrics.addonCount = terminalState.addons ? terminalState.addons.length : 0;
-
-                // アクティブなタイマー数を計測
-                performanceMetrics.activeTimerCount = Object.values(terminalState.timers).filter(t => t !== null).length;
-
-                // 各要素を更新
-                document.getElementById('hud-buffer-size').textContent =
-                    (performanceMetrics.writeBufferSize / 1024).toFixed(2) + ' KB';
-
-                document.getElementById('hud-scrollback').textContent =
-                    performanceMetrics.scrollbackLines + ' lines';
-
-                document.getElementById('hud-buffer-chars').textContent =
-                    (performanceMetrics.bufferCharCount / 1000).toFixed(1) + 'K';
-
-                document.getElementById('hud-dom-nodes').textContent =
-                    performanceMetrics.domNodeCount.toString();
-
-                document.getElementById('hud-child-procs').textContent =
-                    performanceMetrics.childProcessCount.toString();
-
-                document.getElementById('hud-write-avg').textContent =
-                    performanceMetrics.avgWriteTime.toFixed(2) + ' ms';
-
-                document.getElementById('hud-write-max').textContent =
-                    performanceMetrics.maxWriteTime.toFixed(2) + ' ms';
-
-                document.getElementById('hud-output-count').textContent =
-                    performanceMetrics.outputCount + ' msgs';
-
-                document.getElementById('hud-total-chars').textContent =
-                    (performanceMetrics.totalOutputChars / 1024).toFixed(1) + ' KB';
-
-                document.getElementById('hud-resize-count').textContent =
-                    performanceMetrics.resizeObserverCount.toString();
-
-                // セッション時間を計算
-                const sessionDuration = (Date.now() - performanceMetrics.sessionStartTime) / 1000;
-                const minutes = Math.floor(sessionDuration / 60);
-                const seconds = Math.floor(sessionDuration % 60);
-                document.getElementById('hud-session-time').textContent =
-                    minutes > 0 ? `${minutes}m ${seconds}s` : `${seconds}s`;
-
-                // リーク検出メトリクスを表示
-                document.getElementById('hud-event-listeners').textContent =
-                    performanceMetrics.eventListenerCount.toString();
-
-                document.getElementById('hud-xterm-listeners').textContent =
-                    performanceMetrics.xtermListenerCount.toString();
-
-                document.getElementById('hud-addons').textContent =
-                    performanceMetrics.addonCount.toString();
-
-                document.getElementById('hud-active-timers').textContent =
-                    performanceMetrics.activeTimerCount.toString();
-
-                document.getElementById('hud-long-tasks').textContent =
-                    performanceMetrics.longTaskCount.toString();
-
-                // Long Task Max の表示
-                document.getElementById('hud-long-task-max').textContent =
-                    (performanceMetrics.maxLongTaskDuration || 0).toFixed(2) + ' ms';
-
-                // Last Long Task の表示 (経過時間として表示)
-                const lastLongTaskEl = document.getElementById('hud-last-long-task');
-                if (performanceMetrics.lastLongTaskTime > 0) {
-                    const elapsed = Math.floor((Date.now() - performanceMetrics.lastLongTaskTime) / 1000);
-                    if (elapsed < 60) {
-                        lastLongTaskEl.textContent = elapsed + 's ago';
-                    } else if (elapsed < 3600) {
-                        lastLongTaskEl.textContent = Math.floor(elapsed / 60) + 'm ' + (elapsed % 60) + 's ago';
-                    } else {
-                        lastLongTaskEl.textContent = Math.floor(elapsed / 3600) + 'h ' + Math.floor((elapsed % 3600) / 60) + 'm ago';
-                    }
-                } else {
-                    lastLongTaskEl.textContent = 'never';
-                }
-
-                document.getElementById('hud-backend-processes').textContent =
-                    performanceMetrics.backendProcessCount.toString();
-
-                document.getElementById('hud-backend-sessions').textContent =
-                    performanceMetrics.backendSessionCount.toString();
-
-                // applyBackgroundColor メトリクスを表示
-                document.getElementById('hud-bg-color-time').textContent =
-                    (performanceMetrics.bgColorTime || 0).toFixed(2) + ' ms';
-
-                document.getElementById('hud-canvas-size').textContent =
-                    performanceMetrics.canvasWidth + 'x' + performanceMetrics.canvasHeight;
-
-                document.getElementById('hud-canvas-memory').textContent =
-                    (performanceMetrics.canvasMemoryKB || 0).toFixed(2) + ' KB';
-
-                performanceMetrics.lastUpdateTime = Date.now();
-
-                const hudEnd = performance.now();
-                const hudExecutionTime = hudEnd - hudStart;
-
-                // 実行時間が 50ms 以上の場合は警告ログを出力
-                if (hudExecutionTime >= 50) {
-                    log('[PERF] ⚠️ updatePerformanceHUD() took ' + hudExecutionTime.toFixed(2) + 'ms', {
-                        domNodeCount: performanceMetrics.domNodeCount,
-                        bufferSize: performanceMetrics.terminalBufferSize
-                    });
-                }
-
-            } catch (error) {
-                log('[PERF HUD] Error updating HUD:', error);
-            }
-        }
-
-        // HUD 表示トグル機能
-        function setupPerformanceHUD() {
-            const hudElement = document.getElementById('perf-hud');
-            const toggleButton = document.getElementById('perf-hud-toggle');
-            const closeButton = document.getElementById('perf-hud-close');
-
-            // トグルボタンのクリックイベント
-            toggleButton.addEventListener('click', () => {
-                hudElement.classList.toggle('visible');
-
-                // 表示状態を localStorage に保存
-                const isVisible = hudElement.classList.contains('visible');
-                localStorage.setItem('performanceHUDVisible', isVisible ? 'true' : 'false');
-            });
-
-            // 閉じるボタンのクリックイベント
-            closeButton.addEventListener('click', () => {
-                hudElement.classList.remove('visible');
-
-                // 表示状態を localStorage に保存
-                localStorage.setItem('performanceHUDVisible', 'false');
-            });
-
-            // 初期状態を localStorage から復元
-            const savedState = localStorage.getItem('performanceHUDVisible');
-            if (savedState === 'true') {
-                hudElement.classList.add('visible');
-            }
-
-            // 500ms ごとに HUD を更新
-            setInterval(updatePerformanceHUD, 500);
-
-            // 5秒ごとにバックエンドメトリクスをリクエスト
-            setInterval(() => {
-                vscode.postMessage({
-                    type: 'requestBackendMetrics',
-                    timestamp: Date.now()
-                });
-            }, 5000);
-
-            // Long Task の検出 (PerformanceObserver)
-            try {
-                if (typeof PerformanceObserver !== 'undefined') {
-                    const observer = new PerformanceObserver((list) => {
-                        for (const entry of list.getEntries()) {
-                            // 50ms 以上かかったタスクをカウント
-                            if (entry.duration >= 50) {
-                                performanceMetrics.longTaskCount++;
-
-                                // 詳細ログを出力
-                                const logDetails = {
-                                    duration: entry.duration.toFixed(2) + 'ms',
-                                    startTime: entry.startTime.toFixed(2) + 'ms',
-                                    name: entry.name || 'unknown',
-                                    entryType: entry.entryType,
-                                    count: performanceMetrics.longTaskCount
-                                };
-
-                                // attribution 情報があれば追加
-                                if (entry.attribution && entry.attribution.length > 0) {
-                                    logDetails.attribution = entry.attribution.map(attr => ({
-                                        name: attr.name,
-                                        entryType: attr.entryType,
-                                        startTime: attr.startTime,
-                                        duration: attr.duration,
-                                        containerType: attr.containerType,
-                                        containerSrc: attr.containerSrc,
-                                        containerId: attr.containerId,
-                                        containerName: attr.containerName
-                                    }));
-                                }
-
-                                log('[PERF] ⚠️ Long Task Detected (#' + performanceMetrics.longTaskCount + '):', logDetails);
-                                log('[PERF] Full entry object:', entry);
-
-                                // 最大実行時間と最終発生時刻を更新
-                                performanceMetrics.maxLongTaskDuration = Math.max(
-                                    performanceMetrics.maxLongTaskDuration || 0,
-                                    entry.duration
-                                );
-                                performanceMetrics.lastLongTaskTime = Date.now();
-                            }
-                        }
-                    });
-                    observer.observe({ entryTypes: ['longtask'] });
-                    log('[PERF] PerformanceObserver for long tasks is active');
-                } else {
-                    log('[PERF] PerformanceObserver is not supported in this browser');
-                }
-            } catch (error) {
-                log('[PERF] Failed to setup PerformanceObserver:', error);
-            }
-        }
 
         /**
          * ログメッセージを送信する
@@ -1417,8 +953,6 @@
 
                 // ターミナルサイズを動的に設定（元の手動計算方式）
                 function setTerminalSize() {
-                    const sizeStart = performance.now();
-
                     const container = document.querySelector('.terminal-container');
                     const terminal = document.getElementById('terminal');
 
@@ -1482,21 +1016,6 @@
 
 
                     }
-
-                    const sizeEnd = performance.now();
-                    const sizeExecutionTime = sizeEnd - sizeStart;
-
-                    // 実行時間が 50ms 以上の場合は警告ログを出力
-                    if (sizeExecutionTime >= 50) {
-                        log('[PERF] ⚠️ setTerminalSize() took ' + sizeExecutionTime.toFixed(2) + 'ms', {
-                            cols: finalCols,
-                            rows: finalRows,
-                            availableWidth: availableWidth,
-                            availableHeight: availableHeight,
-                            charWidth: adjustedCharWidth.toFixed(2),
-                            lineHeight: adjustedLineHeight.toFixed(2)
-                        });
-                    }
                 }
 
                 // ウィンドウリサイズ時の処理
@@ -1517,9 +1036,6 @@
                 terminalState.resizeObserver = new ResizeObserver((entries) => {
                     const now = Date.now();
                     resizeCount++;
-
-                    // パフォーマンス計測を更新
-                    performanceMetrics.resizeObserverCount++;
 
                     // デバウンス処理：連続する resize を制限
                     if (now - lastResizeTime < 100) {
@@ -1602,10 +1118,6 @@
                                     if (message.type === 'cli_agent_status') {
                                         cliAgentState = message.data;
                                         updateCliAgentIndicator(); // インジケーター表示を更新
-                                    }
-
-                                    if (message.type === 'child_process_count') {
-                                        performanceMetrics.childProcessCount = message.data.count || 0;
                                     }
 
                                     if (message.type === 'log') {
@@ -1744,13 +1256,8 @@
                     const message = event.data;
                     switch (message.type) {
                         case 'output':
-                            const outputStart = performance.now();
                             outputCount++;
                             totalOutputChars += message.data.length;
-
-                            // パフォーマンス計測を更新
-                            performanceMetrics.outputCount++;
-                            performanceMetrics.totalOutputChars += message.data.length;
 
                             // ステータスメッセージをチェック
                             handleStatusMessage(message.data);
@@ -1765,49 +1272,12 @@
                                 // 16ms 後 (約60fps) に一括書き込み
                                 terminalState.timers.writeBuffer = setTimeout(() => {
                                     if (terminalState.term && terminalState.writeBufferData) {
-                                        // write 処理の時間を計測
-                                        const writeStart = performance.now();
-                                        const bufferLength = terminalState.writeBufferData.length;
                                         terminalState.term.write(terminalState.writeBufferData);
-                                        const writeEnd = performance.now();
-                                        const writeTime = writeEnd - writeStart;
-
-                                        // 計測データを更新
-                                        performanceMetrics.lastWriteTime = writeTime;
-                                        performanceMetrics.writeTimeSum += writeTime;
-                                        performanceMetrics.writeTimeCount++;
-                                        performanceMetrics.avgWriteTime = performanceMetrics.writeTimeSum / performanceMetrics.writeTimeCount;
-                                        performanceMetrics.maxWriteTime = Math.max(performanceMetrics.maxWriteTime, writeTime);
-                                        performanceMetrics.writeBufferSize = bufferLength;
-
-                                        // 実行時間が 50ms 以上の場合は警告ログを出力
-                                        if (writeTime >= 50) {
-                                            log('[PERF] ⚠️ term.write() took ' + writeTime.toFixed(2) + 'ms', {
-                                                bufferSize: bufferLength,
-                                                avgWriteTime: performanceMetrics.avgWriteTime.toFixed(2) + 'ms',
-                                                maxWriteTime: performanceMetrics.maxWriteTime.toFixed(2) + 'ms',
-                                                writeCount: performanceMetrics.writeTimeCount
-                                            });
-                                        }
-
                                         terminalState.writeBufferData = '';
                                     }
                                     terminalState.writeBufferPending = false;
                                     terminalState.timers.writeBuffer = null;
                                 }, 16);
-                            }
-
-                            const outputEnd = performance.now();
-                            const outputTime = outputEnd - outputStart;
-
-                            // 重い処理（2ms以上）のみログ出力
-                            if (outputTime > 2) {
-
-                            }
-
-                            // 100回ごとに統計を出力
-                            if (outputCount % 100 === 0) {
-
                             }
                             break;
                         case 'clear':
@@ -1864,13 +1334,6 @@
                             if (editorState.editor && message.text) {
                                 editorState.editor.insert(message.text);
                                 editorState.editor.focus();
-                            }
-                            break;
-                        case 'backendMetrics':
-                            // バックエンドメトリクスを受信して更新
-                            if (message.data) {
-                                performanceMetrics.backendProcessCount = message.data.processCount || 0;
-                                performanceMetrics.backendSessionCount = message.data.sessionCount || 0;
                             }
                             break;
                     }
@@ -1939,9 +1402,6 @@
 
         // ターミナル初期化を実行
         initializeTerminal();
-
-        // パフォーマンス HUD を初期化
-        setupPerformanceHUD();
 
         // ACE エディタ初期化を実行
         setTimeout(() => {
