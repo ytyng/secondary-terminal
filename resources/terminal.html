@@ -1971,6 +1971,7 @@
          * コンテナ(枠)の背景色を適用
          */
         function applyContainerBackgroundColor(colorCode) {
+            log('[BG COLOR] applyContainerBackgroundColor called:', colorCode);
             if (!colorCode || typeof colorCode !== 'string') {
                 return;
             }

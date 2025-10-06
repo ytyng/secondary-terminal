@@ -172,6 +172,7 @@ def get_terminal_bg_color():
     それをここで吸い上げる
     """
     bgcolor = os.environ.get('TERMINAL_BG_COLOR', '')
+    log(f'get_terminal_bg_color: {bgcolor=}')
     if bgcolor and re.match(r'^([0-9a-fA-F]{6}|[0-9a-fA-F]{3})$', bgcolor):
         return f'#{bgcolor}'
     return None
