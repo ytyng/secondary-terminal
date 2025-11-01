@@ -883,21 +883,21 @@
                 const terminalElement = document.getElementById('terminal');
                 terminalState.term.open(terminalElement);
 
-                // スクロール位置が最上部(0)の時、新しい行が追加されたら自動的に最下部へスクロール
-                const writeParsedListener = terminalState.term.onWriteParsed(() => {
+                // 1秒ごとにスクロール位置をチェックし、最上部なら最下部にスクロール
+                const scrollCheckInterval = setInterval(() => {
+                    if (!terminalState.term || !terminalState.term.buffer || !terminalState.term.buffer.active) {
+                        return;
+                    }
                     const buffer = terminalState.term.buffer.active;
                     // スクロール位置が厳密に0(最上部)の時のみ
                     if (buffer.viewportY === 0) {
                         terminalState.term.scrollToBottom();
                     }
-                });
+                }, 1000);
 
-                // リスナーを管理対象に追加
-                if (!terminalState.xtermListeners) {
-                    terminalState.xtermListeners = [];
-                }
-                terminalState.xtermListeners.push(writeParsedListener);
-                log('[LEAK CHECK] Added onWriteParsed listener for auto-scroll, total listeners: ' + terminalState.xtermListeners.length);
+                // タイマーを管理対象に追加
+                terminalState.timers.scrollCheck = scrollCheckInterval;
+                log('[LEAK CHECK] Added scroll position check interval (1000ms)');
 
                 // Unicode 11 アドオンをロード
                 if (typeof Unicode11Addon !== 'undefined') {
