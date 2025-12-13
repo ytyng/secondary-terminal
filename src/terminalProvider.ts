@@ -8,7 +8,7 @@ import { createContextTextForSelectedText } from './utils';
 
 // WebView メッセージの型定義
 interface WebViewMessage {
-    type: 'terminalInput' | 'terminalReady' | 'resize' | 'error' | 'buttonSendSelection' | 'buttonCopySelection' | 'refreshCliAgentStatus' | 'bufferCleanupRequest' | 'terminalInputBegin' | 'terminalInputChunk' | 'terminalInputEnd' | 'editorSendContent' | 'getEnv' | 'log';
+    type: 'terminalInput' | 'terminalReady' | 'resize' | 'error' | 'buttonSendSelection' | 'buttonCopySelection' | 'refreshCliAgentStatus' | 'bufferCleanupRequest' | 'terminalInputBegin' | 'terminalInputChunk' | 'terminalInputEnd' | 'editorSendContent' | 'getEnv' | 'log' | 'extractToTodos';
     data?: string;
     cols?: number;
     rows?: number;
@@ -172,6 +172,9 @@ export class TerminalProvider implements vscode.WebviewViewProvider {
                             this.appendLog(message.message);
                         }
                         break;
+                    case 'extractToTodos':
+                        this.handleExtractToTodos(message);
+                        break;
                 }
             },
             undefined,
@@ -316,6 +319,53 @@ export class TerminalProvider implements vscode.WebviewViewProvider {
             this.handleInput(message.data);
         } else {
             console.log('[Terminal] No data in editorSendContent message');
+        }
+    }
+
+    private handleExtractToTodos(message: WebViewMessage) {
+        const content = message.data;
+        if (!content) {
+            this._view?.webview.postMessage({
+                type: 'extractToTodosResult',
+                success: false,
+                error: 'No content provided'
+            });
+            return;
+        }
+
+        // ワークスペースルートを取得
+        const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+        if (!workspaceRoot) {
+            this._view?.webview.postMessage({
+                type: 'extractToTodosResult',
+                success: false,
+                error: 'No workspace folder found'
+            });
+            return;
+        }
+
+        const todosPath = path.join(workspaceRoot, 'TODOS.md');
+
+        try {
+            // TODOS.md にコンテンツを書き込み（上書き）
+            fs.writeFileSync(todosPath, content, 'utf8');
+            this.appendLog(`[EXTRACT] Content written to ${todosPath}`);
+
+            // 成功結果を返す
+            this._view?.webview.postMessage({
+                type: 'extractToTodosResult',
+                success: true,
+                filePath: todosPath
+            });
+        } catch (error) {
+            console.error('[EXTRACT] Failed to write TODOS.md:', error);
+            this.appendLog(`[EXTRACT] Failed to write TODOS.md: ${error}`);
+
+            this._view?.webview.postMessage({
+                type: 'extractToTodosResult',
+                success: false,
+                error: error instanceof Error ? error.message : String(error)
+            });
         }
     }
 

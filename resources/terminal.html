@@ -356,6 +356,9 @@
                 <button class="copy-button" id="btn-copy-selection" title="Copy editor selection context to clipboard">
                     Copy
                 </button>
+                <button class="control-button" id="btn-extract-to-todos" title="Extract editor content to TODOS.md">
+                    Extract
+                </button>
                 <button class="control-button" id="btn-scroll-to-bottom" title="Scroll to bottom of terminal">
                     ↓
                 </button>
@@ -1337,6 +1340,16 @@
                                 editorState.editor.focus();
                             }
                             break;
+                        case 'extractToTodosResult':
+                            // TODOS.md への書き出し結果を受け取り、エディタを更新
+                            if (message.success && editorState.editor) {
+                                const reference = `[@${message.filePath}]`;
+                                editorState.editor.setValue(reference, -1);
+                                log('[EXTRACT] Editor content replaced with reference:', reference);
+                            } else if (!message.success) {
+                                log('[EXTRACT] Failed to write TODOS.md:', message.error);
+                            }
+                            break;
                     }
                 };
                 addManagedEventListener(window, 'message', messageHandler);
@@ -1379,6 +1392,25 @@
                     }
                 };
                 addManagedEventListener(document.getElementById('btn-scroll-to-bottom'), 'click', scrollToBottomHandler);
+
+                // Extract ボタンのイベント設定
+                const extractToTodosHandler = () => {
+                    if (!editorState.editor) {
+                        log('[EXTRACT] Editor not initialized');
+                        return;
+                    }
+                    const content = editorState.editor.getValue();
+                    if (!content.trim()) {
+                        log('[EXTRACT] Editor content is empty');
+                        return;
+                    }
+                    // VSCode 側に TODOS.md への書き出しを依頼
+                    vscode.postMessage({
+                        type: 'extractToTodos',
+                        data: content
+                    });
+                };
+                addManagedEventListener(document.getElementById('btn-extract-to-todos'), 'click', extractToTodosHandler);
 
                 // 定期的なバッファクリア機能を設定
                 setupPeriodicBufferCleanup();
