@@ -316,9 +316,29 @@ export class TerminalProvider implements vscode.WebviewViewProvider {
         console.log('[Terminal] Received editorSendContent message:', message);
         if (message.data) {
             console.log('[Terminal] Sending editor content to terminal:', message.data);
+            // プロンプト履歴をファイルに記録
+            this.appendPromptHistory(message.data);
             this.handleInput(message.data);
         } else {
             console.log('[Terminal] No data in editorSendContent message');
+        }
+    }
+
+    /**
+     * プロンプト履歴をファイルに追記する
+     */
+    private appendPromptHistory(content: string): void {
+        const historyPath = '/tmp/secondary-terminal-prompt-history.txt';
+        const timestamp = new Date().toISOString();
+        const separator = '---';
+        const entry = `${separator}\n[${timestamp}]\n${content}\n\n`;
+
+        try {
+            fs.appendFileSync(historyPath, entry, 'utf8');
+            this.appendLog(`Prompt history saved to ${historyPath}`);
+        } catch (error) {
+            console.error('Failed to save prompt history:', error);
+            this.appendLog(`Failed to save prompt history: ${error}`);
         }
     }
 
