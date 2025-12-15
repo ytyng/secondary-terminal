@@ -384,6 +384,9 @@ export class TerminalProvider implements vscode.WebviewViewProvider {
 
         const todosPath = path.join(workspaceRoot, 'TODOS.md');
 
+        // プロンプト履歴に記録
+        this.appendPromptHistory(content);
+
         try {
             // TODOS.md にコンテンツを書き込み（上書き）
             fs.writeFileSync(todosPath, content, 'utf8');
