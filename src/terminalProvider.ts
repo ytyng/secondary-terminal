@@ -8,7 +8,7 @@ import { createContextTextForSelectedText } from './utils';
 
 // WebView メッセージの型定義
 interface WebViewMessage {
-    type: 'terminalInput' | 'terminalReady' | 'resize' | 'error' | 'buttonSendSelection' | 'buttonCopySelection' | 'refreshCliAgentStatus' | 'bufferCleanupRequest' | 'terminalInputBegin' | 'terminalInputChunk' | 'terminalInputEnd' | 'editorSendContent' | 'getEnv' | 'log' | 'extractToTodos';
+    type: 'terminalInput' | 'terminalReady' | 'resize' | 'error' | 'buttonSendSelection' | 'buttonCopySelection' | 'refreshCliAgentStatus' | 'bufferCleanupRequest' | 'terminalInputBegin' | 'terminalInputChunk' | 'terminalInputEnd' | 'editorSendContent' | 'getEnv' | 'log' | 'extractToTodos' | 'openPromptHistory';
     data?: string;
     cols?: number;
     rows?: number;
@@ -175,6 +175,9 @@ export class TerminalProvider implements vscode.WebviewViewProvider {
                     case 'extractToTodos':
                         this.handleExtractToTodos(message);
                         break;
+                    case 'openPromptHistory':
+                        this.handleOpenPromptHistory();
+                        break;
                 }
             },
             undefined,
@@ -340,6 +343,21 @@ export class TerminalProvider implements vscode.WebviewViewProvider {
             console.error('Failed to save prompt history:', error);
             this.appendLog(`Failed to save prompt history: ${error}`);
         }
+    }
+
+    /**
+     * プロンプト履歴ファイルを VSCode で開く
+     */
+    private handleOpenPromptHistory(): void {
+        const historyPath = '/tmp/secondary-terminal-prompt-history.txt';
+
+        // ファイルが存在しない場合は作成
+        if (!fs.existsSync(historyPath)) {
+            fs.writeFileSync(historyPath, '', 'utf8');
+        }
+
+        const uri = vscode.Uri.file(historyPath);
+        vscode.window.showTextDocument(uri, { preview: false });
     }
 
     private handleExtractToTodos(message: WebViewMessage) {

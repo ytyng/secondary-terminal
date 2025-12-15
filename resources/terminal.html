@@ -359,6 +359,9 @@
                 <button class="control-button" id="btn-extract-to-todos" title="Extract editor content to TODOS.md">
                     Extract
                 </button>
+                <button class="control-button" id="btn-open-history" title="Open prompt history file">
+                    History
+                </button>
                 <button class="control-button" id="btn-scroll-to-bottom" title="Scroll to bottom of terminal">
                     ↓
                 </button>
@@ -1411,6 +1414,14 @@
                     });
                 };
                 addManagedEventListener(document.getElementById('btn-extract-to-todos'), 'click', extractToTodosHandler);
+
+                // History ボタンのイベント設定
+                const openHistoryHandler = () => {
+                    vscode.postMessage({
+                        type: 'openPromptHistory'
+                    });
+                };
+                addManagedEventListener(document.getElementById('btn-open-history'), 'click', openHistoryHandler);
 
                 // 定期的なバッファクリア機能を設定
                 setupPeriodicBufferCleanup();
