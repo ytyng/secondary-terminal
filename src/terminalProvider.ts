@@ -331,7 +331,7 @@ export class TerminalProvider implements vscode.WebviewViewProvider {
         const historyPath = '/tmp/secondary-terminal-prompt-history.txt';
         const timestamp = new Date().toISOString();
         const separator = '---';
-        const entry = `${separator}\n[${timestamp}]\n${content}\n\n`;
+        const entry = `${separator}\n[${timestamp}] ${this._cwd}\n${content}\n\n`;
 
         try {
             fs.appendFileSync(historyPath, entry, 'utf8');
