@@ -1407,6 +1407,11 @@
                         log('[EXTRACT] Editor content is empty');
                         return;
                     }
+                    // 1行以下の場合は処理しない（二度押し防止）
+                    if (content.split('\n').length <= 1) {
+                        log('[EXTRACT] Editor content is single line, skipping');
+                        return;
+                    }
                     // VSCode 側に TODOS.md への書き出しを依頼
                     vscode.postMessage({
                         type: 'extractToTodos',
