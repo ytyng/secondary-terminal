@@ -71,6 +71,11 @@
             .xterm-helper-textarea {
                 background-color: transparent !important;
             }
+
+            /* スクロール時に選択ハイライトが残る問題を修正 */
+            .xterm-selection {
+                overflow: hidden;
+            }
         }
 
         /* コントロールパネル */
@@ -645,6 +650,7 @@
                     try {
                         clearTimeout(terminalState.timers[timerKey]);
                         clearInterval(terminalState.timers[timerKey]);
+                        cancelAnimationFrame(terminalState.timers[timerKey]);
                     } catch (error) {
                         log(`Error clearing timer ${timerKey}:`, error);
                     }
@@ -1276,15 +1282,16 @@
                             if (!terminalState.writeBufferPending && terminalState.term) {
                                 terminalState.writeBufferPending = true;
 
-                                // 16ms 後 (約60fps) に一括書き込み
-                                terminalState.timers.writeBuffer = setTimeout(() => {
+                                // requestAnimationFrame でブラウザの描画サイクルと同期して書き込み
+                                // これにより VSync と同期し、ちらつきを軽減
+                                terminalState.timers.writeBuffer = requestAnimationFrame(() => {
                                     if (terminalState.term && terminalState.writeBufferData) {
                                         terminalState.term.write(terminalState.writeBufferData);
                                         terminalState.writeBufferData = '';
                                     }
                                     terminalState.writeBufferPending = false;
                                     terminalState.timers.writeBuffer = null;
-                                }, 16);
+                                });
                             }
                             break;
                         case 'clear':
