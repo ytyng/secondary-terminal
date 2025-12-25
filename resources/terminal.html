@@ -895,7 +895,7 @@
                 const terminalElement = document.getElementById('terminal');
                 terminalState.term.open(terminalElement);
 
-                // 1秒ごとにスクロール位置をチェックし、最上部なら最下部にスクロール
+                // 2秒ごとにスクロール位置をチェックし、最上部なら最下部にスクロール
                 const scrollCheckInterval = setInterval(() => {
                     if (!terminalState.term || !terminalState.term.buffer || !terminalState.term.buffer.active) {
                         return;
@@ -905,11 +905,11 @@
                     if (buffer.viewportY === 0) {
                         terminalState.term.scrollToBottom();
                     }
-                }, 1000);
+                }, 2000);
 
                 // タイマーを管理対象に追加
                 terminalState.timers.scrollCheck = scrollCheckInterval;
-                log('[LEAK CHECK] Added scroll position check interval (1000ms)');
+                log('[LEAK CHECK] Added scroll position check interval (2000ms)');
 
                 // Unicode 11 アドオンをロード
                 if (typeof Unicode11Addon !== 'undefined') {
