@@ -406,6 +406,10 @@
             writeBufferData: '',
             writeBufferPending: false,
             currentContainerBackgroundColor: null,
+            // アダプティブレンダリング用状態
+            lastWriteTime: 0,
+            recentWriteCount: 0,
+            adaptiveDelayMs: 16,
         };
 
         // ACE エディタ用の状態管理
@@ -427,6 +431,16 @@
                 type: 'log',
                 message: `[terminal.html] ${message}`
             })
+        }
+
+        /**
+         * 画面消去系エスケープシーケンスを検知する
+         * vim, less 等のTUIアプリの全画面再描画パターンを判定
+         * 注: \x1b[H (カーソルホーム) はプロンプト表示でも使われるため除外
+         */
+        function hasScreenClearSequence(data) {
+            return data.includes('\x1b[2J') ||    // 画面クリア
+                   data.includes('\x1b[?1049');   // 代替バッファ切り替え
         }
 
         // ACE エディタ初期化関数
@@ -1275,23 +1289,46 @@
                             // ステータスメッセージをチェック
                             handleStatusMessage(message.data);
 
+                            // アダプティブレンダリング: 画面消去検知と更新頻度追跡
+                            const payload = message.data;
+                            const hasScreenClear = hasScreenClearSequence(payload);
+
+                            // 更新頻度を追跡（50ms以内の連続更新をカウント）
+                            // 減少は -2 ずつ行い、急激な遅延切り替えを避ける
+                            // 例: 高頻度(6回)→中頻度(4回)→低頻度(2回)→通常(0回) と段階的に復帰
+                            const now = Date.now();
+                            if (now - terminalState.lastWriteTime < 50) {
+                                terminalState.recentWriteCount = Math.min(terminalState.recentWriteCount + 1, 10);
+                            } else {
+                                terminalState.recentWriteCount = Math.max(0, terminalState.recentWriteCount - 2);
+                            }
+                            terminalState.lastWriteTime = now;
+
+                            // 動的に遅延を調整
+                            if (hasScreenClear || terminalState.recentWriteCount > 5) {
+                                terminalState.adaptiveDelayMs = 50;  // 20fps（TUI アプリ向け）
+                            } else if (terminalState.recentWriteCount > 2) {
+                                terminalState.adaptiveDelayMs = 33;  // 30fps
+                            } else {
+                                terminalState.adaptiveDelayMs = 16;  // 60fps（通常出力）
+                            }
+
                             // バッチ処理: データをバッファに追加
-                            terminalState.writeBufferData += message.data;
+                            terminalState.writeBufferData += payload;
 
                             // まだタイマーがセットされていない場合のみ
                             if (!terminalState.writeBufferPending && terminalState.term) {
                                 terminalState.writeBufferPending = true;
 
-                                // requestAnimationFrame でブラウザの描画サイクルと同期して書き込み
-                                // これにより VSync と同期し、ちらつきを軽減
-                                terminalState.timers.writeBuffer = requestAnimationFrame(() => {
+                                // setTimeout で動的遅延を適用
+                                terminalState.timers.writeBuffer = setTimeout(() => {
                                     if (terminalState.term && terminalState.writeBufferData) {
                                         terminalState.term.write(terminalState.writeBufferData);
                                         terminalState.writeBufferData = '';
                                     }
                                     terminalState.writeBufferPending = false;
                                     terminalState.timers.writeBuffer = null;
-                                });
+                                }, terminalState.adaptiveDelayMs);
                             }
                             break;
                         case 'clear':
