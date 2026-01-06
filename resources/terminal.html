@@ -1390,7 +1390,7 @@
                         case 'extractToTodosResult':
                             // TODOS.md への書き出し結果を受け取り、エディタを更新
                             if (message.success && editorState.editor) {
-                                const reference = `[@${message.filePath}]`;
+                                const reference = `See [@${message.filePath}]`;
                                 editorState.editor.setValue(reference, -1);
                                 log('[EXTRACT] Editor content replaced with reference:', reference);
                             } else if (!message.success) {
