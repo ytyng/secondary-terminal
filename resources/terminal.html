@@ -472,8 +472,7 @@
                 // 設定を適用
                 editorState.editor.setTheme("ace/theme/vscode-dark");
                 editorState.editor.session.setMode("ace/mode/markdown");
-                // VSCode キーボードハンドラーをコメントアウト（競合する可能性）
-                // editorState.editor.setKeyboardHandler("ace/keyboard/vscode");
+                editorState.editor.setKeyboardHandler("ace/keyboard/vscode");
 
                 // エディタオプション
                 editorState.editor.setOptions({
