@@ -18,6 +18,11 @@ interface TerminalSession {
     pendingSince: number | null;  // 最初に pendingOutput が溜まり始めた時刻
 }
 
+// タブID付きセッション（マルチタブ対応）
+interface TerminalSessionWithTabId extends TerminalSession {
+    tabId?: string;
+}
+
 /**
  * ターミナルセッションの状態を管理するシングルトンクラス
  * WebView が再作成されても状態を維持する
@@ -116,6 +121,51 @@ export class TerminalSessionManager {
         if (session.totalBufferLength > 0 && session.outputChunks.length > 0) {
             const snapshot = session.outputChunks.join('');
             this.sendToView(session, snapshot);
+            // バッファはクリアしない（次回の接続でも使用するため）
+        }
+    }
+
+    /**
+     * WebView をセッションに接続（タブID付きメッセージ対応）
+     * 出力メッセージに tabId を含めて送信する
+     */
+    public connectViewWithTabId(workspaceKey: string, view: vscode.WebviewView, tabId: string): void {
+        const session = this.getOrCreateSession(workspaceKey);
+        // 設定変更を反映（接続のたびに最新の行数上限を取り込む）
+        const config = vscode.workspace.getConfiguration('secondaryTerminal');
+        const configuredMaxLines = Math.max(50, Math.floor(config.get('maxHistoryLines', TERMINAL_CONSTANTS.DEFAULT_MAX_LINES)));
+        if (configuredMaxLines !== session.maxHistoryLines) {
+            session.maxHistoryLines = configuredMaxLines;
+            // 上限が小さくなった場合に備えて即時トリミング
+            if (session.totalLineCount > session.maxHistoryLines || session.totalBufferLength > session.maxBufferSize) {
+                const targetSize = Math.floor(session.maxBufferSize * TERMINAL_CONSTANTS.BUFFER_TRIM_RATIO);
+                const targetLines = Math.floor(session.maxHistoryLines * TERMINAL_CONSTANTS.BUFFER_TRIM_RATIO);
+                while (
+                    (session.totalBufferLength > targetSize || session.totalLineCount > targetLines) &&
+                    session.outputChunks.length > 0
+                ) {
+                    const removed = session.outputChunks.shift()!;
+                    const removedNewlines = session.outputNewlines.shift() || 0;
+                    session.totalBufferLength -= removed.length;
+                    session.totalLineCount -= removedNewlines;
+                }
+            }
+        }
+
+        // 既存の接続がある場合は切断
+        if (session.currentView && session.currentView !== view) {
+            session.isConnected = false;
+        }
+
+        session.currentView = view;
+        session.isConnected = true;
+        // タブIDを保存（出力時に使用）
+        (session as TerminalSessionWithTabId).tabId = tabId;
+
+        // バッファに保存されている出力を新しいビューに送信
+        if (session.totalBufferLength > 0 && session.outputChunks.length > 0) {
+            const snapshot = session.outputChunks.join('');
+            this.sendToViewWithTabId(session, snapshot, tabId);
             // バッファはクリアしない（次回の接続でも使用するため）
         }
     }
@@ -280,10 +330,16 @@ export class TerminalSessionManager {
                 session.pendingOutput = '';
                 session.lastOutputTime = Date.now();
                 session.pendingSince = null;
-                session.currentView.webview.postMessage({
+                // タブIDが設定されている場合は含める
+                const tabId = (session as TerminalSessionWithTabId).tabId;
+                const message: { type: string; data: string; tabId?: string } = {
                     type: 'output',
                     data: outputData
-                });
+                };
+                if (tabId) {
+                    message.tabId = tabId;
+                }
+                session.currentView.webview.postMessage(message);
             } catch (error) {
                 console.error('Error sending data to view:', error);
                 session.isConnected = false;
@@ -303,6 +359,24 @@ export class TerminalSessionManager {
                 session.currentView.webview.postMessage({
                     type: 'output',
                     data: data
+                });
+            } catch (error) {
+                console.error('Error sending data to view:', error);
+                session.isConnected = false;
+            }
+        }
+    }
+
+    /**
+     * ビューにデータを送信（タブID付き、マルチタブ対応）
+     */
+    private sendToViewWithTabId(session: TerminalSession, data: string, tabId: string): void {
+        if (session.currentView) {
+            try {
+                session.currentView.webview.postMessage({
+                    type: 'output',
+                    data: data,
+                    tabId: tabId
                 });
             } catch (error) {
                 console.error('Error sending data to view:', error);

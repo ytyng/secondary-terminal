@@ -6,15 +6,31 @@ import { ShellProcessManager } from './shellProcessManager';
 import { TerminalSessionManager } from './terminalSessionManager';
 import { createContextTextForSelectedText } from './utils';
 
+// タブ情報の型定義
+interface TabInfo {
+    id: string;
+    title: string;
+}
+
+// タブ状態管理の型定義
+interface TabState {
+    tabs: TabInfo[];
+    activeTabId: string | null;
+    nextTabNumber: number;
+}
+
 // WebView メッセージの型定義
 interface WebViewMessage {
-    type: 'terminalInput' | 'terminalReady' | 'resize' | 'error' | 'buttonSendSelection' | 'buttonCopySelection' | 'refreshCliAgentStatus' | 'bufferCleanupRequest' | 'terminalInputBegin' | 'terminalInputChunk' | 'terminalInputEnd' | 'editorSendContent' | 'getEnv' | 'log' | 'extractToTodos' | 'openPromptHistory';
+    type: 'terminalInput' | 'terminalReady' | 'tabReady' | 'resize' | 'error' | 'buttonSendSelection' | 'buttonCopySelection' | 'refreshCliAgentStatus' | 'bufferCleanupRequest' | 'terminalInputBegin' | 'terminalInputChunk' | 'terminalInputEnd' | 'editorSendContent' | 'getEnv' | 'log' | 'extractToTodos' | 'openPromptHistory' | 'createTab' | 'switchTab' | 'closeTab';
     data?: string;
     cols?: number;
     rows?: number;
     error?: string;
     message?: string;
     timestamp?: number;
+    // Tab specific properties
+    tabId?: string;
+    tab?: TabInfo;
     // Buffer cleanup specific properties
     currentLines?: number;
     threshold?: number;
@@ -40,6 +56,13 @@ export class TerminalProvider implements vscode.WebviewViewProvider {
     private _workspaceKey: string;
     private _processManager = ShellProcessManager.getInstance();
     private _sessionManager = TerminalSessionManager.getInstance();
+
+    // マルチタブ状態管理
+    private _tabState: TabState = {
+        tabs: [],
+        activeTabId: null,
+        nextTabNumber: 1
+    };
 
     // チャンクペースト用の状態管理
     private _chunkSessions: Map<string, {
@@ -75,6 +98,121 @@ export class TerminalProvider implements vscode.WebviewViewProvider {
         }
     }
 
+    // ワークスペースキーとタブIDから複合キーを生成
+    private getCompositeKey(tabId: string): string {
+        return `${this._workspaceKey}:${tabId}`;
+    }
+
+    // 新しいタブを作成
+    private handleCreateTab(): TabInfo {
+        const tabId = `tab-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+        const tab: TabInfo = {
+            id: tabId,
+            title: `Terminal ${this._tabState.nextTabNumber++}`
+        };
+        this._tabState.tabs.push(tab);
+        this._tabState.activeTabId = tabId;
+        this.appendLog(`Created new tab: ${tab.title} (${tabId})`);
+        return tab;
+    }
+
+    // タブを切り替え
+    private handleSwitchTab(tabId: string): void {
+        const tab = this._tabState.tabs.find(t => t.id === tabId);
+        if (tab) {
+            this._tabState.activeTabId = tabId;
+            this.appendLog(`Switched to tab: ${tab.title} (${tabId})`);
+        }
+    }
+
+    // タブを閉じる
+    private handleCloseTab(tabId: string): void {
+        const tabIndex = this._tabState.tabs.findIndex(t => t.id === tabId);
+        if (tabIndex === -1) {
+            return;
+        }
+
+        const tab = this._tabState.tabs[tabIndex];
+        if (!tab) {
+            return;
+        }
+        this.appendLog(`Closing tab: ${tab.title} (${tabId})`);
+
+        // プロセスを終了（exitコールバックは解除してから終了）
+        const compositeKey = this.getCompositeKey(tabId);
+        this._processManager.unregisterExitCallback(compositeKey);
+        this._processManager.terminateProcess(compositeKey);
+        this._sessionManager.clearBuffer(compositeKey);
+
+        // タブリストから削除
+        this._tabState.tabs.splice(tabIndex, 1);
+
+        // アクティブタブだった場合、別のタブに切り替え
+        if (this._tabState.activeTabId === tabId) {
+            const firstTab = this._tabState.tabs[0];
+            if (firstTab) {
+                this._tabState.activeTabId = firstTab.id;
+            } else {
+                this._tabState.activeTabId = null;
+            }
+        }
+
+        // フロントエンドにタブ閉じ完了を通知
+        this._view?.webview.postMessage({
+            type: 'tabClosed',
+            tabId: tabId
+        });
+    }
+
+    // 特定タブのシェルを起動
+    private startShellForTab(tabId: string): void {
+        const compositeKey = this.getCompositeKey(tabId);
+
+        // プロセス終了時のコールバックを登録（タブを閉じる）
+        this._processManager.registerExitCallback(compositeKey, () => {
+            this.appendLog(`Process exited for tab: ${tabId}`);
+            // フロントエンドにタブを閉じるように通知
+            this._view?.webview.postMessage({
+                type: 'tabProcessExited',
+                tabId: tabId
+            });
+            // バックエンドの状態からも削除
+            const tabIndex = this._tabState.tabs.findIndex(t => t.id === tabId);
+            if (tabIndex !== -1) {
+                this._tabState.tabs.splice(tabIndex, 1);
+                if (this._tabState.activeTabId === tabId) {
+                    const firstTab = this._tabState.tabs[0];
+                    this._tabState.activeTabId = firstTab ? firstTab.id : null;
+                }
+            }
+            this._sessionManager.clearBuffer(compositeKey);
+        });
+
+        // プロセスマネージャーからプロセスを取得または作成
+        this._processManager.getOrCreateProcess(
+            compositeKey,
+            this._extensionContext.extensionPath,
+            this._cwd,
+            this._terminalCols,
+            this._terminalRows
+        );
+
+        // セッションに WebView を接続
+        if (this._view) {
+            this._sessionManager.connectViewWithTabId(compositeKey, this._view, tabId);
+        }
+
+        // 既存のバッファがない場合のみウェルカムメッセージを表示
+        if (!this._sessionManager.getBuffer(compositeKey)) {
+            const versionInfo = this.getVersionInfo();
+            const welcomeMessage = `Welcome to Secondary Terminal v${versionInfo.version} (${versionInfo.buildDate}).\r\n`;
+            this._sessionManager.addOutput(compositeKey, welcomeMessage);
+            this.appendLog(`Shell started for tab: ${tabId}`);
+        } else {
+            this.appendLog(`Reconnecting to existing session for tab: ${tabId}`);
+        }
+    }
+
     public resolveWebviewView(
         webviewView: vscode.WebviewView,
         _context: vscode.WebviewViewResolveContext,
@@ -101,31 +239,78 @@ export class TerminalProvider implements vscode.WebviewViewProvider {
 
                 switch (message.type) {
                     case 'terminalInput':
-                        this.handleInput(message.data);
+                        this.handleInputForTab(message.data, message.tabId);
+                        break;
+                    case 'tabReady':
+                        // 新しいタブ対応: タブIDが指定されている場合はそのタブのシェルを起動
+                        if (message.tabId) {
+                            // タブが登録されていない場合は登録（フロントエンド発のタブ作成）
+                            if (!this._tabState.tabs.find(t => t.id === message.tabId)) {
+                                const tab: TabInfo = {
+                                    id: message.tabId,
+                                    title: `Terminal ${this._tabState.nextTabNumber++}`
+                                };
+                                this._tabState.tabs.push(tab);
+                                this._tabState.activeTabId = message.tabId;
+                                this.appendLog(`Registered tab from frontend: ${tab.title} (${message.tabId})`);
+                            }
+                            this.startShellForTab(message.tabId);
+                        }
                         break;
                     case 'terminalReady':
-                        // セッションに WebView を接続
+                        // 後方互換性: 旧形式のメッセージ（タブなし）
                         this._sessionManager.connectView(this._workspaceKey, webviewView);
-                        // 既存のバッファがない場合のみウェルカムメッセージを表示
                         if (!this._sessionManager.getBuffer(this._workspaceKey)) {
                             const versionInfo = this.getVersionInfo();
                             const welcomeMessage = `Welcome to Secondary Terminal v${versionInfo.version} (${versionInfo.buildDate}).\r\n`;
                             this._sessionManager.addOutput(this._workspaceKey, welcomeMessage);
-                            this.appendLog('Terminal ready - starting shell');
+                            this.appendLog('Terminal ready - starting shell (legacy mode)');
                         } else {
-                            this.appendLog('Terminal ready - reconnecting to existing session');
+                            this.appendLog('Terminal ready - reconnecting to existing session (legacy mode)');
                         }
                         this.startShell();
                         break;
                     case 'resize':
                         this._terminalCols = message.cols || 80;
                         this._terminalRows = message.rows || 24;
-                        // プロセスマネージャー経由でサイズ更新
-                        this._processManager.updateProcessSize(
-                            this._workspaceKey,
-                            this._terminalCols,
-                            this._terminalRows
-                        );
+                        // タブIDが指定されている場合はそのタブのプロセスサイズを更新
+                        if (message.tabId) {
+                            const compositeKey = this.getCompositeKey(message.tabId);
+                            this._processManager.updateProcessSize(
+                                compositeKey,
+                                this._terminalCols,
+                                this._terminalRows
+                            );
+                        } else {
+                            // 後方互換性: 旧形式
+                            this._processManager.updateProcessSize(
+                                this._workspaceKey,
+                                this._terminalCols,
+                                this._terminalRows
+                            );
+                        }
+                        break;
+                    case 'createTab':
+                        // 新しいタブを作成
+                        {
+                            const newTab = this.handleCreateTab();
+                            webviewView.webview.postMessage({
+                                type: 'tabCreated',
+                                tab: newTab
+                            });
+                        }
+                        break;
+                    case 'switchTab':
+                        // タブを切り替え
+                        if (message.tabId) {
+                            this.handleSwitchTab(message.tabId);
+                        }
+                        break;
+                    case 'closeTab':
+                        // タブを閉じる（最後の1つも閉じれる）
+                        if (message.tabId) {
+                            this.handleCloseTab(message.tabId);
+                        }
                         break;
                     case 'getEnv':
                         // 環境変数を取得して WebView に返す
@@ -190,15 +375,21 @@ export class TerminalProvider implements vscode.WebviewViewProvider {
                 // WebView is not visible, but keeping shell process alive
             } else {
                 // WebView が再び表示された時の処理
-                // セッションを再接続（既に接続されている場合は何もしない）
-                this._sessionManager.connectView(this._workspaceKey, webviewView);
+                // マルチタブ: 全タブのセッションを再接続
+                for (const tab of this._tabState.tabs) {
+                    const compositeKey = this.getCompositeKey(tab.id);
+                    this._sessionManager.connectViewWithTabId(compositeKey, webviewView, tab.id);
+                }
 
                 // HTMLが初期化されていない場合は再設定
                 setTimeout(() => {
                     // フロントエンド側の状態確認とリセット用メッセージを送信
+                    // マルチタブ: タブリストも送信
                     webviewView.webview.postMessage({
                         type: 'visibility_restored',
-                        timestamp: Date.now()
+                        timestamp: Date.now(),
+                        tabs: this._tabState.tabs,
+                        activeTabId: this._tabState.activeTabId
                     });
                 }, 100);
             }
@@ -206,6 +397,13 @@ export class TerminalProvider implements vscode.WebviewViewProvider {
 
         // WebView が破棄されたときはセッションから切断
         webviewView.onDidDispose(() => {
+            // マルチタブ: 全タブのセッションを切断
+            for (const tab of this._tabState.tabs) {
+                const compositeKey = this.getCompositeKey(tab.id);
+                this._sessionManager.disconnectView(compositeKey, webviewView);
+                this._processManager.deactivateProcess(compositeKey);
+            }
+            // 後方互換性: 旧形式のセッションも切断
             this._sessionManager.disconnectView(this._workspaceKey, webviewView);
             this._processManager.deactivateProcess(this._workspaceKey);
         }, null, this._extensionContext.subscriptions);
@@ -225,6 +423,30 @@ export class TerminalProvider implements vscode.WebviewViewProvider {
             // エラーをWebViewに通知
             this._view?.webview.postMessage({
                 type: 'output',
+                data: `\r\nError: Failed to send input - ${error}\r\n`
+            });
+        }
+    }
+
+    // タブ指定での入力処理
+    private handleInputForTab(data: string | undefined, tabId: string | undefined) {
+        if (typeof data !== 'string') {
+            return;
+        }
+
+        // タブIDがない場合は後方互換性のため旧形式を使用
+        const compositeKey = tabId ? this.getCompositeKey(tabId) : this._workspaceKey;
+
+        try {
+            // プロセスマネージャー経由でデータを送信
+            this._processManager.sendToProcess(compositeKey, data);
+        } catch (error) {
+            console.error('Failed to send input to process:', error);
+            this.appendLog(`Failed to send input to process: ${error}`);
+            // エラーをWebViewに通知
+            this._view?.webview.postMessage({
+                type: 'output',
+                tabId: tabId,
                 data: `\r\nError: Failed to send input - ${error}\r\n`
             });
         }

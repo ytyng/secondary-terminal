@@ -46,15 +46,6 @@
             background-color: var(--vscode-sideBar-background);
         }
 
-        #terminal {
-            flex: 1;
-            width: 100%;
-            padding: 0 0 0 5px;
-            min-height: 0;
-            /* 重要：flexboxで縮むのを許可 */
-            overflow: hidden;
-            /* はみ出し防止 */
-        }
 
         .terminal.xterm {
             padding: 0;
@@ -76,6 +67,114 @@
             .xterm-selection {
                 overflow: hidden;
             }
+        }
+
+        /* Tab Bar Styles */
+        .tab-bar {
+            display: flex;
+            align-items: center;
+            background-color: var(--vscode-tab-activeBackground, #1e1e1e);
+            border-bottom: 1px solid var(--vscode-tab-border, #3c3c3c);
+            height: 30px;
+            flex-shrink: 0;
+            overflow: hidden;
+        }
+
+        .tab-list {
+            display: flex;
+            flex: 1;
+            overflow-x: auto;
+            overflow-y: hidden;
+            scrollbar-width: none;
+        }
+
+        .tab-list::-webkit-scrollbar {
+            display: none;
+        }
+
+        .tab {
+            display: flex;
+            align-items: center;
+            padding: 4px 8px;
+            background-color: var(--vscode-tab-inactiveBackground, #2d2d2d);
+            color: var(--vscode-tab-inactiveForeground, #888);
+            border-right: 1px solid var(--vscode-tab-border, #3c3c3c);
+            cursor: pointer;
+            white-space: nowrap;
+            font-size: 12px;
+            min-width: 80px;
+            max-width: 150px;
+            user-select: none;
+        }
+
+        .tab.active {
+            background-color: var(--vscode-tab-activeBackground, #1e1e1e);
+            color: var(--vscode-tab-activeForeground, #fff);
+        }
+
+        .tab-title {
+            flex: 1;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .tab-close {
+            margin-left: 6px;
+            background: none;
+            border: none;
+            color: inherit;
+            cursor: pointer;
+            padding: 2px 4px;
+            border-radius: 3px;
+            opacity: 0.6;
+            font-size: 14px;
+            line-height: 1;
+        }
+
+        .tab-close:hover {
+            opacity: 1;
+            background-color: var(--vscode-toolbar-hoverBackground, #444);
+        }
+
+        .tab-close:disabled {
+            opacity: 0.3;
+            cursor: not-allowed;
+        }
+
+        .tab-add {
+            padding: 4px 12px;
+            background: none;
+            border: none;
+            color: var(--vscode-foreground, #ccc);
+            cursor: pointer;
+            font-size: 16px;
+            flex-shrink: 0;
+        }
+
+        .tab-add:hover {
+            background-color: var(--vscode-toolbar-hoverBackground, #444);
+        }
+
+        /* Terminal Panes Container */
+        .terminal-panes {
+            flex: 1;
+            position: relative;
+            min-height: 0;
+        }
+
+        .terminal-pane {
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            display: none;
+            padding: 0 0 0 5px;
+        }
+
+        .terminal-pane.active {
+            display: flex;
+            flex-direction: column;
         }
 
         /* コントロールパネル */
@@ -344,7 +443,14 @@
 <body>
     <div class="terminal-container" id="terminal-container">
 
-        <div id="terminal"></div>
+        <!-- Tab Bar -->
+        <div class="tab-bar" id="tab-bar">
+            <div class="tab-list" id="tab-list"></div>
+            <button class="tab-add" id="btn-add-tab" title="New Terminal">+</button>
+        </div>
+
+        <!-- Terminal Panes Container -->
+        <div class="terminal-panes" id="terminal-panes"></div>
 
         <!-- ACE エディタペイン -->
         <div class="editor-container">
@@ -392,25 +498,46 @@
         const MAX_BUFFER_LINES = parseInt('{{SCROLLBACK_MAX}}'); // 設定された最大行数
         const vscode = acquireVsCodeApi();
 
-        // グローバル変数とオブジェクトの管理オブジェクト
-        const terminalState = {
-            term: null,
+        // タブ状態管理
+        const tabState = {
+            tabs: [],                    // Array of {id, title}
+            activeTabId: null,
+            terminals: new Map(),        // tabId -> xterm Terminal instance
+            terminalStates: new Map(),   // tabId -> per-tab terminalState
+            globalEventListeners: [],    // グローバルなイベントリスナー
             resizeObserver: null,
-            timers: {
-                sizeCheckInterval: null,
-                backgroundColorInterval: null,
-                writeBuffer: null
-            },
-            eventListeners: [],
-            isInitialized: false,
-            writeBufferData: '',
-            writeBufferPending: false,
-            currentContainerBackgroundColor: null,
-            // アダプティブレンダリング用状態
-            lastWriteTime: 0,
-            recentWriteCount: 0,
-            adaptiveDelayMs: 16,
         };
+
+        // 新しいタブ用のデフォルト terminalState を生成
+        function createTerminalState() {
+            return {
+                term: null,
+                timers: {
+                    sizeCheckInterval: null,
+                    backgroundColorInterval: null,
+                    writeBuffer: null
+                },
+                eventListeners: [],
+                isInitialized: false,
+                writeBufferData: '',
+                writeBufferPending: false,
+                currentContainerBackgroundColor: null,
+                lastWriteTime: 0,
+                recentWriteCount: 0,
+                adaptiveDelayMs: 16,
+                addons: [],
+                xtermListeners: [],
+                cliAgentState: { active: false, agent_type: null },
+            };
+        }
+
+        // 後方互換性のため、現在のアクティブタブの terminalState を返すゲッター
+        function getActiveTerminalState() {
+            if (!tabState.activeTabId) return null;
+            return tabState.terminalStates.get(tabState.activeTabId);
+        }
+
+        // 注: terminalState は tabState.terminalStates に移行済み
 
         // ACE エディタ用の状態管理
         const editorState = {
@@ -431,6 +558,251 @@
                 type: 'log',
                 message: `[terminal.html] ${message}`
             })
+        }
+
+        // ========================================
+        // Tab UI Functions
+        // ========================================
+
+        /**
+         * タブ UI 要素を作成
+         */
+        function createTabUI(tabInfo) {
+            const tabList = document.getElementById('tab-list');
+            const tab = document.createElement('div');
+            tab.className = 'tab';
+            tab.dataset.tabId = tabInfo.id;
+            tab.innerHTML = `
+                <span class="tab-title">${tabInfo.title}</span>
+                <button class="tab-close" title="Close">×</button>
+            `;
+            tabList.appendChild(tab);
+            updateTabCloseButtons();
+            return tab;
+        }
+
+        /**
+         * タブの close ボタンの状態を更新
+         * 全てのタブが閉じられるようになった（タブ0個も可）
+         */
+        function updateTabCloseButtons() {
+            // 現在は全てのタブが閉じられるため、特に無効化は行わない
+        }
+
+        /**
+         * 指定したタブに切り替え
+         */
+        function switchToTab(tabId) {
+            log('[TAB] Switching to tab:', tabId);
+
+            // タブ UI の active 状態を更新
+            document.querySelectorAll('.tab').forEach(tab => {
+                tab.classList.toggle('active', tab.dataset.tabId === tabId);
+            });
+
+            // ターミナルペインの表示/非表示
+            document.querySelectorAll('.terminal-pane').forEach(pane => {
+                pane.classList.toggle('active', pane.dataset.tabId === tabId);
+            });
+
+            // 状態を更新
+            tabState.activeTabId = tabId;
+
+            // アクティブなターミナルにフォーカス
+            const state = tabState.terminalStates.get(tabId);
+            if (state && state.term) {
+                setTimeout(() => {
+                    state.term.focus();
+                    setTerminalSize(tabId);
+                }, 50);
+            }
+        }
+
+        /**
+         * タブを閉じる（UI とリソースを削除）
+         */
+        function closeTabUI(tabId) {
+            log('[TAB] Closing tab:', tabId);
+
+            // タブ要素を削除
+            const tabElement = document.querySelector(`.tab[data-tab-id="${tabId}"]`);
+            if (tabElement) {
+                tabElement.remove();
+            }
+
+            // ターミナルペインを削除
+            const paneElement = document.querySelector(`.terminal-pane[data-tab-id="${tabId}"]`);
+            if (paneElement) {
+                paneElement.remove();
+            }
+
+            // ターミナル状態をクリーンアップ
+            const state = tabState.terminalStates.get(tabId);
+            if (state) {
+                cleanupTerminalState(state);
+                tabState.terminalStates.delete(tabId);
+            }
+
+            // ターミナルインスタンスを削除
+            tabState.terminals.delete(tabId);
+
+            // タブリストから削除
+            const tabIndex = tabState.tabs.findIndex(t => t.id === tabId);
+            if (tabIndex !== -1) {
+                tabState.tabs.splice(tabIndex, 1);
+            }
+
+            updateTabCloseButtons();
+
+            // 閉じたタブがアクティブだった場合、別のタブに切り替え
+            if (tabState.activeTabId === tabId) {
+                const nextTab = tabState.tabs[0];
+                if (nextTab) {
+                    switchToTab(nextTab.id);
+                    vscode.postMessage({ type: 'switchTab', tabId: nextTab.id });
+                }
+            }
+        }
+
+        /**
+         * ターミナル状態のクリーンアップ
+         */
+        function cleanupTerminalState(state) {
+            // xterm リスナーを dispose
+            if (state.xtermListeners && state.xtermListeners.length > 0) {
+                state.xtermListeners.forEach(listener => {
+                    try {
+                        if (listener && listener.dispose) {
+                            listener.dispose();
+                        }
+                    } catch (e) { }
+                });
+                state.xtermListeners = [];
+            }
+
+            // アドオンを dispose
+            if (state.addons && state.addons.length > 0) {
+                state.addons.forEach(addon => {
+                    try {
+                        if (addon && addon.dispose) {
+                            addon.dispose();
+                        }
+                    } catch (e) { }
+                });
+                state.addons = [];
+            }
+
+            // ターミナルを破棄
+            if (state.term) {
+                try {
+                    state.term.dispose();
+                } catch (e) { }
+                state.term = null;
+            }
+
+            // タイマーをクリア
+            Object.keys(state.timers).forEach(timerKey => {
+                if (state.timers[timerKey]) {
+                    try {
+                        clearTimeout(state.timers[timerKey]);
+                        clearInterval(state.timers[timerKey]);
+                    } catch (e) { }
+                    state.timers[timerKey] = null;
+                }
+            });
+
+            // イベントリスナーを削除
+            state.eventListeners.forEach(({ element, event, handler }) => {
+                try {
+                    element.removeEventListener(event, handler);
+                } catch (e) { }
+            });
+            state.eventListeners = [];
+        }
+
+        /**
+         * ターミナルペイン DOM を作成
+         */
+        function createTerminalPane(tabId) {
+            const panesContainer = document.getElementById('terminal-panes');
+            const pane = document.createElement('div');
+            pane.className = 'terminal-pane';
+            pane.dataset.tabId = tabId;
+            pane.id = `terminal-pane-${tabId}`;
+            panesContainer.appendChild(pane);
+            return pane;
+        }
+
+        /**
+         * ターミナルサイズを動的に設定（タブ対応）
+         */
+        function setTerminalSize(tabId) {
+            const state = tabState.terminalStates.get(tabId);
+            if (!state || !state.term) {
+                return;
+            }
+
+            const terminalPane = document.getElementById('terminal-pane-' + tabId);
+            if (!terminalPane) {
+                log('Terminal pane not found for tab:', tabId);
+                return;
+            }
+
+            // ターミナルペインの実際のサイズを取得
+            const terminalRect = terminalPane.getBoundingClientRect();
+            const availableWidth = terminalRect.width - 20; // パディング考慮
+            const availableHeight = terminalRect.height - 5;
+
+            if (availableWidth <= 0 || availableHeight <= 0) {
+                return;
+            }
+
+            // フォント情報から文字サイズを正確に計算
+            const fontSize = 13;
+            const targetLineHeight = 1.2;
+
+            // 一時的な測定用エレメントを作成して文字幅を正確に測定
+            const measurer = document.createElement('div');
+            measurer.style.position = 'absolute';
+            measurer.style.visibility = 'hidden';
+            measurer.style.fontFamily = '"RobotoMono Nerd Font Mono", "RobotoMono Nerd Font", "Roboto Mono", Consolas, "Courier New", monospace';
+            measurer.style.fontSize = fontSize + 'px';
+            measurer.style.lineHeight = targetLineHeight;
+            measurer.style.whiteSpace = 'pre';
+            measurer.textContent = 'M'.repeat(10);
+
+            document.body.appendChild(measurer);
+            const rawCharWidth = measurer.getBoundingClientRect().width / 10;
+            const rawLineHeight = measurer.getBoundingClientRect().height;
+            document.body.removeChild(measurer);
+
+            // サイズ調整係数
+            const widthAdjustment = 0.88;
+            const heightAdjustment = 1.34;
+
+            const adjustedCharWidth = rawCharWidth * widthAdjustment;
+            const adjustedLineHeight = rawLineHeight * heightAdjustment;
+
+            // 列数と行数を計算
+            const cols = Math.floor(availableWidth / adjustedCharWidth);
+            const rows = Math.floor(availableHeight / adjustedLineHeight);
+
+            // 最小サイズを保証
+            const finalCols = Math.max(cols, 20);
+            const finalRows = Math.max(rows, 5);
+
+            // ターミナルサイズを設定
+            if (state.term.cols !== finalCols || state.term.rows !== finalRows) {
+                state.term.resize(finalCols, finalRows);
+
+                // サイズ変更を VSCode に通知（tabId を含める）
+                vscode.postMessage({
+                    type: 'resize',
+                    tabId: tabId,
+                    cols: finalCols,
+                    rows: finalRows
+                });
+            }
         }
 
         /**
@@ -602,97 +974,64 @@
             }
         }
 
-        // リソース完全リセット関数
+        // リソース完全リセット関数（マルチタブ対応）
         function resetTerminalResources() {
             log('[LEAK CHECK] Starting resource reset');
 
-            // xterm のリスナーを先に dispose
-            if (terminalState.xtermListeners && terminalState.xtermListeners.length > 0) {
-                log('[LEAK CHECK] Disposing ' + terminalState.xtermListeners.length + ' xterm listeners');
-                terminalState.xtermListeners.forEach(listener => {
-                    try {
-                        if (listener && listener.dispose) {
-                            listener.dispose();
-                        }
-                    } catch (error) {
-                        log('[LEAK CHECK] Error disposing xterm listener:', error);
-                    }
-                });
-                terminalState.xtermListeners = [];
-            }
+            // 全タブの状態をクリーンアップ
+            tabState.terminalStates.forEach((termState, tabId) => {
+                log('[LEAK CHECK] Cleaning up tab:', tabId);
+                cleanupTerminalState(termState);
+            });
 
-            // アドオンを dispose
-            if (terminalState.addons && terminalState.addons.length > 0) {
-                log('[LEAK CHECK] Disposing ' + terminalState.addons.length + ' addons');
-                terminalState.addons.forEach(addon => {
-                    try {
-                        if (addon && addon.dispose) {
-                            addon.dispose();
-                        }
-                    } catch (error) {
-                        log('[LEAK CHECK] Error disposing addon:', error);
-                    }
-                });
-                terminalState.addons = [];
-            }
-
-            // 既存のターミナルを破棄
-            if (terminalState.term) {
+            // グローバル ResizeObserver を停止
+            if (tabState.resizeObserver) {
                 try {
-                    log('[LEAK CHECK] Disposing terminal instance');
-                    terminalState.term.dispose();
-                } catch (error) {
-                    log('Error disposing terminal:', error);
-                }
-                terminalState.term = null;
-            }
-
-            // ResizeObserver を停止
-            if (terminalState.resizeObserver) {
-                try {
-                    terminalState.resizeObserver.disconnect();
+                    tabState.resizeObserver.disconnect();
                 } catch (error) {
                     log('Error disconnecting ResizeObserver:', error);
                 }
-                terminalState.resizeObserver = null;
+                tabState.resizeObserver = null;
             }
 
-            // すべてのタイマーをクリア
-            Object.keys(terminalState.timers).forEach(timerKey => {
-                if (terminalState.timers[timerKey]) {
-                    try {
-                        clearTimeout(terminalState.timers[timerKey]);
-                        clearInterval(terminalState.timers[timerKey]);
-                        cancelAnimationFrame(terminalState.timers[timerKey]);
-                    } catch (error) {
-                        log(`Error clearing timer ${timerKey}:`, error);
-                    }
-                    terminalState.timers[timerKey] = null;
-                }
-            });
-
-            // バッファもクリア
-            terminalState.writeBufferData = '';
-            terminalState.writeBufferPending = false;
-
-            // イベントリスナーをすべて削除
-            terminalState.eventListeners.forEach(({ element, event, handler }) => {
+            // グローバルイベントリスナーを削除
+            tabState.globalEventListeners.forEach(({ element, event, handler }) => {
                 try {
                     element.removeEventListener(event, handler);
                 } catch (error) {
-                    log('Error removing event listener:', error);
+                    log('Error removing global event listener:', error);
                 }
             });
-            terminalState.eventListeners = [];
+            tabState.globalEventListeners = [];
 
-            // 初期化フラグをリセット
-            terminalState.isInitialized = false;
+            // タブ状態をリセット
+            tabState.tabs = [];
+            tabState.activeTabId = null;
+            tabState.terminals.clear();
+            tabState.terminalStates.clear();
+
+            // タブ UI をクリア
+            const tabList = document.getElementById('tab-list');
+            if (tabList) {
+                tabList.innerHTML = '';
+            }
+            const terminalPanes = document.getElementById('terminal-panes');
+            if (terminalPanes) {
+                terminalPanes.innerHTML = '';
+            }
+
+            log('[LEAK CHECK] Resource reset completed');
         }
 
         // イベントリスナー登録ヘルパー（管理対象に追加）
-        function addManagedEventListener(element, event, handler) {
+        // targetState が指定された場合はそのタブの state に、なければグローバルに登録
+        function addManagedEventListener(element, event, handler, targetState = null) {
             element.addEventListener(event, handler);
-            terminalState.eventListeners.push({ element, event, handler });
+            if (targetState && targetState.eventListeners) {
+                targetState.eventListeners.push({ element, event, handler });
+            } else {
+                tabState.globalEventListeners.push({ element, event, handler });
+            }
         }
 
         // 大量ペーストのチャンク送信機能
@@ -759,8 +1098,15 @@
             sendNextChunk();
         }
 
-        // 定期的なバッファクリア機能
+        // 定期的なバッファクリア機能（マルチタブ対応）
+        let bufferCleanupSetup = false;
         function setupPeriodicBufferCleanup() {
+            // 既にセットアップ済みの場合はスキップ
+            if (bufferCleanupSetup) {
+                return;
+            }
+            bufferCleanupSetup = true;
+
             // 設定可能な値
             const BUFFER_CHECK_INTERVAL = 30000; // 30秒間隔でチェック
             const CLEANUP_THRESHOLD = Math.floor(MAX_BUFFER_LINES * 0.8); // 80%で警告
@@ -774,95 +1120,376 @@
             });
 
             const bufferCleanupTimer = setInterval(() => {
-                if (!terminalState.term) {
-                    return;
-                }
-
-                try {
-                    const buffer = terminalState.term.buffer;
-                    if (!buffer || !buffer.active) {
+                // 全タブのバッファをチェック
+                tabState.terminalStates.forEach((termState, tabId) => {
+                    if (!termState.term) {
                         return;
                     }
 
-                    const totalLines = buffer.active.length;
-                    const scrollbackLines = totalLines - terminalState.term.rows;
+                    try {
+                        const buffer = termState.term.buffer;
+                        if (!buffer || !buffer.active) {
+                            return;
+                        }
 
-                    log('[BUFFER CLEANUP] Buffer check', {
-                        totalLines,
-                        scrollbackLines,
-                        threshold: CLEANUP_THRESHOLD,
-                        terminalRows: terminalState.term.rows
-                    });
+                        const totalLines = buffer.active.length;
+                        const scrollbackLines = totalLines - termState.term.rows;
 
-                    // スクロールバック行数が閾値を超えた場合、クリアを実行
-                    if (scrollbackLines > CLEANUP_THRESHOLD) {
-                        log('[BUFFER CLEANUP] Buffer cleanup triggered', {
-                            currentLines: scrollbackLines,
-                            targetLines: CLEANUP_TARGET
-                        });
+                        // スクロールバック行数が閾値を超えた場合、クリアを実行
+                        if (scrollbackLines > CLEANUP_THRESHOLD) {
+                            log('[BUFFER CLEANUP] Buffer cleanup triggered for tab:', tabId, {
+                                currentLines: scrollbackLines,
+                                targetLines: CLEANUP_TARGET
+                            });
 
-                        // 現在のスクロール位置を保存
-                        const currentScrollY = terminalState.term.buffer.active.viewportY;
-                        const isAtBottom = currentScrollY >= (totalLines - terminalState.term.rows);
+                            // 現在のスクロール位置を保存
+                            const currentScrollY = termState.term.buffer.active.viewportY;
+                            const isAtBottom = currentScrollY >= (totalLines - termState.term.rows);
 
-                        log('[BUFFER CLEANUP] Current scroll position', {
-                            currentScrollY,
-                            totalLines,
-                            terminalRows: terminalState.term.rows,
-                            isAtBottom
-                        });
+                            // 少し待ってからクリアを実行
+                            setTimeout(() => {
+                                try {
+                                    // VSCode 側にバッファクリア要求を送信
+                                    vscode.postMessage({
+                                        type: 'bufferCleanupRequest',
+                                        tabId: tabId,
+                                        currentLines: scrollbackLines,
+                                        threshold: CLEANUP_THRESHOLD,
+                                        preserveScrollPosition: !isAtBottom
+                                    });
 
-                        // 少し待ってからクリアを実行
-                        setTimeout(() => {
-                            try {
-                                // VSCode 側にバッファクリア要求を送信
-                                vscode.postMessage({
-                                    type: 'bufferCleanupRequest',
-                                    currentLines: scrollbackLines,
-                                    threshold: CLEANUP_THRESHOLD,
-                                    preserveScrollPosition: !isAtBottom // 最下部にいない場合はスクロール位置を保持
-                                });
+                                    if (isAtBottom && termState.term) {
+                                        termState.term.scrollToBottom();
+                                    }
 
-                                // 最下部にいない場合はスクロール位置を変更しない
-                                // 最下部にいる場合、または問題がある場合のみ scrollToBottom() を実行
-                                if (isAtBottom) {
-                                    log('[BUFFER CLEANUP] User was at bottom, scrolling to bottom');
-                                    terminalState.term.scrollToBottom();
-                                } else {
-                                    log('[BUFFER CLEANUP] User was not at bottom, preserving scroll position');
+                                } catch (error) {
+                                    log('[BUFFER CLEANUP] Error during buffer cleanup:', error);
+                                    if (termState.term) {
+                                        termState.term.scrollToBottom();
+                                    }
                                 }
-
-                                log('[BUFFER CLEANUP] Buffer cleanup completed');
-
-                            } catch (error) {
-                                log('[BUFFER CLEANUP] Error during buffer cleanup:', error);
-                                // エラーが発生した場合のみ強制的にスクロール
-                                terminalState.term.scrollToBottom();
-                            }
-                        }, 100);
+                            }, 100);
+                        }
+                    } catch (error) {
+                        log('[BUFFER CLEANUP] Error checking buffer for tab:', tabId, error);
                     }
-                } catch (error) {
-                    log('[BUFFER CLEANUP] Error checking buffer:', error);
-                }
+                });
             }, BUFFER_CHECK_INTERVAL);
 
-            // タイマーを管理対象に追加
-            terminalState.timers.bufferCleanup = bufferCleanupTimer;
+            // グローバルタイマーとして保存
+            tabState.bufferCleanupTimer = bufferCleanupTimer;
             log('[BUFFER CLEANUP] Periodic buffer cleanup timer set');
         }
 
-        // ターミナル初期化関数
-        function initializeTerminal() {
+        // グローバルイベントハンドラ初期化（一度だけ実行）
+        let globalHandlersInitialized = false;
+        function initializeGlobalHandlers() {
+            if (globalHandlersInitialized) {
+                log('[GLOBAL] Global handlers already initialized, skipping');
+                return;
+            }
+            globalHandlersInitialized = true;
+            log('[GLOBAL] Initializing global handlers');
+
+            // グローバルメッセージハンドラ（全タブに対応）
+            const globalMessageHandler = (event) => {
+                const message = event.data;
+                switch (message.type) {
+                    case 'output':
+                        // メッセージの tabId を取得（アクティブタブへのフォールバック）
+                        const outputTabId = message.tabId || tabState.activeTabId;
+                        if (!outputTabId) {
+                            log('[OUTPUT] No tabId available');
+                            break;
+                        }
+                        const outputState = tabState.terminalStates.get(outputTabId);
+                        if (!outputState) {
+                            log('[OUTPUT] No state found for tabId:', outputTabId);
+                            break;
+                        }
+
+                        // ステータスメッセージをチェック（タブ固有のハンドラを使用）
+                        if (outputState.handleStatusMessage) {
+                            outputState.handleStatusMessage(message.data);
+                        }
+
+                        // アダプティブレンダリング: 画面消去検知と更新頻度追跡
+                        const payload = message.data;
+                        const hasScreenClear = hasScreenClearSequence(payload);
+
+                        // 更新頻度を追跡（50ms以内の連続更新をカウント）
+                        const now = Date.now();
+                        if (now - outputState.lastWriteTime < 50) {
+                            outputState.recentWriteCount = Math.min(outputState.recentWriteCount + 1, 10);
+                        } else {
+                            outputState.recentWriteCount = Math.max(0, outputState.recentWriteCount - 2);
+                        }
+                        outputState.lastWriteTime = now;
+
+                        // 動的に遅延を調整
+                        if (hasScreenClear || outputState.recentWriteCount > 5) {
+                            outputState.adaptiveDelayMs = 50;  // 20fps（TUI アプリ向け）
+                        } else if (outputState.recentWriteCount > 2) {
+                            outputState.adaptiveDelayMs = 33;  // 30fps
+                        } else {
+                            outputState.adaptiveDelayMs = 16;  // 60fps（通常出力）
+                        }
+
+                        // バッチ処理: データをバッファに追加
+                        outputState.writeBufferData += payload;
+
+                        // まだタイマーがセットされていない場合のみ
+                        if (!outputState.writeBufferPending && outputState.term) {
+                            outputState.writeBufferPending = true;
+                            outputState.timers.writeBuffer = setTimeout(() => {
+                                if (outputState.term && outputState.writeBufferData) {
+                                    outputState.term.write(outputState.writeBufferData);
+                                    outputState.writeBufferData = '';
+                                }
+                                outputState.writeBufferPending = false;
+                                outputState.timers.writeBuffer = null;
+                            }, outputState.adaptiveDelayMs);
+                        }
+                        break;
+
+                    case 'clear':
+                        const clearTabId = message.tabId || tabState.activeTabId;
+                        const clearState = tabState.terminalStates.get(clearTabId);
+                        if (clearState && clearState.term) {
+                            clearState.term.clear();
+                        }
+                        break;
+
+                    case 'reset':
+                        resetTerminalResources();
+                        // 新しいタブを作成して初期化
+                        setTimeout(() => {
+                            const newTabId = createNewTab();
+                            if (newTabId) {
+                                initializeTerminal(newTabId);
+                            }
+                        }, 10);
+                        break;
+
+                    case 'visibility_restored':
+                        log('[LEAK CHECK] visibility_restored event received');
+                        const activeState = getActiveTerminalState();
+                        if (activeState && activeState.term) {
+                            setTimeout(() => {
+                                log('[LEAK CHECK] Calling setTerminalSize from visibility_restored');
+                                setTerminalSize(tabState.activeTabId);
+                                activeState.term.focus();
+                                vscode.postMessage({
+                                    type: 'refreshCliAgentStatus',
+                                    tabId: tabState.activeTabId,
+                                    timestamp: Date.now()
+                                });
+                            }, 50);
+                        } else if (activeState && activeState.isInitialized) {
+                            log('Terminal was disposed unexpectedly, resetting state');
+                            resetTerminalResources();
+                            window.location.reload();
+                        }
+                        break;
+
+                    case 'tabCreated':
+                        // バックエンドからのタブ作成通知
+                        if (message.tab) {
+                            const tab = message.tab;
+                            tabState.tabs.push(tab);
+                            createTabUI(tab);
+                            createTerminalPane(tab.id);
+                            switchToTab(tab.id);
+                            initializeTerminal(tab.id);
+                        }
+                        break;
+
+                    case 'tabList':
+                        // バックエンドからのタブリスト復元
+                        if (message.tabs && message.tabs.length > 0) {
+                            log('[GLOBAL] Restoring tabs:', message.tabs.length);
+                            message.tabs.forEach(tab => {
+                                tabState.tabs.push(tab);
+                                createTabUI(tab);
+                                createTerminalPane(tab.id);
+                            });
+                            if (message.activeTabId) {
+                                switchToTab(message.activeTabId);
+                                initializeTerminal(message.activeTabId);
+                            }
+                        }
+                        break;
+
+                    case 'tabClosed':
+                        // バックエンドからのタブ閉じ通知
+                        if (message.tabId) {
+                            log('[GLOBAL] Tab closed by backend:', message.tabId);
+                            closeTabUI(message.tabId);
+                        }
+                        break;
+
+                    case 'tabProcessExited':
+                        // プロセス終了によるタブ閉じ（Ctrl-D等）
+                        if (message.tabId) {
+                            log('[GLOBAL] Process exited, closing tab:', message.tabId);
+                            closeTabUI(message.tabId);
+                        }
+                        break;
+
+                    case 'bufferCleanupCompleted':
+                        log('[BUFFER CLEANUP] Received cleanup completion notification', {
+                            success: message.success,
+                            timestamp: message.timestamp,
+                            error: message.error
+                        });
+                        break;
+
+                    case 'sendTextToEditor':
+                        if (editorState.editor && message.text) {
+                            editorState.editor.insert(message.text);
+                            editorState.editor.focus();
+                        }
+                        break;
+
+                    case 'extractToTodosResult':
+                        if (message.success && editorState.editor) {
+                            const reference = `See [@${message.filePath}]`;
+                            editorState.editor.setValue(reference, -1);
+                            log('[EXTRACT] Editor content replaced with reference:', reference);
+                        } else if (!message.success) {
+                            log('[EXTRACT] Failed to write TODOS.md:', message.error);
+                        }
+                        break;
+                }
+            };
+            window.addEventListener('message', globalMessageHandler);
+            tabState.globalEventListeners.push({ element: window, event: 'message', handler: globalMessageHandler });
+
+            // ボタンイベントの設定
+            const btnSendSelection = document.getElementById('btn-send-selection');
+            if (btnSendSelection) {
+                btnSendSelection.addEventListener('click', () => {
+                    vscode.postMessage({ type: 'buttonSendSelection', tabId: tabState.activeTabId });
+                    const activeTermState = getActiveTerminalState();
+                    if (activeTermState && activeTermState.term) {
+                        activeTermState.term.focus();
+                    }
+                });
+            }
+
+            const btnCopySelection = document.getElementById('btn-copy-selection');
+            if (btnCopySelection) {
+                btnCopySelection.addEventListener('click', () => {
+                    vscode.postMessage({ type: 'buttonCopySelection', tabId: tabState.activeTabId });
+                    btnCopySelection.classList.add('done');
+                    setTimeout(() => btnCopySelection.classList.remove('done'), 2000);
+                    const activeTermState = getActiveTerminalState();
+                    if (activeTermState && activeTermState.term) {
+                        activeTermState.term.focus();
+                    }
+                });
+            }
+
+            const btnScrollToBottom = document.getElementById('btn-scroll-to-bottom');
+            if (btnScrollToBottom) {
+                btnScrollToBottom.addEventListener('click', () => {
+                    const activeTermState = getActiveTerminalState();
+                    if (activeTermState && activeTermState.term) {
+                        activeTermState.term.scrollToBottom();
+                        activeTermState.term.focus();
+                    }
+                });
+            }
+
+            const btnExtractToTodos = document.getElementById('btn-extract-to-todos');
+            if (btnExtractToTodos) {
+                btnExtractToTodos.addEventListener('click', () => {
+                    if (!editorState.editor) return;
+                    const content = editorState.editor.getValue();
+                    if (!content.trim() || content.split('\n').length <= 1) return;
+                    vscode.postMessage({ type: 'extractToTodos', data: content });
+                });
+            }
+
+            const btnOpenHistory = document.getElementById('btn-open-history');
+            if (btnOpenHistory) {
+                btnOpenHistory.addEventListener('click', () => {
+                    vscode.postMessage({ type: 'openPromptHistory' });
+                });
+            }
+
+            // タブバーイベントの設定
+            const btnAddTab = document.getElementById('btn-add-tab');
+            if (btnAddTab) {
+                btnAddTab.addEventListener('click', () => {
+                    log('[TAB] Add tab button clicked');
+                    vscode.postMessage({ type: 'createTab' });
+                });
+            }
+
+            // タブリストのクリックイベント（イベント委譲）
+            const tabList = document.getElementById('tab-list');
+            if (tabList) {
+                tabList.addEventListener('click', (event) => {
+                    const tabElement = event.target.closest('.tab');
+                    if (!tabElement) return;
+
+                    const tabId = tabElement.dataset.tabId;
+                    if (!tabId) return;
+
+                    // 閉じるボタンがクリックされた場合
+                    if (event.target.closest('.tab-close')) {
+                        log('[TAB] Close button clicked for tab:', tabId);
+                        vscode.postMessage({ type: 'closeTab', tabId: tabId });
+                        return;
+                    }
+
+                    // タブ本体がクリックされた場合
+                    if (tabId !== tabState.activeTabId) {
+                        log('[TAB] Tab clicked:', tabId);
+                        switchToTab(tabId);
+                        vscode.postMessage({ type: 'switchTab', tabId: tabId });
+                    }
+                });
+            }
+
+            log('[GLOBAL] Global handlers initialized');
+        }
+
+        // 新しいタブを作成するヘルパー関数
+        let nextTabNumber = 1;
+        function createNewTab() {
+            const tabId = 'tab-' + Date.now() + '-' + Math.random().toString(36).substr(2, 9);
+            const tab = {
+                id: tabId,
+                title: 'Terminal ' + nextTabNumber++
+            };
+            tabState.tabs.push(tab);
+            createTabUI(tab);
+            createTerminalPane(tab.id);
+            switchToTab(tab.id);
+            return tabId;
+        }
+
+        // ターミナル初期化関数（タブ対応）
+        function initializeTerminal(tabId) {
+            // タブ固有の状態を取得または作成
+            let state = tabState.terminalStates.get(tabId);
+            if (!state) {
+                state = createTerminalState();
+                tabState.terminalStates.set(tabId, state);
+            }
+
             try {
                 // 重複初期化を厳密にチェック
-                if (terminalState.isInitialized) {
-                    log('[INIT] Terminal is already initialized, skipping duplicate initialization');
+                if (state.isInitialized) {
+                    log('[INIT] Terminal for tab', tabId, 'is already initialized, skipping');
 
                     // 既に初期化済みの場合は、サイズ調整とフォーカスのみ実行
-                    if (terminalState.term) {
+                    if (state.term) {
                         setTimeout(() => {
-                            setTerminalSize();
-                            terminalState.term.focus();
+                            setTerminalSize(tabId);
+                            state.term.focus();
                         }, 50);
                     }
                     return;
@@ -872,15 +1499,15 @@
                 log(`[INIT] CSS Variables: vscode-sideBar-background:${document.documentElement.style.getPropertyValue('--vscode-sideBar-background')}, vscode-terminal-foreground:${document.documentElement.style.getPropertyValue('--vscode-terminal-foreground')}, vscode-terminal-background:${document.documentElement.style.getPropertyValue('--vscode-terminal-background')}`);
 
                 // 二重初期化を防ぐため、最初にフラグを立てる
-                terminalState.isInitialized = true;
+                state.isInitialized = true;
 
-                log('[INIT] Starting terminal initialization');
+                log('[INIT] Starting terminal initialization for tab:', tabId);
 
                 if (typeof Terminal === 'undefined') {
                     throw new Error('Terminal is not defined. xterm.js may not have loaded.');
                 }
 
-                terminalState.term = new Terminal({
+                state.term = new Terminal({
                     theme: {
                         // ↓ おそらく、ターミナル内で上書きされる
                         // background: 'var(--vscode-sideBar-background)',
@@ -905,38 +1532,37 @@
                     scrollback: MAX_BUFFER_LINES
                 });
 
-                const terminalElement = document.getElementById('terminal');
-                terminalState.term.open(terminalElement);
+                const terminalElement = document.getElementById('terminal-pane-' + tabId);
+                state.term.open(terminalElement);
+
+                // Map にも登録
+                tabState.terminals.set(tabId, state.term);
 
                 // 2秒ごとにスクロール位置をチェックし、最上部なら最下部にスクロール
                 const scrollCheckInterval = setInterval(() => {
-                    if (!terminalState.term || !terminalState.term.buffer || !terminalState.term.buffer.active) {
+                    if (!state.term || !state.term.buffer || !state.term.buffer.active) {
                         return;
                     }
-                    const buffer = terminalState.term.buffer.active;
+                    const buffer = state.term.buffer.active;
                     // スクロール位置が厳密に0(最上部)の時のみ
                     if (buffer.viewportY === 0) {
-                        terminalState.term.scrollToBottom();
+                        state.term.scrollToBottom();
                     }
                 }, 2000);
 
                 // タイマーを管理対象に追加
-                terminalState.timers.scrollCheck = scrollCheckInterval;
+                state.timers.scrollCheck = scrollCheckInterval;
                 log('[LEAK CHECK] Added scroll position check interval (2000ms)');
 
                 // Unicode 11 アドオンをロード
                 if (typeof Unicode11Addon !== 'undefined') {
                     try {
                         const unicode11 = new Unicode11Addon.Unicode11Addon();
-                        terminalState.term.loadAddon(unicode11);
-                        unicode11.activate(terminalState.term);
+                        state.term.loadAddon(unicode11);
+                        unicode11.activate(state.term);
                         log('[LEAK CHECK] Unicode11 addon loaded');
 
-                        // アドオンを管理対象に追加
-                        if (!terminalState.addons) {
-                            terminalState.addons = [];
-                        }
-                        terminalState.addons.push(unicode11);
+                        state.addons.push(unicode11);
                     } catch (error) {
                         log('Failed to load Unicode 11 addon:', error);
                     }
@@ -953,14 +1579,10 @@
                             webgl.dispose();
                         });
 
-                        terminalState.term.loadAddon(webgl);
+                        state.term.loadAddon(webgl);
                         log('[RENDERER] WebGL addon loaded successfully');
 
-                        // アドオンを管理対象に追加
-                        if (!terminalState.addons) {
-                            terminalState.addons = [];
-                        }
-                        terminalState.addons.push(webgl);
+                        state.addons.push(webgl);
                     } catch (error) {
                         log('[RENDERER] Failed to load WebGL addon:', error);
                         throw error;
@@ -988,136 +1610,68 @@
                 // サイズ確定後に初期設定
                 waitForSize().then(() => {
                     // 初期サイズ設定
-                    setTerminalSize();
+                    setTerminalSize(tabId);
 
                 });
 
-                // ターミナルサイズを動的に設定（元の手動計算方式）
-                function setTerminalSize() {
-                    const container = document.querySelector('.terminal-container');
-                    const terminal = document.getElementById('terminal');
+                // ウィンドウリサイズ時の処理（グローバル - 全タブに適用）
+                if (!tabState.resizeObserver) {
+                    const windowResizeHandler = () => {
+                        // アクティブなタブのみリサイズ
+                        if (tabState.activeTabId) {
+                            setTimeout(() => setTerminalSize(tabState.activeTabId), 50);
+                        }
+                    };
+                    window.addEventListener('resize', windowResizeHandler);
+                    tabState.globalEventListeners.push({ element: window, event: 'resize', handler: windowResizeHandler });
 
-                    if (!container || !terminal) {
-                        log('Terminal container not found');
-                        return;
+                    // ResizeObserver でコンテナサイズ変更を監視（グローバル）
+                    let lastResizeTime = 0;
+
+                    tabState.resizeObserver = new ResizeObserver((entries) => {
+                        const now = Date.now();
+
+                        // デバウンス処理：連続する resize を制限
+                        if (now - lastResizeTime < 100) {
+                            return;
+                        }
+
+                        for (const entry of entries) {
+                            lastResizeTime = now;
+
+                            // アクティブなタブのみリサイズ
+                            if (tabState.activeTabId) {
+                                setTimeout(() => setTerminalSize(tabState.activeTabId), 30);
+                            }
+                        }
+                    });
+
+                    // terminal-panes コンテナを監視
+                    const panesContainer = document.getElementById('terminal-panes');
+                    if (panesContainer) {
+                        tabState.resizeObserver.observe(panesContainer);
                     }
-
-                    // コンテナの実際のサイズを取得
-                    const terminalRect = terminal.getBoundingClientRect();
-                    const availableWidth = terminalRect.width - 20; // パディング考慮
-                    const availableHeight = terminalRect.height - 5;
-
-                    // フォント情報から文字サイズを正確に計算
-                    const fontSize = 13;
-                    const targetLineHeight = 1.2; // Terminal設定と同じ行間
-
-                    // 一時的な測定用エレメントを作成して文字幅を正確に測定
-                    const measurer = document.createElement('div');
-                    measurer.style.position = 'absolute';
-                    measurer.style.visibility = 'hidden';
-                    measurer.style.fontFamily = '"RobotoMono Nerd Font Mono", "RobotoMono Nerd Font", "Roboto Mono", Consolas, "Courier New", monospace';
-                    measurer.style.fontSize = fontSize + 'px';
-                    measurer.style.lineHeight = targetLineHeight; // 数値で指定
-                    measurer.style.whiteSpace = 'pre';
-                    measurer.textContent = 'M'.repeat(10); // 等幅フォントのM文字で測定
-
-                    document.body.appendChild(measurer);
-                    const rawCharWidth = measurer.getBoundingClientRect().width / 10;
-                    const rawLineHeight = measurer.getBoundingClientRect().height;
-                    document.body.removeChild(measurer);
-
-                    // サイズ調整係数（微調整用）
-                    // 大きくするほど表示サイズは小さくなる。はみ出したら大きくする。
-                    const widthAdjustment = 0.88; // 横幅を少し詰める（右余白を減らす）
-                    const heightAdjustment = 1.34; // 縦幅を少し詰める（はみ出し防止）
-
-                    const adjustedCharWidth = rawCharWidth * widthAdjustment;
-                    const adjustedLineHeight = rawLineHeight * heightAdjustment;
-
-                    // 列数と行数を計算
-                    const cols = Math.floor(availableWidth / adjustedCharWidth);
-                    const rows = Math.floor(availableHeight / adjustedLineHeight);
-
-                    // 最小サイズを保証
-                    const finalCols = Math.max(cols, 20);
-                    const finalRows = Math.max(rows, 5);
-
-                    // ターミナルサイズを設定
-                    if (terminalState.term && (terminalState.term.cols !== finalCols || terminalState.term.rows !== finalRows)) {
-                        terminalState.term.resize(finalCols, finalRows);
-
-                        // サイズ変更を VSCode に通知
-                        vscode.postMessage({
-                            type: 'resize',
-                            cols: finalCols,
-                            rows: finalRows
-                        });
-
-
-                    }
-                }
-
-                // ウィンドウリサイズ時の処理
-                const windowResizeHandler = () => {
-                    setTimeout(setTerminalSize, 50);
-                };
-                addManagedEventListener(window, 'resize', windowResizeHandler);
-
-                // ResizeObserver でコンテナサイズ変更を監視
-                let lastResizeTime = 0;
-                let resizeCount = 0;
-
-                // 既存の ResizeObserver があれば警告
-                if (terminalState.resizeObserver) {
-                    log('[LEAK CHECK] ResizeObserver already exists! This might be a duplicate.');
-                }
-
-                terminalState.resizeObserver = new ResizeObserver((entries) => {
-                    const now = Date.now();
-                    resizeCount++;
-
-                    // デバウンス処理：連続する resize を制限
-                    if (now - lastResizeTime < 100) {
-
-                        return;
-                    }
-
-                    for (const entry of entries) {
-
-                        lastResizeTime = now;
-
-                        // 遅延を短縮してレスポンシブ性を向上
-                        setTimeout(setTerminalSize, 30);
-                    }
-                });
-
-                // terminal-container を監視
-                const container = document.querySelector('.terminal-container');
-                if (container) {
-                    terminalState.resizeObserver.observe(container);
                 }
 
                 // 定期的なサイズチェック（VSCode の制約対応）
                 setTimeout(() => {
-                    setTerminalSize();
+                    setTerminalSize(tabId);
                 }, 2000);
-
-                let cliAgentState = { active: false, agent_type: null }; // CLI エージェントの状態
 
                 // CLI エージェントインジケーターの表示更新
                 function updateCliAgentIndicator() {
                     const indicator = document.getElementById('cli-agent-indicator');
                     if (indicator) {
-                        if (cliAgentState.active) {
+                        if (state.cliAgentState.active) {
                             indicator.classList.add('active');
                             // エージェント種別に応じたラベル表示
-                            if (cliAgentState.agent_type === 'claude') {
+                            if (state.cliAgentState.agent_type === 'claude') {
                                 indicator.textContent = 'Claude';
                                 indicator.title = 'Claude is active - Shift+Enter inputs a newline';
-                            } else if (cliAgentState.agent_type === 'gemini') {
+                            } else if (state.cliAgentState.agent_type === 'gemini') {
                                 indicator.textContent = 'Gemini';
                                 indicator.title = 'Gemini is active - Shift+Enter inputs a newline';
-                            } else if (cliAgentState.agent_type === 'codex') {
+                            } else if (state.cliAgentState.agent_type === 'codex') {
                                 indicator.textContent = 'Codex';
                                 indicator.title = 'Codex is active - Shift+Enter sends Ctrl+J';
                             } else {
@@ -1132,9 +1686,8 @@
                     }
                 }
 
-                // ステータスメッセージの処理
+                // ステータスメッセージの処理（このタブ用）
                 function handleStatusMessage(data) {
-
                     try {
                         // CSI シーケンス ]777; で始まるメッセージを処理（実際のESC文字を検索）
                         if (data.includes('\x1b]777;')) {
@@ -1148,8 +1701,11 @@
                                     const message = JSON.parse(messageJson);
 
                                     if (message.type === 'cli_agent_status') {
-                                        cliAgentState = message.data;
-                                        updateCliAgentIndicator(); // インジケーター表示を更新
+                                        state.cliAgentState = message.data;
+                                        // アクティブタブの場合のみインジケーター更新
+                                        if (tabState.activeTabId === tabId) {
+                                            updateCliAgentIndicator();
+                                        }
                                     }
 
                                     if (message.type === 'log') {
@@ -1171,21 +1727,23 @@
                     }
                 }
 
+                // handleStatusMessage を state に保存（output 処理で使用）
+                state.handleStatusMessage = handleStatusMessage;
+
                 // Shift + Enter を Alt + Enter に変換するキーハンドラー
                 try {
-                    if (typeof terminalState.term.attachCustomKeyEventHandler === 'function') {
-
-
-                        terminalState.term.attachCustomKeyEventHandler(function (event) {
+                    if (typeof state.term.attachCustomKeyEventHandler === 'function') {
+                        state.term.attachCustomKeyEventHandler(function (event) {
                             // ESC キーの処理（vim など対応）
                             if (event.type === 'keydown' && event.key === 'Escape') {
                                 // ブラウザのデフォルト動作を完全に停止
                                 event.preventDefault();
                                 event.stopPropagation();
 
-                                // 正しいエスケープシーケンスを送信
+                                // 正しいエスケープシーケンスを送信（tabId を含める）
                                 vscode.postMessage({
                                     type: 'terminalInput',
+                                    tabId: tabId,
                                     data: '\x1b'  // ESC文字（ASCII 27）を確実に送信
                                 });
 
@@ -1202,8 +1760,8 @@
                                 !event.metaKey) {
 
                                 // CLI エージェント（Claude/Gemini）がアクティブの場合のみ Alt+Enter に変換
-                                if (cliAgentState.active) {
-                                    const agentType = cliAgentState.agent_type || 'CLI Agent';
+                                if (state.cliAgentState.active) {
+                                    const agentType = state.cliAgentState.agent_type || 'CLI Agent';
                                     // ブラウザのデフォルト動作を完全に停止
                                     event.preventDefault();
                                     event.stopPropagation();
@@ -1213,6 +1771,7 @@
                                         const ctrlJ = '\n';
                                         vscode.postMessage({
                                             type: 'terminalInput',
+                                            tabId: tabId,
                                             data: ctrlJ
                                         });
                                     } else {
@@ -1220,6 +1779,7 @@
                                         const altEnterSequence = '\x1b\r';
                                         vscode.postMessage({
                                             type: 'terminalInput',
+                                            tabId: tabId,
                                             data: altEnterSequence
                                         });
                                     }
@@ -1228,7 +1788,6 @@
                                     return false;
                                 } else {
                                     // CLI エージェントがアクティブでない場合は通常の Enter として処理
-
                                     return true;
                                 }
                             }
@@ -1236,8 +1795,6 @@
                             // その他のキーはデフォルト処理を継続
                             return true;
                         });
-
-
                     } else {
                         log('attachCustomKeyEventHandler is not available');
                     }
@@ -1246,19 +1803,17 @@
                 }
 
                 // onData のリスナーを保存して後で dispose できるようにする
-                const dataListener = terminalState.term.onData((data) => {
+                const dataListener = state.term.onData((data) => {
                     vscode.postMessage({
                         type: 'terminalInput',
+                        tabId: tabId,
                         data: data
                     });
                 });
 
-                // dataListener を管理対象に追加（dispose 時にクリーンアップするため）
-                if (!terminalState.xtermListeners) {
-                    terminalState.xtermListeners = [];
-                }
-                terminalState.xtermListeners.push(dataListener);
-                log('[LEAK CHECK] Added onData listener, total listeners: ' + terminalState.xtermListeners.length);
+                // dataListener を管理対象に追加
+                state.xtermListeners.push(dataListener);
+                log('[LEAK CHECK] Added onData listener for tab:', tabId);
 
                 // ペーストイベントハンドラー（DOM イベントを使用）
                 const pasteHandler = (event) => {
@@ -1277,213 +1832,24 @@
                     }
                 };
 
-                // ターミナル要素にペーストリスナーを追加
-                addManagedEventListener(terminalElement, 'paste', pasteHandler);
-                log('[LEAK CHECK] Added DOM paste listener');
+                // ターミナル要素にペーストリスナーを追加（タブ固有）
+                addManagedEventListener(terminalElement, 'paste', pasteHandler, state);
+                log('[LEAK CHECK] Added DOM paste listener for tab:', tabId);
 
-                const messageHandler = (event) => {
-                    const message = event.data;
-                    switch (message.type) {
-                        case 'output':
-                            // ステータスメッセージをチェック
-                            handleStatusMessage(message.data);
-
-                            // アダプティブレンダリング: 画面消去検知と更新頻度追跡
-                            const payload = message.data;
-                            const hasScreenClear = hasScreenClearSequence(payload);
-
-                            // 更新頻度を追跡（50ms以内の連続更新をカウント）
-                            // 減少は -2 ずつ行い、急激な遅延切り替えを避ける
-                            // 例: 高頻度(6回)→中頻度(4回)→低頻度(2回)→通常(0回) と段階的に復帰
-                            const now = Date.now();
-                            if (now - terminalState.lastWriteTime < 50) {
-                                terminalState.recentWriteCount = Math.min(terminalState.recentWriteCount + 1, 10);
-                            } else {
-                                terminalState.recentWriteCount = Math.max(0, terminalState.recentWriteCount - 2);
-                            }
-                            terminalState.lastWriteTime = now;
-
-                            // 動的に遅延を調整
-                            if (hasScreenClear || terminalState.recentWriteCount > 5) {
-                                terminalState.adaptiveDelayMs = 50;  // 20fps（TUI アプリ向け）
-                            } else if (terminalState.recentWriteCount > 2) {
-                                terminalState.adaptiveDelayMs = 33;  // 30fps
-                            } else {
-                                terminalState.adaptiveDelayMs = 16;  // 60fps（通常出力）
-                            }
-
-                            // バッチ処理: データをバッファに追加
-                            terminalState.writeBufferData += payload;
-
-                            // まだタイマーがセットされていない場合のみ
-                            if (!terminalState.writeBufferPending && terminalState.term) {
-                                terminalState.writeBufferPending = true;
-
-                                // setTimeout で動的遅延を適用
-                                terminalState.timers.writeBuffer = setTimeout(() => {
-                                    if (terminalState.term && terminalState.writeBufferData) {
-                                        terminalState.term.write(terminalState.writeBufferData);
-                                        terminalState.writeBufferData = '';
-                                    }
-                                    terminalState.writeBufferPending = false;
-                                    terminalState.timers.writeBuffer = null;
-                                }, terminalState.adaptiveDelayMs);
-                            }
-                            break;
-                        case 'clear':
-                            if (terminalState.term) {
-                                terminalState.term.clear();
-                            }
-
-                            break;
-                        case 'reset':
-                            // VSCode 側のリセット完了に合わせて、フロント側も完全再初期化
-                            // これによりキーハンドラ、フォーカス、ResizeObserver、タイマーを健全な状態に戻す
-                            resetTerminalResources();
-                            setTimeout(() => {
-                                initializeTerminal();
-                            }, 10);
-                            break;
-                        case 'visibility_restored':
-                            // WebView の可視状態が復元された時の処理
-                            log('[LEAK CHECK] visibility_restored event received');
-                            if (terminalState.term) {
-                                // ターミナルが存在する場合は、サイズを再調整
-                                setTimeout(() => {
-                                    log('[LEAK CHECK] Calling setTerminalSize from visibility_restored');
-                                    setTerminalSize();
-                                    // フォーカスを復元
-                                    terminalState.term.focus();
-
-                                    // CLI Agent状態を強制的に再チェック要求
-                                    vscode.postMessage({
-                                        type: 'refreshCliAgentStatus',
-                                        timestamp: Date.now()
-                                    });
-                                }, 50);
-                            } else if (terminalState.isInitialized) {
-                                // ターミナルが破棄されているが初期化済みの場合は、状態をリセット
-                                log('Terminal was disposed unexpectedly, resetting state');
-                                resetTerminalResources();
-                                // ページを再読み込みして完全に復元
-                                window.location.reload();
-                            }
-                            break;
-                        case 'bufferCleanupCompleted':
-                            log('[BUFFER CLEANUP] Received cleanup completion notification', {
-                                success: message.success,
-                                timestamp: message.timestamp,
-                                error: message.error
-                            });
-                            if (!message.success) {
-                                log('[BUFFER CLEANUP] Backend cleanup failed:', message.error);
-                            }
-                            break;
-                        case 'sendTextToEditor':
-                            // テキストを ACE エディタに入力
-                            if (editorState.editor && message.text) {
-                                editorState.editor.insert(message.text);
-                                editorState.editor.focus();
-                            }
-                            break;
-                        case 'extractToTodosResult':
-                            // TODOS.md への書き出し結果を受け取り、エディタを更新
-                            if (message.success && editorState.editor) {
-                                const reference = `See [@${message.filePath}]`;
-                                editorState.editor.setValue(reference, -1);
-                                log('[EXTRACT] Editor content replaced with reference:', reference);
-                            } else if (!message.success) {
-                                log('[EXTRACT] Failed to write TODOS.md:', message.error);
-                            }
-                            break;
-                    }
-                };
-                addManagedEventListener(window, 'message', messageHandler);
-
-                // ボタンイベントの設定
-                const sendSelectionHandler = () => {
-                    vscode.postMessage({ type: 'buttonSendSelection' });
-                    // ボタンクリック後にターミナルにフォーカスを移動
-                    if (terminalState.term) {
-                        terminalState.term.focus();
-                    }
-                };
-                addManagedEventListener(document.getElementById('btn-send-selection'), 'click', sendSelectionHandler);
-
-                // コピーボタンのイベント設定
-                const copySelectionHandler = () => {
-                    const button = document.getElementById('btn-copy-selection');
-
-                    vscode.postMessage({ type: 'buttonCopySelection' });
-
-                    // ボタンに .done クラスを追加してチェックマーク表示
-                    button.classList.add('done');
-                    setTimeout(() => {
-                        button.classList.remove('done');
-                    }, 2000);
-
-                    // ボタンクリック後にターミナルにフォーカスを移動
-                    if (terminalState.term) {
-                        terminalState.term.focus();
-                    }
-                };
-                addManagedEventListener(document.getElementById('btn-copy-selection'), 'click', copySelectionHandler);
-
-                // スクロールボタンのイベント設定
-                const scrollToBottomHandler = () => {
-                    // ターミナルを一番下までスクロール
-                    if (terminalState.term) {
-                        terminalState.term.scrollToBottom();
-                        terminalState.term.focus();
-                    }
-                };
-                addManagedEventListener(document.getElementById('btn-scroll-to-bottom'), 'click', scrollToBottomHandler);
-
-                // Extract ボタンのイベント設定
-                const extractToTodosHandler = () => {
-                    if (!editorState.editor) {
-                        log('[EXTRACT] Editor not initialized');
-                        return;
-                    }
-                    const content = editorState.editor.getValue();
-                    if (!content.trim()) {
-                        log('[EXTRACT] Editor content is empty');
-                        return;
-                    }
-                    // 1行以下の場合は処理しない（二度押し防止）
-                    if (content.split('\n').length <= 1) {
-                        log('[EXTRACT] Editor content is single line, skipping');
-                        return;
-                    }
-                    // VSCode 側に TODOS.md への書き出しを依頼
-                    vscode.postMessage({
-                        type: 'extractToTodos',
-                        data: content
-                    });
-                };
-                addManagedEventListener(document.getElementById('btn-extract-to-todos'), 'click', extractToTodosHandler);
-
-                // History ボタンのイベント設定
-                const openHistoryHandler = () => {
-                    vscode.postMessage({
-                        type: 'openPromptHistory'
-                    });
-                };
-                addManagedEventListener(document.getElementById('btn-open-history'), 'click', openHistoryHandler);
+                // メッセージハンドラと button ハンドラは initializeGlobalHandlers で登録済み
 
                 // 定期的なバッファクリア機能を設定
                 setupPeriodicBufferCleanup();
 
-                // 初期化完了フラグを設定
-                terminalState.isInitialized = true;
+                // 初期化完了フラグは既に設定済み (state.isInitialized = true)
 
                 // 入力フォーカスを明示的に与える
-                if (terminalState.term) {
-                    terminalState.term.focus();
+                if (state.term) {
+                    state.term.focus();
                 }
 
                 // VSCode 側に準備完了を通知（これをトリガにシェルを起動）
-                vscode.postMessage({ type: 'terminalReady' });
+                vscode.postMessage({ type: 'tabReady', tabId: tabId });
 
             } catch (error) {
                 log('Error initializing terminal:', error);
@@ -1492,8 +1858,12 @@
             }
         }
 
-        // ターミナル初期化を実行
-        initializeTerminal();
+        // グローバルハンドラを初期化
+        initializeGlobalHandlers();
+
+        // 最初のタブを作成してターミナル初期化を実行
+        const firstTabId = createNewTab();
+        initializeTerminal(firstTabId);
 
         // ACE エディタ初期化を実行
         setTimeout(() => {
