@@ -1857,7 +1857,10 @@
             } catch (error) {
                 log('Error initializing terminal:', error);
                 vscode.postMessage({ type: 'error', error: error.message });
-                document.getElementById('terminal').innerHTML = '<p style="color: red;">Error loading terminal: ' + error.message + '</p>';
+                const pane = document.getElementById(`terminal-pane-${tabId}`);
+                if (pane) {
+                    pane.innerHTML = '<p style="color: red;">Error loading terminal: ' + error.message + '</p>';
+                }
             }
         }
 
