@@ -11,6 +11,8 @@ import json
 import atexit
 import errno
 import re
+import fcntl
+import termios
 
 # I/O バッファサイズ定数（vim などの対話的アプリに優しいサイズに調整）
 IO_BUFFER_SIZE = 1024
@@ -19,13 +21,9 @@ IO_BUFFER_SIZE = 1024
 def set_winsize(fd, rows, cols):
     """ターミナルサイズを設定"""
     try:
-        import termios
-
         winsize = struct.pack('HHHH', rows, cols, 0, 0)
-        import fcntl
-
         fcntl.ioctl(fd, termios.TIOCSWINSZ, winsize)
-    except (ImportError, OSError):
+    except OSError:
         pass
 
 
@@ -258,6 +256,20 @@ def main():
     # atexit でクリーンアップを保証
     atexit.register(cleanup_handler)
 
+    def setup_child_process():
+        """子プロセスの初期化: セッション作成と制御端末の設定"""
+        # 新しいセッションを作成（プロセスグループリーダーになる）
+        os.setsid()
+        # stdin (slave fd) を制御端末として設定
+        # TIOCSCTTY: このプロセスの制御端末を設定する ioctl
+        # 第3引数 0: 既存の制御端末がある場合はエラーにする
+        try:
+            fcntl.ioctl(0, termios.TIOCSCTTY, 0)
+        except OSError as e:
+            # EPERM: 既に制御端末が設定されている場合
+            if e.errno != errno.EPERM:
+                log(f'TIOCSCTTY failed: {e.errno} {e}')
+
     while True:  # シェルプロセスが終了したら再起動するループ
         # 環境変数を設定
         os.environ['TERM'] = 'xterm-256color'
@@ -275,13 +287,14 @@ def main():
 
         # シェルプロセスを起動
         shell_cmd = [os.environ.get('SHELL', '/bin/zsh'), '-l', '-i']
+
         try:
             p = subprocess.Popen(
                 shell_cmd,
                 stdin=slave,
                 stdout=slave,
                 stderr=slave,
-                preexec_fn=os.setsid,
+                preexec_fn=setup_child_process,
                 cwd=cwd,
             )
             current_shell_process = p  # グローバル変数に保存
@@ -298,7 +311,7 @@ def main():
                 stdin=slave,
                 stdout=slave,
                 stderr=slave,
-                preexec_fn=os.setsid,
+                preexec_fn=setup_child_process,
                 cwd=cwd,
             )
             current_shell_process = p  # グローバル変数に保存
