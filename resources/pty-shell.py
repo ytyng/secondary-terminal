@@ -27,6 +27,67 @@ def set_winsize(fd, rows, cols):
         pass
 
 
+def get_foreground_process_name(shell_pid):
+    """シェルプロセスのフォアグラウンド子プロセス名を取得する。
+
+    シェルの子プロセスを探し、その名前を返す。
+    子プロセスがない場合はシェル自体の名前を返す。
+    """
+    try:
+        # シェルの直接の子プロセスを取得
+        result = subprocess.run(
+            ['pgrep', '-P', str(shell_pid)],
+            capture_output=True,
+            text=True,
+            timeout=1,
+            encoding='utf-8',
+            errors='ignore',
+        )
+
+        if result.returncode == 0 and result.stdout.strip():
+            child_pids = result.stdout.strip().split('\n')
+            # 最後の（最新の）子プロセスの名前を取得
+            for child_pid in reversed(child_pids):
+                child_pid = child_pid.strip()
+                if not child_pid:
+                    continue
+                try:
+                    ps_result = subprocess.run(
+                        ['ps', '-p', child_pid, '-o', 'comm='],
+                        capture_output=True,
+                        text=True,
+                        timeout=1,
+                        encoding='utf-8',
+                        errors='ignore',
+                    )
+                    if ps_result.returncode == 0 and ps_result.stdout.strip():
+                        process_name = ps_result.stdout.strip()
+                        if '/' in process_name:
+                            process_name = os.path.basename(process_name)
+                        return process_name
+                except (subprocess.TimeoutExpired, subprocess.SubprocessError):
+                    continue
+
+        # 子プロセスがない場合はシェル自体の名前を返す
+        result = subprocess.run(
+            ['ps', '-p', str(shell_pid), '-o', 'comm='],
+            capture_output=True,
+            text=True,
+            timeout=1,
+            encoding='utf-8',
+            errors='ignore',
+        )
+        if result.returncode == 0 and result.stdout.strip():
+            process_name = result.stdout.strip()
+            if '/' in process_name:
+                process_name = os.path.basename(process_name)
+            return process_name
+
+        return None
+    except (OSError, subprocess.TimeoutExpired, subprocess.SubprocessError):
+        return None
+
+
 def check_cli_agent_active(shell_pid):
     """シェルプロセス配下で CLI エージェント（Claude, Gemini）の稼働有無を軽量に判定する。
 
@@ -335,6 +396,11 @@ def main():
         current_agent_state = {'active': False, 'agent_type': None}
         check_interval = 3.0  # 3秒間隔に変更
 
+        # フォアグラウンドプロセス監視のための変数
+        last_fg_process_check = 0
+        fg_process_check_interval = 1.0  # 1秒間隔
+        current_fg_process = None
+
         # UTF-8 デコード用のバッファ（マルチバイト文字の分割対応）
         input_buffer = b''
         # stdin が EOF/クローズされたかどうかのフラグ（EOF 後は select 対象から外してスピンを防ぐ）
@@ -379,6 +445,16 @@ def main():
                         )
 
                     last_agent_check = current_time
+
+                # フォアグラウンドプロセス名チェック（1秒間隔）
+                if current_time - last_fg_process_check >= fg_process_check_interval:
+                    new_fg_process = get_foreground_process_name(p.pid)
+                    if new_fg_process and new_fg_process != current_fg_process:
+                        current_fg_process = new_fg_process
+                        send_status_message(
+                            'foreground_process', {'name': current_fg_process}
+                        )
+                    last_fg_process_check = current_time
 
                 # 標準入力から PTY マスターへの入力を処理
                 try:

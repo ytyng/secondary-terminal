@@ -590,6 +590,25 @@
         }
 
         /**
+         * タブのタイトルを更新
+         */
+        function updateTabTitle(tabId, title) {
+            // タブ UI 要素を探して更新
+            const tabElement = document.querySelector(`.tab[data-tab-id="${tabId}"]`);
+            if (tabElement) {
+                const titleElement = tabElement.querySelector('.tab-title');
+                if (titleElement) {
+                    titleElement.textContent = title;
+                }
+            }
+            // タブ状態も更新
+            const tabInfo = tabState.tabs.find(t => t.id === tabId);
+            if (tabInfo) {
+                tabInfo.title = title;
+            }
+        }
+
+        /**
          * 指定したタブに切り替え
          */
         function switchToTab(tabId) {
@@ -1712,6 +1731,14 @@
                                         // アクティブタブの場合のみインジケーター更新
                                         if (tabState.activeTabId === tabId) {
                                             updateCliAgentIndicator();
+                                        }
+                                    }
+
+                                    if (message.type === 'foreground_process') {
+                                        // フォアグラウンドプロセス名でタブタイトルを更新
+                                        const processName = message.data?.name;
+                                        if (processName) {
+                                            updateTabTitle(tabId, processName);
                                         }
                                     }
 
