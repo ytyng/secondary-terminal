@@ -885,7 +885,8 @@
                             log('[ACE] Sending content to terminal');
                             vscode.postMessage({
                                 type: 'editorSendContent',
-                                data: trimmedContent
+                                data: trimmedContent,
+                                tabId: tabState.activeTabId
                             });
                             log('[ACE] Content sent to terminal');
 
@@ -894,7 +895,8 @@
                                 log('[ACE] Sending Enter after 200ms');
                                 vscode.postMessage({
                                     type: 'terminalInput',
-                                    data: '\r'
+                                    data: '\r',
+                                    tabId: tabState.activeTabId
                                 });
                                 log('[ACE] Enter sent to terminal');
 
@@ -942,7 +944,8 @@
                                 log('[ACE DOM] Sending content to terminal');
                                 vscode.postMessage({
                                     type: 'editorSendContent',
-                                    data: trimmedContent
+                                    data: trimmedContent,
+                                    tabId: tabState.activeTabId
                                 });
                                 log('[ACE DOM] Content sent to terminal');
 
@@ -951,7 +954,8 @@
                                     log('[ACE DOM] Sending Enter after 200ms');
                                     vscode.postMessage({
                                         type: 'terminalInput',
-                                        data: '\r'
+                                        data: '\r',
+                                        tabId: tabState.activeTabId
                                     });
                                     log('[ACE DOM] Enter sent to terminal');
 

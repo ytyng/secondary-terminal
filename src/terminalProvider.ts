@@ -409,25 +409,6 @@ export class TerminalProvider implements vscode.WebviewViewProvider {
         }, null, this._extensionContext.subscriptions);
     }
 
-    private handleInput(data: string | undefined) {
-        if (typeof data !== 'string') {
-            return;
-        }
-
-        try {
-            // プロセスマネージャー経由でデータを送信
-            this._processManager.sendToProcess(this._workspaceKey, data);
-        } catch (error) {
-            console.error('Failed to send input to process:', error);
-            this.appendLog(`Failed to send input to process: ${error}`);
-            // エラーをWebViewに通知
-            this._view?.webview.postMessage({
-                type: 'output',
-                data: `\r\nError: Failed to send input - ${error}\r\n`
-            });
-        }
-    }
-
     // タブ指定での入力処理
     private handleInputForTab(data: string | undefined, tabId: string | undefined) {
         if (typeof data !== 'string') {
@@ -543,7 +524,9 @@ export class TerminalProvider implements vscode.WebviewViewProvider {
             console.log('[Terminal] Sending editor content to terminal:', message.data);
             // プロンプト履歴をファイルに記録
             this.appendPromptHistory(message.data);
-            this.handleInput(message.data);
+            // アクティブタブに送信（tabIdがない場合は後方互換性のためactiveTabIdを使用）
+            const targetTabId = message.tabId || this._tabState.activeTabId || undefined;
+            this.handleInputForTab(message.data, targetTabId);
         } else {
             console.log('[Terminal] No data in editorSendContent message');
         }
