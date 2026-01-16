@@ -21,6 +21,8 @@ export class ShellProcessManager {
     private sessionManager = TerminalSessionManager.getInstance();
     // startup commands をワークスペースごとに一度だけ実行するためのフラグ
     private startupExecuted: Set<string> = new Set();
+    // プロセス終了時のコールバック
+    private exitCallbacks: Map<string, () => void> = new Map();
 
     private constructor() {}
 
@@ -29,6 +31,20 @@ export class ShellProcessManager {
             ShellProcessManager.instance = new ShellProcessManager();
         }
         return ShellProcessManager.instance;
+    }
+
+    /**
+     * プロセス終了時のコールバックを登録
+     */
+    public registerExitCallback(workspaceKey: string, callback: () => void): void {
+        this.exitCallbacks.set(workspaceKey, callback);
+    }
+
+    /**
+     * プロセス終了時のコールバックを解除
+     */
+    public unregisterExitCallback(workspaceKey: string): void {
+        this.exitCallbacks.delete(workspaceKey);
     }
 
     /**
@@ -142,6 +158,12 @@ export class ShellProcessManager {
 
         shellProcess.on('exit', () => {
             this.processes.delete(workspaceKey);
+            // 登録されているコールバックを呼び出す
+            const exitCallback = this.exitCallbacks.get(workspaceKey);
+            if (exitCallback) {
+                exitCallback();
+                this.exitCallbacks.delete(workspaceKey);
+            }
         });
 
         shellProcess.on('error', (error: Error) => {

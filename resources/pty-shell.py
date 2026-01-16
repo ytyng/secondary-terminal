@@ -623,15 +623,13 @@ def main():
             finally:
                 current_shell_process = None
 
-        # シェルが終了した場合、少し待ってから再起動
+        # シェルが終了した場合、スクリプトも終了（タブを閉じる処理はNode.js側で行う）
         if p.poll() is not None:
             sys.stdout.buffer.write(
-                b'\r\n[Shell terminated. Restarting...]\r\n'
+                b'\r\n[Shell terminated.]\r\n'
             )
             sys.stdout.buffer.flush()
-            time.sleep(1)
-        else:
-            break  # 正常終了の場合はループを抜ける
+        break  # ループを抜けてスクリプト終了
 
 
 if __name__ == '__main__':
