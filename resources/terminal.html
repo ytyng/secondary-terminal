@@ -1639,7 +1639,7 @@
                             return;
                         }
 
-                        for (const entry of entries) {
+                        if (entries.length > 0) {
                             lastResizeTime = now;
 
                             // アクティブなタブのみリサイズ
