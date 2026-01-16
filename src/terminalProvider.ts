@@ -724,6 +724,7 @@ export class TerminalProvider implements vscode.WebviewViewProvider {
             // const config = vscode.workspace.getConfiguration('secondaryTerminal');
             // const maxHistoryLines = Math.max(50, Math.floor(config.get('maxHistoryLines', 1000)));
             const maxHistoryLines = 1000;
+            const versionInfo = this.getVersionInfo();
 
             // プレースホルダーを実際の値に置換
             htmlContent = htmlContent
@@ -736,7 +737,9 @@ export class TerminalProvider implements vscode.WebviewViewProvider {
                 .replace(/{{ACE_MODE_JAVASCRIPT_URI}}/g, aceModeJavaScriptUri.toString())
                 .replace(/{{ACE_MODE_MARKDOWN_URI}}/g, aceModeMarkdownUri.toString())
                 .replace(/{{ACE_KEYBINDING_VSCODE_URI}}/g, aceKeybindingVscodeUri.toString())
-                .replace(/{{SCROLLBACK_MAX}}/g, String(maxHistoryLines));
+                .replace(/{{SCROLLBACK_MAX}}/g, String(maxHistoryLines))
+                .replace(/{{VERSION}}/g, versionInfo.version)
+                .replace(/{{BUILD_DATE}}/g, versionInfo.buildDate);
 
             return htmlContent;
         } catch (error) {

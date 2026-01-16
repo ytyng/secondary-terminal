@@ -162,6 +162,49 @@
             min-height: 0;
         }
 
+        /* Empty State Placeholder */
+        .empty-state {
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            display: none;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            color: var(--vscode-descriptionForeground, #888);
+            cursor: pointer;
+            user-select: none;
+
+            &.visible {
+                display: flex;
+            }
+
+            &:hover {
+                .empty-state-icon,
+                .empty-state-text {
+                    opacity: 0.7;
+                }
+            }
+
+            .empty-state-icon {
+                margin-bottom: 12px;
+                opacity: 0.25;
+            }
+
+            .empty-state-text {
+                font-size: 13px;
+                opacity: 0.35;
+            }
+
+            .empty-state-version {
+                margin-top: 16px;
+                font-size: 10px;
+                opacity: 0.4;
+            }
+        }
+
         .terminal-pane {
             position: absolute;
             top: 0;
@@ -450,7 +493,18 @@
         </div>
 
         <!-- Terminal Panes Container -->
-        <div class="terminal-panes" id="terminal-panes"></div>
+        <div class="terminal-panes" id="terminal-panes">
+            <!-- Empty State Placeholder -->
+            <div class="empty-state" id="empty-state">
+                <svg class="empty-state-icon" width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                    <rect x="3" y="4" width="18" height="16" rx="2" ry="2"></rect>
+                    <polyline points="7 15 10 12 7 9"></polyline>
+                    <line x1="13" y1="15" x2="17" y2="15"></line>
+                </svg>
+                <div class="empty-state-text">Launch New Terminal</div>
+                <div class="empty-state-version">Secondary Terminal<br>ver.{{VERSION}}<br>({{BUILD_DATE}})</div>
+            </div>
+        </div>
 
         <!-- ACE エディタペイン -->
         <div class="editor-container">
@@ -578,6 +632,7 @@
             `;
             tabList.appendChild(tab);
             updateTabCloseButtons();
+            updateEmptyState();
             return tab;
         }
 
@@ -587,6 +642,20 @@
          */
         function updateTabCloseButtons() {
             // 現在は全てのタブが閉じられるため、特に無効化は行わない
+        }
+
+        /**
+         * Empty state の表示/非表示を更新
+         */
+        function updateEmptyState() {
+            const emptyState = document.getElementById('empty-state');
+            if (emptyState) {
+                if (tabState.tabs.length === 0) {
+                    emptyState.classList.add('visible');
+                } else {
+                    emptyState.classList.remove('visible');
+                }
+            }
         }
 
         /**
@@ -672,6 +741,7 @@
             }
 
             updateTabCloseButtons();
+            updateEmptyState();
 
             // 閉じたタブがアクティブだった場合、別のタブに切り替え
             if (tabState.activeTabId === tabId) {
@@ -1449,6 +1519,15 @@
             if (btnAddTab) {
                 btnAddTab.addEventListener('click', () => {
                     log('[TAB] Add tab button clicked');
+                    vscode.postMessage({ type: 'createTab' });
+                });
+            }
+
+            // Empty state クリックで新しいタブを作成
+            const emptyState = document.getElementById('empty-state');
+            if (emptyState) {
+                emptyState.addEventListener('click', () => {
+                    log('[TAB] Empty state clicked');
                     vscode.postMessage({ type: 'createTab' });
                 });
             }
