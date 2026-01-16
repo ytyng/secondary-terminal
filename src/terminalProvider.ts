@@ -376,9 +376,10 @@ export class TerminalProvider implements vscode.WebviewViewProvider {
             } else {
                 // WebView が再び表示された時の処理
                 // マルチタブ: 全タブのセッションを再接続
+                // retainContextWhenHidden: true により内容は保持されているため、バッファ再送信はスキップ
                 for (const tab of this._tabState.tabs) {
                     const compositeKey = this.getCompositeKey(tab.id);
-                    this._sessionManager.connectViewWithTabId(compositeKey, webviewView, tab.id);
+                    this._sessionManager.connectViewWithTabId(compositeKey, webviewView, tab.id, true);
                 }
 
                 // HTMLが初期化されていない場合は再設定

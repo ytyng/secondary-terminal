@@ -51,7 +51,11 @@ export function activate(context: vscode.ExtensionContext) {
 
     const provider = new TerminalProvider(context);
     context.subscriptions.push(
-        vscode.window.registerWebviewViewProvider('secondaryTerminalMainView', provider)
+        vscode.window.registerWebviewViewProvider('secondaryTerminalMainView', provider, {
+            webviewOptions: {
+                retainContextWhenHidden: true
+            }
+        })
     );
 
     // プロセス終了イベントリスナーを追加して強制終了時のクリーンアップを保証

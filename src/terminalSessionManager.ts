@@ -128,8 +128,9 @@ export class TerminalSessionManager {
     /**
      * WebView をセッションに接続（タブID付きメッセージ対応）
      * 出力メッセージに tabId を含めて送信する
+     * @param skipBufferRestore true の場合、バッファの再送信をスキップ（visibility復元時など）
      */
-    public connectViewWithTabId(workspaceKey: string, view: vscode.WebviewView, tabId: string): void {
+    public connectViewWithTabId(workspaceKey: string, view: vscode.WebviewView, tabId: string, skipBufferRestore: boolean = false): void {
         const session = this.getOrCreateSession(workspaceKey);
         // 設定変更を反映（接続のたびに最新の行数上限を取り込む）
         const config = vscode.workspace.getConfiguration('secondaryTerminal');
@@ -163,7 +164,8 @@ export class TerminalSessionManager {
         (session as TerminalSessionWithTabId).tabId = tabId;
 
         // バッファに保存されている出力を新しいビューに送信
-        if (session.totalBufferLength > 0 && session.outputChunks.length > 0) {
+        // skipBufferRestore が true の場合はスキップ（retainContextWhenHidden で内容が保持されている場合）
+        if (!skipBufferRestore && session.totalBufferLength > 0 && session.outputChunks.length > 0) {
             const snapshot = session.outputChunks.join('');
             this.sendToViewWithTabId(session, snapshot, tabId);
             // バッファはクリアしない（次回の接続でも使用するため）
