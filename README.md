@@ -150,6 +150,10 @@ npm run lint
 2. **動的サイズ調整**: HTML エレメントサイズに基づく自動リサイズ
 3. **非ブロッキング I/O**: select を使用した高性能な入出力処理
 
+### PTY の Rust化について
+
+環境依存を排除するため Rust での PTY 実装を試みましたが、macOS のセキュリティ制限により断念しました。`/Users/` 以下に配置されたバイナリを Node.js から spawn すると、PTY 作成がブロックされ即座に zombie 化します。詳細は  feature/rust-pty-migration ブランチの `resources/pty-rs/README.md` を参照してください。
+
 ## ライセンス
 
 MIT License
