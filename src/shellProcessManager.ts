@@ -114,7 +114,7 @@ export class ShellProcessManager {
         
         // Python実行パスを動的に決定
         const pythonCommand = this.findPythonCommand();
-        
+
         const shellProcess = childProcess.spawn(pythonCommand, args, {
             cwd: cwd,
             env: {
@@ -392,16 +392,35 @@ export class ShellProcessManager {
 
     /**
      * Python コマンドを動的に検索
+     * macOS では /usr/bin/python3 は PTY を使えないため、Homebrew Python を優先
      */
     private findPythonCommand(): string {
+        // macOS Homebrew Python のパスを優先（PTY サポートが必要）
+        const homebrewPaths = [
+            '/opt/homebrew/bin/python3',  // Apple Silicon
+            '/usr/local/bin/python3',     // Intel Mac
+        ];
+
+        for (const pythonPath of homebrewPaths) {
+            try {
+                const fs = require('fs');
+                if (fs.existsSync(pythonPath)) {
+                    return pythonPath;
+                }
+            } catch {
+                continue;
+            }
+        }
+
+        // Homebrew が見つからない場合は従来の検索
         const candidates = ['python3', 'python', 'python3.exe', 'python.exe'];
-        
+
         for (const cmd of candidates) {
             try {
                 // which コマンドでパスを確認
-                const result = childProcess.execSync(`which ${cmd}`, { 
-                    encoding: 'utf8', 
-                    stdio: 'pipe' 
+                const result = childProcess.execSync(`which ${cmd}`, {
+                    encoding: 'utf8',
+                    stdio: 'pipe'
                 });
                 if (result.trim()) {
                     return cmd;
@@ -411,7 +430,7 @@ export class ShellProcessManager {
                 continue;
             }
         }
-        
+
         // フォールバック
         console.warn('Python not found, falling back to python3');
         return 'python3';
