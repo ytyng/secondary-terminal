@@ -4,5 +4,7 @@ node_modules
 .vscode-test/
 *.vsix
 *.code-workspace
-__pycache__
-*.pyc
+
+# Rust build artifacts
+resources/pty-rs/target/
+resources/pty-rs/Cargo.lock

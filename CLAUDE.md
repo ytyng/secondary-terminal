@@ -4,22 +4,22 @@ VSCode のサイドバーで動作する高機能ターミナル拡張機能の�
 
 ## プロジェクト概要
 
-この拡張機能は、VSCode のサイドバーに完全機能のターミナルを提供します。Python の PTY モジュールを使用した本格的な疑似ターミナル実装により、vim や less などのインタラクティブアプリケーションも正常に動作します。
+この拡張機能は、VSCode のサイドバーに完全機能のターミナルを提供します。Rust で実装した PTY バックエンドにより、vim や less などのインタラクティブアプリケーションも正常に動作します。
 
 ## 技術的特徴
 
 ### アーキテクチャ
 
 - **フロントエンド**: xterm.js による高性能ターミナルエミュレーター
-- **ミドルウェア**: Node.js child_process による VSCode と Python 間の通信
-- **バックエンド**: Python の pty モジュールによる疑似ターミナル実装
+- **ミドルウェア**: Node.js child_process による VSCode と Rust バイナリ間の通信
+- **バックエンド**: Rust 製 PTY バイナリ（`resources/pty-shell-rs`）
 
 ### 実装のポイント
 
 1. **PTY エミュレーション**
-   - Python の `pty.openpty()` を使用した本格的な疑似ターミナル作成
+   - Rust の `openpty()` による疑似ターミナル作成
    - `fcntl` による非ブロッキング I/O の実装
-   - `select.select()` を使用した効率的な入出力多重化
+   - `select()` を使用した効率的な入出力多重化
 
 2. **動的サイズ調整**
    - ResizeObserver による HTML エレメントサイズ監視
@@ -48,16 +48,15 @@ VSCode のサイドバーで動作する高機能ターミナル拡張機能の�
 - node-pty の導入試行（VSCode Electron 環境での互換性問題により断念）
 - Python を使用した PTY エミュレーションへの切り替え
 
-### 最終実装
-- 完全な PTY サポートの実現
-- インタラクティブアプリケーションの完全対応
-- 動的サイズ調整機能の実装
+### Rust 移行
+- Python 依存の問題（macOS でシステム Python が PTY を使えない）を解決するため Rust へ移行
+- シングルバイナリ化により環境依存を排除
 
 ## 技術的課題と解決策
 
 ### 1. VSCode 環境での node-pty 問題
 **課題**: VSCode の Electron 環境で node-pty のネイティブモジュールが正しくビルドできない
-**解決**: Python の pty モジュールを使用したカスタム PTY エミュレーション
+**解決**: Rust 製バイナリによる PTY 実装
 
 ### 2. 非ブロッキング I/O
 **課題**: VSCode 環境での stdin 読み取りのブロッキング問題
@@ -79,8 +78,14 @@ secondary-terminal/
 │   ├── extension.ts          # 拡張機能エントリーポイント
 │   └── terminalProvider.ts   # ターミナルプロバイダー実装
 ├── resources/
+│   ├── pty-rs/               # Rust PTY バックエンドソース
+│   │   ├── Cargo.toml
+│   │   └── src/main.rs
+│   ├── pty-shell-rs          # コンパイル済み Rust バイナリ
 │   ├── xterm.css            # xterm.js スタイルシート
 │   └── xterm.js             # xterm.js ライブラリ
+├── scripts/
+│   └── build-pty-rs.sh      # Rust バイナリビルドスクリプト
 ├── out/                     # コンパイル済み JavaScript
 ├── package.json             # プロジェクト設定
 ├── tsconfig.json           # TypeScript 設定
@@ -92,15 +97,16 @@ secondary-terminal/
 
 ### TerminalProvider クラス
 - WebView の HTML 生成と管理
-- Python PTY プロセスの起動・管理
+- Rust PTY プロセスの起動・管理
 - 入出力データの変換・転送
 - ターミナルサイズの動的調整
 
-### Python PTY スクリプト
+### Rust PTY バイナリ（pty-shell-rs）
 - 疑似ターミナル（PTY）の作成と管理
 - シェルプロセス（zsh/bash）の起動
 - 非ブロッキング I/O による入出力処理
 - ターミナルサイズ変更の処理
+- CLI エージェント（Claude CLI, Gemini CLI）の検出と通知
 
 ### フロントエンド JavaScript
 - xterm.js ターミナルの初期化
@@ -112,7 +118,7 @@ secondary-terminal/
 
 - **OS**: macOS（開発・テスト対象）
 - **Node.js**: 20.18.2
-- **Python**: 3.13.3
+- **Rust**: 1.x（PTY バイナリビルド用）
 - **VSCode**: 1.101.0+
 - **TypeScript**: 5.8.3
 
@@ -136,6 +142,9 @@ cd secondary-terminal
 
 # 依存関係インストール
 npm install
+
+# Rust PTY バイナリビルド（Rust ツールチェインが必要）
+./scripts/build-pty-rs.sh
 
 # TypeScript コンパイル
 npm run compile
@@ -222,9 +231,10 @@ secondary-terminal/
 
 ### よくある開発作業
 
-#### Python PTY スクリプトの修正
-- `terminalProvider.ts` 内の `pythonScript` 変数を編集
-- コンパイル後、拡張機能を再読み込み
+#### Rust PTY バイナリの修正
+- `resources/pty-rs/src/main.rs` を編集
+- `./scripts/build-pty-rs.sh` でビルド
+- 拡張機能を再読み込み
 
 #### フロントエンド（HTML/JavaScript）の修正
 - `_getHtmlForWebview()` メソッド内の HTML/CSS/JavaScript を編集
@@ -246,19 +256,18 @@ npm run compile
 
 #### ターミナルが起動しない
 - 開発者ツールのコンソールでエラー確認
-- Python 3.x がインストールされているか確認
-- PTY 関連のエラーメッセージを確認
+- `resources/pty-shell-rs` バイナリが存在するか確認
+- バイナリに実行権限があるか確認（`chmod +x resources/pty-shell-rs`）
 
 #### 文字化けや入力エラー
 - UTF-8 エンコーディングの確認
-- Python スクリプトの非ブロッキング I/O 設定確認
 
 ## 関連技術・参考資料
 
 - [VSCode Extension API](https://code.visualstudio.com/api)
 - [xterm.js](https://xtermjs.org/)
-- [Python pty module](https://docs.python.org/3/library/pty.html)
 - [Linux PTY documentation](https://man7.org/linux/man-pages/man7/pty.7.html)
+- [Rust libc crate](https://docs.rs/libc/)
 
 ## 絵文字表示幅問題の調査結果
 
@@ -316,4 +325,4 @@ customGlyphs: true
 
 **開発者**: ytyng
 **作成日**: 2025年6月28日
-**最終更新**: 2025年7月27日
+**最終更新**: 2026年1月18日（Rust PTY 移行）

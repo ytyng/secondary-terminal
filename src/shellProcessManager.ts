@@ -93,29 +93,25 @@ export class ShellProcessManager {
     ): ShellProcessInfo {
         // Creating new shell process
 
-        const pythonScriptPath = path.join(extensionPath, 'resources', 'pty-shell.py');
-        
+        const rustBinaryPath = path.join(extensionPath, 'resources', 'pty-shell-rs');
+
         // VSCode 設定から startup commands を取得（初回起動時のみ有効化）
         const config = vscode.workspace.getConfiguration('secondaryTerminal');
         const configuredStartup: string[] = config.get('startupCommands', []);
         const shouldIncludeStartup = !this.startupExecuted.has(workspaceKey) && configuredStartup.length > 0;
-        
+
         const args = [
-            pythonScriptPath,
             cols.toString(),
             rows.toString(),
             cwd
         ];
-        
+
         // 初回のみ startup commands を引数に追加
         if (shouldIncludeStartup) {
             args.push('--startup-commands', JSON.stringify(configuredStartup));
         }
-        
-        // Python実行パスを動的に決定
-        const pythonCommand = this.findPythonCommand();
 
-        const shellProcess = childProcess.spawn(pythonCommand, args, {
+        const shellProcess = childProcess.spawn(rustBinaryPath, args, {
             cwd: cwd,
             env: {
                 ...process.env,
@@ -388,52 +384,6 @@ export class ShellProcessManager {
                 resolve();
             }
         });
-    }
-
-    /**
-     * Python コマンドを動的に検索
-     * macOS では /usr/bin/python3 は PTY を使えないため、Homebrew Python を優先
-     */
-    private findPythonCommand(): string {
-        // macOS Homebrew Python のパスを優先（PTY サポートが必要）
-        const homebrewPaths = [
-            '/opt/homebrew/bin/python3',  // Apple Silicon
-            '/usr/local/bin/python3',     // Intel Mac
-        ];
-
-        for (const pythonPath of homebrewPaths) {
-            try {
-                const fs = require('fs');
-                if (fs.existsSync(pythonPath)) {
-                    return pythonPath;
-                }
-            } catch {
-                continue;
-            }
-        }
-
-        // Homebrew が見つからない場合は従来の検索
-        const candidates = ['python3', 'python', 'python3.exe', 'python.exe'];
-
-        for (const cmd of candidates) {
-            try {
-                // which コマンドでパスを確認
-                const result = childProcess.execSync(`which ${cmd}`, {
-                    encoding: 'utf8',
-                    stdio: 'pipe'
-                });
-                if (result.trim()) {
-                    return cmd;
-                }
-            } catch {
-                // このコマンドは見つからなかった
-                continue;
-            }
-        }
-
-        // フォールバック
-        console.warn('Python not found, falling back to python3');
-        return 'python3';
     }
 
     // stdin が書き込み可能かのユーティリティ
