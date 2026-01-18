@@ -136,7 +136,9 @@
   },
   "scripts": {
     "vscode:prepublish": "npm run update-version && npm run compile",
-    "compile": "tsc -p ./",
+    "compile": "npm run compile:rust && npm run compile:ts",
+    "compile:rust": "./scripts/build-pty-rs.sh",
+    "compile:ts": "tsc -p ./",
     "watch": "tsc -watch -p ./",
     "pretest": "npm run compile && npm run lint",
     "lint": "eslint src",
