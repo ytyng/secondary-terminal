@@ -226,7 +226,7 @@
             /* 重要：縮まないように固定 */
             background-color: var(--vscode-panel-background, #252526);
             border-top: 1px solid var(--vscode-panel-border, #3c3c3c);
-            padding: 8px;
+            padding: 2px 6px;
             display: flex;
             gap: 8px;
             flex-wrap: wrap;
@@ -252,27 +252,27 @@
         }
 
         .control-button {
-            background-color: var(--vscode-button-secondaryBackground, #3c3c3c);
+            background-color: rgba(255, 255, 255, 0.05);
             color: var(--vscode-button-secondaryForeground, #cccccc);
             border: none;
             border-radius: 3px;
-            padding: 4px 8px;
+            padding: 3px 6px;
             font-size: 11px;
             cursor: pointer;
             font-family: inherit;
             transition: background-color 0.2s;
 
             &:hover {
-                background-color: var(--vscode-button-secondaryHoverBackground, #4c4c4c);
+                background-color: rgba(255, 255, 255, 0.1);
             }
         }
 
         .copy-button {
-            background-color: var(--vscode-button-secondaryBackground, #3c3c3c);
+            background-color: rgba(255, 255, 255, 0.05);
             color: var(--vscode-button-secondaryForeground, #cccccc);
             border: none;
             border-radius: 3px;
-            padding: 4px 8px;
+            padding: 3px 6px;
             font-size: 11px;
             cursor: pointer;
             font-family: inherit;
