@@ -2,7 +2,7 @@
   "name": "secondary-terminal",
   "displayName": "Secondary Terminal",
   "description": "Terminal in sidebar",
-  "version": "0.16.241",
+  "version": "0.16.242",
   "engines": {
     "vscode": "^1.101.0"
   },
@@ -10,7 +10,8 @@
     "Other"
   ],
   "activationEvents": [
-    "onStartup"
+    "onStartup",
+    "onView:secondaryTerminalDropZone"
   ],
   "main": "./out/extension.js",
   "contributes": {
