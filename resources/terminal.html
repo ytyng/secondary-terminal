@@ -264,9 +264,41 @@
                 cursor: pointer;
                 font-family: inherit;
                 transition: background-color 0.2s;
+                position: relative;
 
                 &:hover {
                     background-color: rgba(255, 255, 255, 0.1);
+                }
+
+                /* Custom tooltip - appears instantly on hover */
+                &[data-tooltip]::after {
+                    content: attr(data-tooltip);
+                    position: absolute;
+                    bottom: calc(100% + 6px);
+                    left: 50%;
+                    transform: translateX(-50%);
+                    background-color: var(--vscode-editorHoverWidget-background, #252526);
+                    color: var(--vscode-editorHoverWidget-foreground, #cccccc);
+                    border: 1px solid var(--vscode-editorHoverWidget-border, #454545);
+                    padding: 4px 8px;
+                    border-radius: 3px;
+                    font-size: 11px;
+                    white-space: normal;
+                    width: max-content;
+                    max-width: 250px;
+                    text-align: left;
+                    z-index: 1000;
+                    pointer-events: none;
+                    opacity: 0;
+                    visibility: hidden;
+                    transition: opacity 0.15s, visibility 0.15s;
+                    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+                    line-height: 1.4;
+                }
+
+                &[data-tooltip]:hover::after {
+                    opacity: 1;
+                    visibility: visible;
                 }
             }
 
@@ -496,22 +528,31 @@
         <div class="control-panel">
             <div class="control-panel-left-controls">
                 <button class="control-button" id="btn-send-selection"
-                    title="Send editor selection to terminal (Cmd+L)">
+                    data-tooltip="Send the editor content as context to the terminal input. Useful for providing code snippets or file references to CLI tools. (Cmd+L)">
                     @Selection
                 </button>
-                <button class="control-button copy-button" id="btn-copy-selection" title="Copy editor selection context to clipboard">
+                <button class="control-button copy-button" id="btn-copy-selection"
+                    data-tooltip="Copy the editor content with file path and line numbers to clipboard. Ready to paste into other applications.">
                     Copy
                 </button>
-                <button class="control-button" id="btn-extract-to-todos" title="Extract editor content to TODOS.md">
+                <button class="control-button" id="btn-extract-to-todos"
+                    data-tooltip="Extract the editor content to TODOS.md file in your workspace. Useful for saving prompts or notes.">
                     Extract
                 </button>
-                <button class="control-button" id="btn-open-history" title="Open prompt history file">
+                <button class="control-button" id="btn-open-history"
+                    data-tooltip="Open the prompt history file (.secondary-terminal-history.md) to view or reuse previous prompts.">
                     History
                 </button>
-                <button class="control-button" id="btn-scroll-to-bottom" title="Scroll to bottom of terminal">
+                <button class="control-button" id="btn-trim-lines"
+                    data-tooltip="Trim whitespace from the beginning and end of each line in the editor. Removes leading/trailing spaces and tabs.">
+                    Trim
+                </button>
+                <button class="control-button" id="btn-scroll-to-bottom"
+                    data-tooltip="Scroll the terminal output to the bottom. Useful when viewing long output.">
                     ↓
                 </button>
-                <button class="control-button" id="btn-paste-image" title="Paste image from clipboard">
+                <button class="control-button" id="btn-paste-image"
+                    data-tooltip="Paste an image from clipboard. Saves to temporary file and inserts the file path. (macOS only)">
                     📷
                 </button>
             </div>
@@ -1502,6 +1543,21 @@
             if (btnPasteImage) {
                 btnPasteImage.addEventListener('click', () => {
                     vscode.postMessage({ type: 'pasteImage' });
+                });
+            }
+
+            const btnTrimLines = document.getElementById('btn-trim-lines');
+            if (btnTrimLines) {
+                btnTrimLines.addEventListener('click', () => {
+                    if (editorState.editor) {
+                        const content = editorState.editor.getValue();
+                        const trimmedContent = content
+                            .split('\n')
+                            .map(line => line.trim())
+                            .join('\n');
+                        editorState.editor.setValue(trimmedContent, -1);
+                        log('[Editor] Lines trimmed');
+                    }
                 });
             }
 
