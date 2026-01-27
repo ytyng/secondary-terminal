@@ -21,7 +21,7 @@ interface TabState {
 
 // WebView メッセージの型定義
 interface WebViewMessage {
-    type: 'terminalInput' | 'terminalReady' | 'tabReady' | 'resize' | 'error' | 'buttonSendSelection' | 'buttonCopySelection' | 'refreshCliAgentStatus' | 'bufferCleanupRequest' | 'terminalInputBegin' | 'terminalInputChunk' | 'terminalInputEnd' | 'editorSendContent' | 'getEnv' | 'log' | 'extractToTodos' | 'openPromptHistory' | 'createTab' | 'switchTab' | 'closeTab';
+    type: 'terminalInput' | 'terminalReady' | 'tabReady' | 'resize' | 'error' | 'buttonSendSelection' | 'buttonCopySelection' | 'refreshCliAgentStatus' | 'bufferCleanupRequest' | 'terminalInputBegin' | 'terminalInputChunk' | 'terminalInputEnd' | 'editorSendContent' | 'getEnv' | 'log' | 'extractToTodos' | 'openPromptHistory' | 'createTab' | 'switchTab' | 'closeTab' | 'pasteImage' | 'openDropZone';
     data?: string;
     cols?: number;
     rows?: number;
@@ -362,6 +362,12 @@ export class TerminalProvider implements vscode.WebviewViewProvider {
                         break;
                     case 'openPromptHistory':
                         this.handleOpenPromptHistory();
+                        break;
+                    case 'pasteImage':
+                        vscode.commands.executeCommand('secondaryTerminal.pasteImage');
+                        break;
+                    case 'openDropZone':
+                        vscode.commands.executeCommand('secondaryTerminal.openDropZone');
                         break;
                 }
             },

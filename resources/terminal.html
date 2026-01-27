@@ -511,6 +511,9 @@
                 <button class="control-button" id="btn-scroll-to-bottom" title="Scroll to bottom of terminal">
                     ↓
                 </button>
+                <button class="control-button" id="btn-paste-image" title="Paste image from clipboard">
+                    📷
+                </button>
             </div>
             <div class="control-panel-right-controls">
                 <!-- CLI エージェントインジケーター -->
@@ -1495,6 +1498,13 @@
                 });
             }
 
+            const btnPasteImage = document.getElementById('btn-paste-image');
+            if (btnPasteImage) {
+                btnPasteImage.addEventListener('click', () => {
+                    vscode.postMessage({ type: 'pasteImage' });
+                });
+            }
+
             // タブバーイベントの設定
             const btnAddTab = document.getElementById('btn-add-tab');
             if (btnAddTab) {
@@ -1975,10 +1985,70 @@
                 } else {
                     log('[ACE] sendToTerminal command NOT found!');
                 }
+
+                // ドラッグ＆ドロップ機能を設定
+                setupEditorDragAndDrop();
             } else {
                 log('[ACE] Editor initialization failed!');
             }
         }, 100);
+
+        /**
+         * ACE エディターへのドラッグ＆ドロップ機能を設定
+         */
+        function setupEditorDragAndDrop() {
+            // editor-container (親要素) を使用
+            const editorWrapper = document.querySelector('.editor-container');
+            const editorContainer = document.getElementById('ace-editor');
+
+            if (!editorWrapper || !editorContainer) {
+                log('[DRAG] Editor container not found');
+                return;
+            }
+
+            log('[DRAG] Setting up drag and drop for ACE editor');
+
+            // ACE エディターのドラッグ機能を無効化
+            if (editorState.editor) {
+                editorState.editor.setOption('dragEnabled', false);
+            }
+
+            // dragenter イベント（キャプチャフェーズ）
+            editorWrapper.addEventListener('dragenter', (event) => {
+                log('[DRAG] dragenter on wrapper');
+                event.preventDefault();
+            }, true);
+
+            // dragover イベント（キャプチャフェーズで処理）
+            editorWrapper.addEventListener('dragover', (event) => {
+                event.preventDefault();
+                event.stopPropagation();
+                event.dataTransfer.dropEffect = 'copy';
+                editorWrapper.style.outline = '2px dashed var(--vscode-focusBorder, #007acc)';
+            }, true);
+
+            // dragleave イベント
+            editorWrapper.addEventListener('dragleave', (event) => {
+                // editorWrapper の外に出た時だけアウトラインを消す
+                if (!editorWrapper.contains(event.relatedTarget)) {
+                    editorWrapper.style.outline = '';
+                }
+            }, true);
+
+            // drop イベント（キャプチャフェーズで処理）
+            editorWrapper.addEventListener('drop', (event) => {
+                event.preventDefault();
+                event.stopPropagation();
+                editorWrapper.style.outline = '';
+
+                log('[DRAG] File dropped on editor - requesting Drop Zone');
+
+                // VSCode に Drop Zone を開くよう要求
+                vscode.postMessage({ type: 'openDropZone' });
+            }, true);
+
+            log('[DRAG] Drag and drop setup completed');
+        }
 
     </script>
 </body>

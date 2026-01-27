@@ -3,6 +3,8 @@ import { TerminalProvider } from './terminalProvider';
 import { ShellProcessManager } from './shellProcessManager';
 import { TerminalSessionManager } from './terminalSessionManager';
 import { createContextTextForSelectedText } from './utils';
+import { registerDropZoneProvider } from './dropZoneProvider';
+import { getImageFromClipboard } from './clipboardImageHandler';
 
 /**
  * ターミナルの選択テキストをクリップボードにコピーして取得
@@ -48,8 +50,16 @@ async function copyTerminalSelectionWithPrefix(): Promise<string | null> {
 
 export function activate(context: vscode.ExtensionContext) {
     vscode.commands.executeCommand('setContext', 'secondaryTerminal:enabled', true);
+    vscode.commands.executeCommand('setContext', 'secondaryTerminal:dropZoneVisible', false);
 
     const provider = new TerminalProvider(context);
+
+    // Drop Zone を登録（ファイルドロップ → ACE エディターにパス挿入）
+    registerDropZoneProvider(context, (paths: string[]) => {
+        // ドロップされたファイルパスを [@<path>] 形式で ACE エディターに送信
+        const text = paths.map(p => `[@${p}]`).join('\n');
+        provider.sendTextToEditor(text);
+    });
     context.subscriptions.push(
         vscode.window.registerWebviewViewProvider('secondaryTerminalMainView', provider, {
             webviewOptions: {
@@ -169,7 +179,38 @@ export function activate(context: vscode.ExtensionContext) {
         })
     );
 
-    // Secondary Terminal 拡張機能が正常に有効化された
+    // Drop Zone の表示/非表示をトグル
+    let dropZoneVisible = false;
+    context.subscriptions.push(
+        vscode.commands.registerCommand('secondaryTerminal.toggleDropZone', () => {
+            dropZoneVisible = !dropZoneVisible;
+            vscode.commands.executeCommand('setContext', 'secondaryTerminal:dropZoneVisible', dropZoneVisible);
+        })
+    );
+
+    // Drop Zone を開く（エディターへのドロップ時に呼ばれる）
+    context.subscriptions.push(
+        vscode.commands.registerCommand('secondaryTerminal.openDropZone', () => {
+            if (!dropZoneVisible) {
+                dropZoneVisible = true;
+                vscode.commands.executeCommand('setContext', 'secondaryTerminal:dropZoneVisible', true);
+            }
+            vscode.window.showInformationMessage('Drop files to the "Drop Zone" panel above');
+        })
+    );
+
+    // クリップボードから画像をペースト
+    context.subscriptions.push(
+        vscode.commands.registerCommand('secondaryTerminal.pasteImage', async () => {
+            const imagePath = await getImageFromClipboard();
+            if (imagePath) {
+                provider.sendTextToEditor(`[@${imagePath}]`);
+                vscode.window.setStatusBarMessage('$(check) Image pasted', 3000);
+            } else {
+                vscode.window.showInformationMessage('No image found in clipboard');
+            }
+        })
+    );
 }
 
 export function deactivate() {
