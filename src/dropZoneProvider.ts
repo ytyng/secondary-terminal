@@ -122,7 +122,12 @@ export function registerDropZoneProvider(
     const provider = new DropZoneProvider();
     provider.setOnFilesDropped(onFilesDropped);
 
-    // TreeView を登録
+    // TreeDataProvider を先に登録（VSCode が view を要求した時に即座に応答できるように）
+    context.subscriptions.push(
+        vscode.window.registerTreeDataProvider('secondaryTerminalDropZone', provider)
+    );
+
+    // TreeView を作成（drag and drop 機能のため）
     const treeView = vscode.window.createTreeView('secondaryTerminalDropZone', {
         treeDataProvider: provider,
         dragAndDropController: provider,
