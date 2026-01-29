@@ -218,11 +218,30 @@
                 right: 0;
                 bottom: 0;
                 display: none;
-                padding: 0 0 0 5px;
+                flex-direction: column;
 
                 &.active {
                     display: flex;
-                    flex-direction: column;
+                }
+
+                .terminal-area {
+                    flex: 1;
+                    min-height: 0;
+                    padding: 0 0 0 5px;
+                }
+
+                .pane-editor-container {
+                    flex-shrink: 0;
+                    background-color: var(--vscode-editor-background);
+                    border-top: 1px solid var(--vscode-panel-border, #3c3c3c);
+                    border-bottom: 1px solid var(--vscode-panel-border, #3c3c3c);
+                    height: 200px;
+                    overflow: hidden;
+
+                    .ace-editor-instance {
+                        width: 100%;
+                        height: 100%;
+                    }
                 }
             }
         }
@@ -345,19 +364,7 @@
         /* ========================================
            ACE Editor
            ======================================== */
-        .editor-container {
-            flex-shrink: 0;
-            background-color: var(--vscode-editor-background);
-            border-top: 1px solid var(--vscode-panel-border, #3c3c3c);
-            border-bottom: 1px solid var(--vscode-panel-border, #3c3c3c);
-            height: 200px;
-            overflow: hidden;
-
-            #ace-editor {
-                width: 100%;
-                height: 100%;
-            }
-        }
+        /* editor-container は .terminal-pane 内に移動済み */
 
         /* ACE Theme - VSCode Dark */
         .ace-vscode-dark {
@@ -524,10 +531,7 @@
             </div>
         </div>
 
-        <!-- ACE エディタペイン -->
-        <div class="editor-container">
-            <div id="ace-editor"></div>
-        </div>
+        <!-- ACE エディタは各タブのペイン内に動的に作成される -->
 
         <!-- 下部コントロールパネル -->
         <div class="control-panel">
@@ -612,6 +616,7 @@
                 addons: [],
                 xtermListeners: [],
                 cliAgentState: { active: false, agent_type: null },
+                editor: null, // ACE editor instance per tab
             };
         }
 
@@ -621,13 +626,14 @@
             return tabState.terminalStates.get(tabState.activeTabId);
         }
 
-        // 注: terminalState は tabState.terminalStates に移行済み
+        // アクティブタブの ACE エディタを返すヘルパー
+        function getActiveEditor() {
+            const state = getActiveTerminalState();
+            return state ? state.editor : null;
+        }
 
-        // ACE エディタ用の状態管理
-        const editorState = {
-            editor: null,
-            isInitialized: false
-        };
+        // ACE テーマ登録済みフラグ
+        let aceThemeRegistered = false;
 
 
 
@@ -822,6 +828,14 @@
                 state.term = null;
             }
 
+            // ACE エディタを破棄
+            if (state.editor) {
+                try {
+                    state.editor.destroy();
+                } catch (e) { }
+                state.editor = null;
+            }
+
             // タイマーをクリア
             Object.keys(state.timers).forEach(timerKey => {
                 if (state.timers[timerKey]) {
@@ -851,6 +865,22 @@
             pane.className = 'terminal-pane';
             pane.dataset.tabId = tabId;
             pane.id = `terminal-pane-${tabId}`;
+
+            // ターミナル表示エリア
+            const termArea = document.createElement('div');
+            termArea.className = 'terminal-area';
+            termArea.id = `terminal-area-${tabId}`;
+            pane.appendChild(termArea);
+
+            // タブ専用 ACE エディタコンテナ
+            const editorContainer = document.createElement('div');
+            editorContainer.className = 'pane-editor-container';
+            const editorDiv = document.createElement('div');
+            editorDiv.className = 'ace-editor-instance';
+            editorDiv.id = `ace-editor-${tabId}`;
+            editorContainer.appendChild(editorDiv);
+            pane.appendChild(editorContainer);
+
             panesContainer.appendChild(pane);
             return pane;
         }
@@ -864,14 +894,14 @@
                 return;
             }
 
-            const terminalPane = document.getElementById('terminal-pane-' + tabId);
-            if (!terminalPane) {
-                log('Terminal pane not found for tab:', tabId);
+            const terminalArea = document.getElementById('terminal-area-' + tabId);
+            if (!terminalArea) {
+                log('Terminal area not found for tab:', tabId);
                 return;
             }
 
-            // ターミナルペインの実際のサイズを取得
-            const terminalRect = terminalPane.getBoundingClientRect();
+            // ターミナルエリアの実際のサイズを取得
+            const terminalRect = terminalArea.getBoundingClientRect();
             const availableWidth = terminalRect.width - 20; // パディング考慮
             const availableHeight = terminalRect.height - 5;
 
@@ -937,39 +967,36 @@
                    data.includes('\x1b[?1049');   // 代替バッファ切り替え
         }
 
-        // ACE エディタ初期化関数
-        function initializeAceEditor() {
+        // タブ専用 ACE エディタ初期化関数
+        function initializeAceEditorForTab(tabId) {
             try {
-                if (editorState.isInitialized) {
-                    log('[ACE] Editor is already initialized');
-                    return;
-                }
-
                 if (typeof ace === 'undefined') {
                     throw new Error('ACE is not defined. ace-builds may not have loaded.');
                 }
 
-                log('[ACE] Starting editor initialization');
+                const state = tabState.terminalStates.get(tabId);
+                if (!state) return;
 
-                // VSCode ダークテーマを ACE に登録
-                if (ace.define) {
+                log('[ACE] Starting editor initialization for tab:', tabId);
+
+                // VSCode ダークテーマを一度だけ登録
+                if (!aceThemeRegistered && ace.define) {
                     ace.define('ace/theme/vscode-dark', ['require', 'exports', 'module'], function(require, exports, module) {
                         exports.isDark = true;
                         exports.cssClass = "ace-vscode-dark";
-                        exports.cssText = ""; // CSS は HTML のスタイルで定義済み
+                        exports.cssText = "";
                     });
+                    aceThemeRegistered = true;
                 }
 
-                // エディタを初期化
-                editorState.editor = ace.edit("ace-editor");
+                const editorElementId = `ace-editor-${tabId}`;
+                const editor = ace.edit(editorElementId);
 
-                // 設定を適用
-                editorState.editor.setTheme("ace/theme/vscode-dark");
-                editorState.editor.session.setMode("ace/mode/markdown");
-                editorState.editor.setKeyboardHandler("ace/keyboard/vscode");
+                editor.setTheme("ace/theme/vscode-dark");
+                editor.session.setMode("ace/mode/markdown");
+                editor.setKeyboardHandler("ace/keyboard/vscode");
 
-                // エディタオプション
-                editorState.editor.setOptions({
+                editor.setOptions({
                     fontSize: 13,
                     fontFamily: '"RobotoMono Nerd Font Mono", "RobotoMono Nerd Font", "Roboto Mono", Consolas, "Courier New", monospace',
                     showPrintMargin: false,
@@ -980,123 +1007,100 @@
                     enableSnippets: true
                 });
 
-                // 初期値を設定（永続化された値があれば復元）
-                const savedContent = vscode.getState()?.editorContent || '';
-                editorState.editor.setValue(savedContent, -1); // -1 でカーソルを先頭に
+                // タブ固有の永続化された内容を復元（旧形式からのマイグレーション含む）
+                const currentState = vscode.getState() || {};
+                let savedContents = currentState.editorContents || {};
+                let savedContent = savedContents[tabId] || '';
+                // 旧形式 editorContent が残っていれば最初のタブに適用
+                if (!savedContent && currentState.editorContent) {
+                    savedContent = currentState.editorContent;
+                    savedContents[tabId] = savedContent;
+                    delete currentState.editorContent;
+                    currentState.editorContents = savedContents;
+                    vscode.setState(currentState);
+                }
+                editor.setValue(savedContent, -1);
 
-                // Command+Enter キーバインドを追加
-                editorState.editor.commands.addCommand({
-                    name: 'sendToTerminal',
-                    bindKey: { win: 'Ctrl-Enter', mac: 'Cmd-Enter' },
-                    exec: function(editor) {
-                        log('[ACE] Command+Enter pressed');
-                        const content = editor.getValue();
-                        log('[ACE] Editor content:', content);
+                // 送信コマンド（Cmd+Enter）
+                function sendEditorContent(ed) {
+                    const content = ed.getValue();
+                    if (!content.trim()) return;
 
-                        if (content.trim()) {
-                            log('[ACE] Processing content for terminal...');
-
-                            // 1. 末尾のホワイトスペース（改行含む）を除去
-                            const trimmedContent = content.trimEnd();
-                            log('[ACE] Trimmed content:', trimmedContent);
-
-                            // 2. コンテンツをターミナルに送信
-                            log('[ACE] Sending content to terminal');
-                            vscode.postMessage({
-                                type: 'editorSendContent',
-                                data: trimmedContent,
-                                tabId: tabState.activeTabId
-                            });
-                            log('[ACE] Content sent to terminal');
-
-                            // 3. 200ms 待機後に Enter を送信
-                            setTimeout(() => {
-                                log('[ACE] Sending Enter after 200ms');
-                                vscode.postMessage({
-                                    type: 'terminalInput',
-                                    data: '\r',
-                                    tabId: tabState.activeTabId
-                                });
-                                log('[ACE] Enter sent to terminal');
-
-                                // 4. エディタの内容をクリア
-                                editor.setValue('', -1);
-                                log('[ACE] Editor content cleared');
-                            }, 200);
-                        } else {
-                            log('[ACE] Editor content is empty, not sending');
-                        }
-                    }
-                });
-
-                // エディタの内容が変更された時の処理
-                editorState.editor.on('change', function() {
-                    const content = editorState.editor.getValue();
-                    // 内容を永続化
-                    vscode.setState({
-                        ...vscode.getState(),
-                        editorContent: content
+                    const trimmedContent = content.trimEnd();
+                    vscode.postMessage({
+                        type: 'editorSendContent',
+                        data: trimmedContent,
+                        tabId: tabId
                     });
-                });
 
-                // DOM レベルでのキーイベント処理を追加（ACE のキーバインディングより優先度高）
-                const aceContainer = document.getElementById('ace-editor');
-                if (aceContainer) {
-                    aceContainer.addEventListener('keydown', function(event) {
-                        // Command+Enter (Mac) または Ctrl+Enter (Windows) をキャッチ
-                        if (event.key === 'Enter' && (event.metaKey || event.ctrlKey) && !event.shiftKey && !event.altKey) {
-                            log('[ACE DOM] Command+Enter detected');
-                            event.preventDefault(); // デフォルトの動作を阻止
-                            event.stopPropagation(); // イベントの伝播を停止
-
-                            const content = editorState.editor.getValue();
-                            log('[ACE DOM] Editor content:', content);
-
-                            if (content.trim()) {
-                                log('[ACE DOM] Processing content for terminal...');
-
-                                // 1. 末尾のホワイトスペース（改行含む）を除去
-                                const trimmedContent = content.trimEnd();
-                                log('[ACE DOM] Trimmed content:', trimmedContent);
-
-                                // 2. コンテンツをターミナルに送信
-                                log('[ACE DOM] Sending content to terminal');
-                                vscode.postMessage({
-                                    type: 'editorSendContent',
-                                    data: trimmedContent,
-                                    tabId: tabState.activeTabId
-                                });
-                                log('[ACE DOM] Content sent to terminal');
-
-                                // 3. 200ms 待機後に Enter を送信
-                                setTimeout(() => {
-                                    log('[ACE DOM] Sending Enter after 200ms');
-                                    vscode.postMessage({
-                                        type: 'terminalInput',
-                                        data: '\r',
-                                        tabId: tabState.activeTabId
-                                    });
-                                    log('[ACE DOM] Enter sent to terminal');
-
-                                    // 4. エディタの内容をクリア
-                                    editorState.editor.setValue('', -1);
-                                    log('[ACE DOM] Editor content cleared');
-                                }, 200);
-                            } else {
-                                log('[ACE DOM] Editor content is empty, not sending');
-                            }
-
-                            return false; // イベント処理終了
-                        }
-                    }, true); // useCapture = true で早期にキャプチャ
-                    log('[ACE] DOM keydown listener added');
+                    setTimeout(() => {
+                        vscode.postMessage({
+                            type: 'terminalInput',
+                            data: '\r',
+                            tabId: tabId
+                        });
+                        ed.setValue('', -1);
+                    }, 200);
                 }
 
-                editorState.isInitialized = true;
-                log('[ACE] Editor initialization completed');
+                editor.commands.addCommand({
+                    name: 'sendToTerminal',
+                    bindKey: { win: 'Ctrl-Enter', mac: 'Cmd-Enter' },
+                    exec: sendEditorContent
+                });
+
+                // 内容変更時にタブ別で永続化
+                editor.on('change', function() {
+                    const content = editor.getValue();
+                    const currentState = vscode.getState() || {};
+                    const contents = currentState.editorContents || {};
+                    contents[tabId] = content;
+                    vscode.setState({ ...currentState, editorContents: contents });
+                });
+
+                // DOM キーイベントのフォールバック
+                const aceContainer = document.getElementById(editorElementId);
+                if (aceContainer) {
+                    aceContainer.addEventListener('keydown', function(event) {
+                        if (event.key === 'Enter' && (event.metaKey || event.ctrlKey) && !event.shiftKey && !event.altKey) {
+                            event.preventDefault();
+                            event.stopPropagation();
+                            sendEditorContent(editor);
+                            return false;
+                        }
+                    }, true);
+                }
+
+                editor.setOption('dragEnabled', false);
+
+                // ドラッグ&ドロップ設定
+                const editorWrapper = aceContainer?.closest('.pane-editor-container');
+                if (editorWrapper) {
+                    editorWrapper.addEventListener('dragenter', (e) => { e.preventDefault(); }, true);
+                    editorWrapper.addEventListener('dragover', (e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        e.dataTransfer.dropEffect = 'copy';
+                        editorWrapper.style.outline = '2px dashed var(--vscode-focusBorder, #007acc)';
+                    }, true);
+                    editorWrapper.addEventListener('dragleave', (e) => {
+                        if (!editorWrapper.contains(e.relatedTarget)) {
+                            editorWrapper.style.outline = '';
+                        }
+                    }, true);
+                    editorWrapper.addEventListener('drop', (e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        editorWrapper.style.outline = '';
+                        vscode.postMessage({ type: 'openDropZone' });
+                    }, true);
+                }
+
+                state.editor = editor;
+                log('[ACE] Editor initialized for tab:', tabId);
 
             } catch (error) {
-                log('[ACE] Error initializing editor:', error);
+                log('[ACE] Error initializing editor for tab:', tabId, error);
             }
         }
 
@@ -1471,16 +1475,16 @@
                         break;
 
                     case 'sendTextToEditor':
-                        if (editorState.editor && message.text) {
-                            editorState.editor.insert(message.text);
-                            editorState.editor.focus();
+                        if (getActiveEditor() && message.text) {
+                            getActiveEditor().insert(message.text);
+                            getActiveEditor().focus();
                         }
                         break;
 
                     case 'extractToTodosResult':
-                        if (message.success && editorState.editor) {
+                        if (message.success && getActiveEditor()) {
                             const reference = `See [@${message.filePath}]`;
-                            editorState.editor.setValue(reference, -1);
+                            getActiveEditor().setValue(reference, -1);
                             log('[EXTRACT] Editor content replaced with reference:', reference);
                         } else if (!message.success) {
                             log('[EXTRACT] Failed to write TODOS.md:', message.error);
@@ -1530,8 +1534,8 @@
             const btnExtractToTodos = document.getElementById('btn-extract-to-todos');
             if (btnExtractToTodos) {
                 btnExtractToTodos.addEventListener('click', () => {
-                    if (!editorState.editor) return;
-                    const content = editorState.editor.getValue();
+                    if (!getActiveEditor()) return;
+                    const content = getActiveEditor().getValue();
                     if (!content.trim() || content.split('\n').length <= 1) return;
                     vscode.postMessage({ type: 'extractToTodos', data: content });
                 });
@@ -1554,13 +1558,13 @@
             const btnTrimLines = document.getElementById('btn-trim-lines');
             if (btnTrimLines) {
                 btnTrimLines.addEventListener('click', () => {
-                    if (editorState.editor) {
-                        const content = editorState.editor.getValue();
+                    if (getActiveEditor()) {
+                        const content = getActiveEditor().getValue();
                         const trimmedContent = content
                             .split('\n')
                             .map(line => line.trim())
                             .join('\n');
-                        editorState.editor.setValue(trimmedContent, -1);
+                        getActiveEditor().setValue(trimmedContent, -1);
                         log('[Editor] Lines trimmed');
                     }
                 });
@@ -1689,7 +1693,7 @@
                     scrollback: MAX_BUFFER_LINES
                 });
 
-                const terminalElement = document.getElementById('terminal-pane-' + tabId);
+                const terminalElement = document.getElementById('terminal-area-' + tabId);
                 state.term.open(terminalElement);
 
                 // Map にも登録
@@ -2016,6 +2020,11 @@
                 // VSCode 側に準備完了を通知（これをトリガにシェルを起動）
                 vscode.postMessage({ type: 'tabReady', tabId: tabId });
 
+                // タブ専用 ACE エディタを初期化
+                setTimeout(() => {
+                    initializeAceEditorForTab(tabId);
+                }, 100);
+
             } catch (error) {
                 log('Error initializing terminal:', error);
                 vscode.postMessage({ type: 'error', error: error.message });
@@ -2033,83 +2042,7 @@
         const firstTabId = createNewTab();
         initializeTerminal(firstTabId);
 
-        // ACE エディタ初期化を実行
-        setTimeout(() => {
-            log('[ACE] Attempting to initialize editor...');
-            initializeAceEditor();
-            // 初期化後の確認
-            if (editorState.editor) {
-                log('[ACE] Editor successfully initialized, testing keybindings...');
-                const commands = editorState.editor.commands.byName;
-                if (commands.sendToTerminal) {
-                    log('[ACE] sendToTerminal command is registered');
-                } else {
-                    log('[ACE] sendToTerminal command NOT found!');
-                }
-
-                // ドラッグ＆ドロップ機能を設定
-                setupEditorDragAndDrop();
-            } else {
-                log('[ACE] Editor initialization failed!');
-            }
-        }, 100);
-
-        /**
-         * ACE エディターへのドラッグ＆ドロップ機能を設定
-         */
-        function setupEditorDragAndDrop() {
-            // editor-container (親要素) を使用
-            const editorWrapper = document.querySelector('.editor-container');
-            const editorContainer = document.getElementById('ace-editor');
-
-            if (!editorWrapper || !editorContainer) {
-                log('[DRAG] Editor container not found');
-                return;
-            }
-
-            log('[DRAG] Setting up drag and drop for ACE editor');
-
-            // ACE エディターのドラッグ機能を無効化
-            if (editorState.editor) {
-                editorState.editor.setOption('dragEnabled', false);
-            }
-
-            // dragenter イベント（キャプチャフェーズ）
-            editorWrapper.addEventListener('dragenter', (event) => {
-                log('[DRAG] dragenter on wrapper');
-                event.preventDefault();
-            }, true);
-
-            // dragover イベント（キャプチャフェーズで処理）
-            editorWrapper.addEventListener('dragover', (event) => {
-                event.preventDefault();
-                event.stopPropagation();
-                event.dataTransfer.dropEffect = 'copy';
-                editorWrapper.style.outline = '2px dashed var(--vscode-focusBorder, #007acc)';
-            }, true);
-
-            // dragleave イベント
-            editorWrapper.addEventListener('dragleave', (event) => {
-                // editorWrapper の外に出た時だけアウトラインを消す
-                if (!editorWrapper.contains(event.relatedTarget)) {
-                    editorWrapper.style.outline = '';
-                }
-            }, true);
-
-            // drop イベント（キャプチャフェーズで処理）
-            editorWrapper.addEventListener('drop', (event) => {
-                event.preventDefault();
-                event.stopPropagation();
-                editorWrapper.style.outline = '';
-
-                log('[DRAG] File dropped on editor - requesting Drop Zone');
-
-                // VSCode に Drop Zone を開くよう要求
-                vscode.postMessage({ type: 'openDropZone' });
-            }, true);
-
-            log('[DRAG] Drag and drop setup completed');
-        }
+        // ACE エディタはタブ作成時に個別初期化される (initializeAceEditorForTab)
 
     </script>
 </body>
