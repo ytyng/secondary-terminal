@@ -109,6 +109,10 @@
                 &.active {
                     background-color: var(--vscode-tab-activeBackground, #1e1e1e);
                     color: var(--vscode-tab-activeForeground, #fff);
+
+                    .tab-close {
+                        display: inline-block;
+                    }
                 }
 
                 .tab-title {
@@ -118,6 +122,7 @@
                 }
 
                 .tab-close {
+                    display: none;
                     margin-left: 6px;
                     background: none;
                     border: none;
