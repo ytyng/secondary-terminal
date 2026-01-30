@@ -1,167 +1,160 @@
 # Secondary Terminal
 
-VSCode のサイドバーで動作する本格的なターミナル拡張機能です。完全な PTY エミュレーションにより、vim や less などのインタラクティブなアプリケーションも正常に動作します。
+A full-featured terminal extension that runs in the VSCode sidebar. With complete PTY emulation, interactive applications such as vim and less work correctly.
 
-## 機能
+![](./documents/images/flashcap-20260130-105327.png)
 
-- **サイドバーターミナル**: VSCode のサイドバーに統合されたターミナル
-- **完全な PTY エミュレーション**: Python を使用した本格的な疑似ターミナル実装
-- **インタラクティブアプリサポート**: vim、less、nano などが完全動作
-- **動的サイズ調整**: サイドバーのサイズに応じて自動的にターミナルサイズを調整
-- **UTF-8 対応**: 日本語などのマルチバイト文字を正しく表示
-- **カスタムフォント**: RobotoMono Nerd Font に対応
+## Features
 
-## 必要条件
+- **Sidebar Terminal**: Terminal integrated into the VSCode sidebar
+- **Full PTY Emulation**: Genuine pseudo-terminal implementation using Python
+- **Interactive App Support**: Full support for vim, less, nano, etc.
+- **Dynamic Resizing**: Automatically adjusts terminal size according to sidebar dimensions
+- **UTF-8 Support**: Correctly displays multibyte characters including Japanese
+- **Custom Font**: RobotoMono Nerd Font support
 
-- Visual Studio Code 1.101.0 以上
-- Python 3.x（PTY エミュレーション用）
-- macOS / Linux（現在は Unix 系 OS のみサポート）
+## Requirements
 
-## インストール方法
+- Visual Studio Code 1.101.0 or later
+- Python 3.x (for PTY emulation)
+- macOS / Linux (currently only Unix-based OS supported)
 
-### 開発版インストール
+## Installation
 
-1. このリポジトリをクローン:
+### Development Installation
+
+1. Clone this repository:
    ```bash
    git clone <repository-url>
    cd secondary-terminal
    ```
 
-2. 依存関係をインストール:
+2. Install dependencies:
    ```bash
    npm install
    ```
 
-3. TypeScript をコンパイル:
+3. Compile TypeScript:
    ```bash
    npm run compile
    ```
 
-4. VSCode で開発モードで実行:
-   - VSCode でプロジェクトを開く
-   - F5 キーを押して拡張機能をデバッグモードで起動
-   - 新しい VSCode ウィンドウが開き、拡張機能が利用可能になります
+4. Run in development mode with VSCode:
+   - Open the project in VSCode
+   - Press F5 to launch the extension in debug mode
+   - A new VSCode window will open with the extension available
 
-### ローカルインストール
+### Local Installation
 
-拡張機能をローカルの VSCode にインストールするには、プロジェクトディレクトリのパスをコピーして、VSCode のコマンドパレット（Cmd+Shift+P）で：
+To install the extension to your local VSCode, copy the project directory path, then open the Command Palette (Cmd+Shift+P) and run:
 
 ```
 Developer: Install Extension from Location...
 ```
 
-を実行し、プロジェクトディレクトリのパス（例：`/path/to/secondary-terminal`）を指定してください。
+Specify the project directory path (e.g., `/path/to/secondary-terminal`).
 
-### シンボリックリンクでインストール
+### Installation via Symlink
 
-より簡単な方法として、拡張機能ディレクトリにシンボリックリンクを作成できます：
+As a simpler alternative, you can create a symbolic link in the extensions directory:
 
 ```bash
-# 通常の VSCode の場合
+# For standard VSCode
 ln -s /path/to/secondary-terminal ~/.vscode/extensions/secondary-terminal
 
-# VSCode Insiders の場合
+# For VSCode Insiders
 ln -s /path/to/secondary-terminal ~/.vscode-insiders/extensions/secondary-terminal
 ```
 
-その後、VSCode を再起動してください。
+Then restart VSCode.
 
-### コード修正後の再インストール
+### Updating After Code Changes
 
-拡張機能のコードを修正した場合の更新手順：
+Steps to update after modifying the extension code:
 
-1. **TypeScript をコンパイル**:
+1. **Compile TypeScript**:
    ```bash
    npm run compile
-   # または、変更を監視して自動コンパイル
+   # Or watch for changes and auto-compile
    npm run dev
    ```
 
-2. **VSCode で拡張機能を再読み込み**:
-   - コマンドパレット（Cmd+Shift+P）を開く
-   - `Developer: Reload Window` を実行
-   - または VSCode を完全に再起動
+2. **Reload the extension in VSCode**:
+   - Open the Command Palette (Cmd+Shift+P)
+   - Run `Developer: Reload Window`
+   - Or fully restart VSCode
 
-3. **開発モードでのテスト**:
-   - プロジェクトを VSCode で開く
-   - F5 キーでデバッグモードで起動
-   - 新しいウィンドウで修正内容をテスト
+3. **Test in development mode**:
+   - Open the project in VSCode
+   - Press F5 to launch in debug mode
+   - Test your changes in the new window
 
-### 開発用コマンド
+### Development Commands
 
 ```bash
-# 自動コンパイル（ファイル変更監視）
+# Auto-compile (file watcher)
 npm run dev
 
-# 出力ディレクトリをクリーンアップ
+# Clean output directory
 npm run clean
 
-# クリーンアップ後に再コンパイル
+# Clean and recompile
 npm run rebuild
 
-# コードの文法チェック
+# Lint code
 npm run lint
 ```
 
-## 使用方法
+## Usage
 
-1. 拡張機能をインストール後、VSCode を再起動
-2. サイドバーに「Secondary Terminal」アイコンが表示されます
-3. アイコンをクリックしてターミナルパネルを開く
-4. 通常のターミナルと同様に使用可能：
-   - コマンド実行
-   - vim でのファイル編集（hjkl カーソル移動対応）
-   - less でのファイル閲覧
-   - その他インタラクティブアプリケーション
+1. After installing the extension, restart VSCode
+2. A "Secondary Terminal" icon will appear in the sidebar
+3. Click the icon to open the terminal panel
+4. Use it like a regular terminal:
+   - Execute commands
+   - Edit files with vim (hjkl cursor movement supported)
+   - Browse files with less
+   - Other interactive applications
 
-## 技術仕様
+## Technical Specifications
 
-- **フロントエンド**: xterm.js による高性能ターミナルエミュレーター
-- **バックエンド**: Python の pty モジュールによる完全な疑似ターミナル実装
-- **通信**: Node.js child_process による VSCode と Python 間の通信
-- **文字エンコーディング**: UTF-8 完全対応
-- **シェル**: zsh（デフォルト）、bash へのフォールバック対応
+- **Frontend**: High-performance terminal emulator using xterm.js
+- **Backend**: Full pseudo-terminal implementation using Python's pty module
+- **Communication**: Node.js child_process for communication between VSCode and Python
+- **Character Encoding**: Full UTF-8 support
+- **Shell**: zsh (default), with bash fallback
 
-## 既知の問題
+## Known Issues
 
-- 現在は Unix 系 OS（macOS、Linux）のみサポート
-- 一部の高度なターミナル機能（複数ペイン等）は未対応
-- Windows では動作しません
+- Currently only Unix-based OS (macOS, Linux) supported
+- Some advanced terminal features (multiple panes, etc.) are not yet supported
+- Does not work on Windows
 
-### スクロール量が多いと処理が遅くなる問題
-ターミナルのスクロール量が多くなると、スクロールやUIの応答が遅なる。
-これはフロントエンド側の問題で、pty は関係無い。
-一度、pty を rust に変えてみたが変化は無かった。(feature/rust-ptyブランチ)
-変化が無かったのでやめた。
+### Performance Degradation with Large Scroll History
+Terminal scrolling and UI responsiveness slow down as scroll history grows. This is a frontend-side issue unrelated to PTY. Rewriting PTY in Rust was attempted but showed no improvement (see feature/rust-pty branch), so the change was reverted.
 
+## Developer Information
 
+### File Structure
 
-## 開発者向け情報
+- `src/extension.ts`: Extension entry point
+- `src/terminalProvider.ts`: Terminal provider implementation
+- `resources/`: xterm.js resource files
 
-### ファイル構成
+### Key Features
 
-- `src/extension.ts`: 拡張機能のエントリーポイント
-- `src/terminalProvider.ts`: ターミナルプロバイダーの実装
-- `resources/`: xterm.js のリソースファイル
+1. **PTY Emulation**: Full pseudo-terminal implementation via Python script
+2. **Dynamic Resizing**: Automatic resize based on HTML element dimensions
+3. **Non-blocking I/O**: High-performance I/O processing using select
 
-### 主要機能
+### Rust PTY Migration Attempt
 
-1. **PTY エミュレーション**: Python スクリプトによる完全な疑似ターミナル実装
-2. **動的サイズ調整**: HTML エレメントサイズに基づく自動リサイズ
-3. **非ブロッキング I/O**: select を使用した高性能な入出力処理
+A Rust-based PTY implementation was attempted to eliminate environment dependencies, but was abandoned due to macOS security restrictions. When spawning a binary located under `/Users/` from Node.js, PTY creation is blocked and the process immediately becomes a zombie. See `resources/pty-rs/README.md` in the feature/rust-pty-migration branch for details.
 
-### PTY の Rust化について
-
-環境依存を排除するため Rust での PTY 実装を試みましたが、macOS のセキュリティ制限により断念しました。`/Users/` 以下に配置されたバイナリを Node.js から spawn すると、PTY 作成がブロックされ即座に zombie 化します。詳細は  feature/rust-pty-migration ブランチの `resources/pty-rs/README.md` を参照してください。
-
-## ライセンス
+## License
 
 MIT License
 
-## 作者
+## Author
 
 ytyng
-
----
-
-**楽しんでお使いください！**
