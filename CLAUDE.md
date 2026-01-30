@@ -76,25 +76,45 @@ VSCode のサイドバーで動作する高機能ターミナル拡張機能の�
 ```
 secondary-terminal/
 ├── src/
-│   ├── extension.ts          # 拡張機能エントリーポイント
-│   └── terminalProvider.ts   # ターミナルプロバイダー実装
+│   ├── extension.ts                # 拡張機能エントリーポイント、コマンド登録
+│   ├── terminalProvider.ts         # ターミナルプロバイダー（タブ管理、ACE エディタ、PTY）
+│   ├── clipboardImageHandler.ts    # macOS クリップボード画像抽出
+│   ├── dropZoneProvider.ts         # ファイル Drag & Drop ゾーン
+│   ├── terminalSessionManager.ts   # ターミナルセッション永続化
+│   ├── shellProcessManager.ts      # シェルプロセスライフサイクル管理
+│   ├── utils.ts                    # ユーティリティ関数
+│   └── version.json                # バージョン + ビルド日時
 ├── resources/
+│   ├── terminal.html        # メイン UI（xterm.js、ACE エディタ、タブバー）
 │   ├── xterm.css            # xterm.js スタイルシート
 │   └── xterm.js             # xterm.js ライブラリ
+├── scripts/
+│   └── update-version.js    # バージョン情報更新スクリプト
 ├── out/                     # コンパイル済み JavaScript
 ├── package.json             # プロジェクト設定
-├── tsconfig.json           # TypeScript 設定
-├── README.md               # ユーザー向けドキュメント
-└── CLAUDE.md              # 開発者向けドキュメント（このファイル）
+├── tsconfig.json            # TypeScript 設定
+├── README.md                # ユーザー向けドキュメント
+└── CLAUDE.md                # 開発者向けドキュメント（このファイル）
 ```
 
 ## 主要機能実装詳細
 
-### TerminalProvider クラス
+### TerminalProvider クラス (`terminalProvider.ts`)
 - WebView の HTML 生成と管理
 - Python PTY プロセスの起動・管理
 - 入出力データの変換・転送
 - ターミナルサイズの動的調整
+- マルチタブ管理（タブごとに独立したシェルプロセスと ACE エディタ）
+
+### クリップボード画像ハンドラー (`clipboardImageHandler.ts`)
+- macOS の NSPasteboard から PNG/TIFF 画像を抽出（AppleScript 経由）
+- `/tmp/secondary-terminal/attachments/` に UUID7 ベースのファイル名で保存
+- ファイルパスを `[@<filepath>]` 形式でエディタに挿入
+
+### Drop Zone プロバイダー (`dropZoneProvider.ts`)
+- VSCode サイドバーの TreeView として実装
+- `text/uri-list` MIME タイプのファイルドロップを受け付け
+- ドロップされたファイルパスを `[@<path>]` 形式で ACE エディタに送信
 
 ### Python PTY スクリプト
 - 疑似ターミナル（PTY）の作成と管理
@@ -102,11 +122,14 @@ secondary-terminal/
 - 非ブロッキング I/O による入出力処理
 - ターミナルサイズ変更の処理
 
-### フロントエンド JavaScript
+### フロントエンド (`resources/terminal.html`)
 - xterm.js ターミナルの初期化
 - フォントメトリクスの測定
 - 動的サイズ調整ロジック
 - VSCode との通信インターフェース
+- タブごとに独立した ACE エディタインスタンス（ace-builds ライブラリ、VSCode キーバインド）
+- `Cmd+Enter` でエディタ内容をターミナルに送信
+- Trim Lines（各行の前後空白除去）機能
 
 ## 開発・テスト環境
 
@@ -316,4 +339,4 @@ customGlyphs: true
 
 **開発者**: ytyng
 **作成日**: 2025年6月28日
-**最終更新**: 2025年7月27日
+**最終更新**: 2026年1月30日

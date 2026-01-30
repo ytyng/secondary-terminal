@@ -12,6 +12,10 @@ A full-featured terminal extension that runs in the VSCode sidebar. With complet
 - **Dynamic Resizing**: Automatically adjusts terminal size according to sidebar dimensions
 - **UTF-8 Support**: Correctly displays multibyte characters including Japanese
 - **Custom Font**: RobotoMono Nerd Font support
+- **Multi-Tab Support**: Multiple independent terminal tabs, each with its own shell process and editor
+- **ACE Editor Integration**: Built-in code editor (ACE) per tab for composing commands and text
+- **Clipboard Image Paste**: Paste images from clipboard and insert file path reference (macOS only)
+- **Drop Zone**: Drag & drop files from the explorer to insert file path references into the editor
 
 ## Requirements
 
@@ -115,6 +119,9 @@ npm run lint
    - Edit files with vim (hjkl cursor movement supported)
    - Browse files with less
    - Other interactive applications
+5. Use the built-in ACE editor to compose multi-line commands and send them to the terminal with `Cmd+Enter`
+6. Paste images from clipboard using the 📷 button (macOS) — the image is saved to a temp file and inserted as `[@<filepath>]`
+7. Drag & drop files onto the Drop Zone to insert file path references into the editor
 
 ## Technical Specifications
 
@@ -138,8 +145,13 @@ Terminal scrolling and UI responsiveness slow down as scroll history grows. This
 ### File Structure
 
 - `src/extension.ts`: Extension entry point
-- `src/terminalProvider.ts`: Terminal provider implementation
-- `resources/`: xterm.js resource files
+- `src/terminalProvider.ts`: Terminal provider implementation (tabs, ACE editor, PTY management)
+- `src/clipboardImageHandler.ts`: macOS clipboard image extraction
+- `src/dropZoneProvider.ts`: File drag & drop zone
+- `src/terminalSessionManager.ts`: Terminal session persistence
+- `src/shellProcessManager.ts`: Shell process lifecycle management
+- `resources/terminal.html`: Main UI (xterm.js, ACE editor, tab bar)
+- `resources/xterm.css`, `resources/xterm.js`: xterm.js library
 
 ### Key Features
 
