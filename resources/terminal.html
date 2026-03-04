@@ -586,6 +586,17 @@
         const MAX_BUFFER_LINES = parseInt('{{SCROLLBACK_MAX}}'); // 設定された最大行数
         const vscode = acquireVsCodeApi();
 
+        // CSS変数からターミナルテーマ色を読み取る
+        function getTerminalThemeFromCssVars() {
+            const style = document.documentElement.style;
+            return {
+                background: style.getPropertyValue('--vscode-sideBar-background') || '#111111',
+                foreground: style.getPropertyValue('--vscode-terminal-foreground') || '#ffffff',
+                cursor: style.getPropertyValue('--vscode-terminal-cursor-foreground') || '#ffffff',
+                selection: style.getPropertyValue('--vscode-terminal-selection-background') || '#ffffff',
+            };
+        }
+
         // タブ状態管理
         const tabState = {
             tabs: [],                    // Array of {id, title}
@@ -595,6 +606,18 @@
             globalEventListeners: [],    // グローバルなイベントリスナー
             resizeObserver: null,
         };
+
+        // VSCodeテーマ変更時に全タブのxterm.jsテーマを追従させる
+        const themeObserver = new MutationObserver(() => {
+            const theme = getTerminalThemeFromCssVars();
+            for (const term of tabState.terminals.values()) {
+                term.options.theme = theme;
+            }
+        });
+        themeObserver.observe(document.documentElement, {
+            attributes: true,
+            attributeFilter: ['style'],
+        });
 
         // 新しいタブ用のデフォルト terminalState を生成
         function createTerminalState() {
@@ -1669,14 +1692,7 @@
                 }
 
                 state.term = new Terminal({
-                    theme: {
-                        // ↓ おそらく、ターミナル内で上書きされる
-                        // background: 'var(--vscode-sideBar-background)',
-                        background: document.documentElement.style.getPropertyValue('--vscode-sideBar-background') || '#111111',
-                        foreground: document.documentElement.style.getPropertyValue('--vscode-terminal-foreground') || '#ffffff',
-                        cursor: document.documentElement.style.getPropertyValue('--vscode-terminal-cursor-foreground') || '#ffffff',
-                        selection: document.documentElement.style.getPropertyValue('--vscode-terminal-selection-background') || '#ffffff'
-                    },
+                    theme: getTerminalThemeFromCssVars(),
                     fontFamily: '"RobotoMono Nerd Font Mono", "RobotoMono Nerd Font", "Roboto Mono", Consolas, "Courier New", monospace',
                     fontSize: 13,
                     letterSpacing: 0,
