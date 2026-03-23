@@ -89,7 +89,7 @@ def get_foreground_process_name(shell_pid):
 
 
 def check_cli_agent_active(shell_pid):
-    """シェルプロセス配下で CLI エージェント（Claude, Gemini）の稼働有無を軽量に判定する。
+    """シェルプロセス配下で CLI エージェント（Claude, Gemini, Codex, Copilot）の稼働有無を軽量に判定する。
 
     以前は `ps -eo pid,ppid,comm,args` で全プロセスを列挙していたが、
     環境によっては出力が大きくなり、3秒ごとの実行でも徐々に CPU 使用率が上がる可能性があった。
@@ -207,6 +207,13 @@ def check_cli_agent_active(shell_pid):
                             or '/bin/codex' in args
                         ):
                             return {'active': True, 'agent_type': 'codex'}
+                        # Copilot 検出
+                        if (
+                            'copilot' in comm
+                            or ' copilot ' in args
+                            or '/bin/copilot' in args
+                        ):
+                            return {'active': True, 'agent_type': 'copilot'}
                     except Exception:
                         # 行のパース失敗は無視して続行
                         continue
