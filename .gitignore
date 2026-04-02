@@ -6,3 +6,4 @@ node_modules
 *.code-workspace
 __pycache__
 *.pyc
+.pnpm-store
