@@ -605,6 +605,7 @@
             terminalStates: new Map(),   // tabId -> per-tab terminalState
             globalEventListeners: [],    // グローバルなイベントリスナー
             resizeObserver: null,
+            sendAfterExtract: false,
         };
 
         // VSCodeテーマ変更時に全タブのxterm.jsテーマを追従させる
@@ -1044,9 +1045,6 @@
                 }
                 editor.setValue(savedContent, -1);
 
-                // Extract後にターミナル送信するかのフラグ
-                let sendAfterExtract = false;
-
                 // 送信コマンド（Cmd+Enter）
                 function sendEditorContent(ed) {
                     const content = ed.getValue();
@@ -1079,7 +1077,7 @@
                 function extractAndSendEditorContent(ed) {
                     const content = ed.getValue();
                     if (!content.trim() || content.split('\n').length <= 1) return;
-                    sendAfterExtract = true;
+                    tabState.sendAfterExtract = true;
                     vscode.postMessage({ type: 'extractToTodos', data: content });
                 }
 
@@ -1530,13 +1528,27 @@
                             const reference = `See [@${message.filePath}]`;
                             getActiveEditor().setValue(reference, -1);
                             log('[EXTRACT] Editor content replaced with reference:', reference);
-                            if (sendAfterExtract) {
-                                sendAfterExtract = false;
-                                sendEditorContent(getActiveEditor());
+                            if (tabState.sendAfterExtract) {
+                                tabState.sendAfterExtract = false;
+                                const activeTabId = tabState.activeTabId;
+                                const trimmedRef = reference.trimEnd();
+                                vscode.postMessage({
+                                    type: 'editorSendContent',
+                                    data: trimmedRef,
+                                    tabId: activeTabId
+                                });
+                                setTimeout(() => {
+                                    vscode.postMessage({
+                                        type: 'terminalInput',
+                                        data: '\r',
+                                        tabId: activeTabId
+                                    });
+                                    getActiveEditor().setValue('', -1);
+                                }, 200);
                             }
                         } else if (!message.success) {
                             log('[EXTRACT] Failed to write TODOS.md:', message.error);
-                            sendAfterExtract = false;
+                            tabState.sendAfterExtract = false;
                         }
                         break;
                 }
