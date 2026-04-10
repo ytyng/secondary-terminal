@@ -1050,7 +1050,10 @@
                     const content = ed.getValue();
                     if (!content.trim()) return;
 
-                    const trimmedContent = content.trimEnd();
+                    // ローカル画像パス (/.../.png, .jpg) の先頭に @ を付与
+                    // Claude Code がパスを消す挙動を防止する
+                    const trimmedContent = content.trimEnd()
+                        .replace(/(^|\s)(\/[^\n]+?\.(?:png|jpg))/gm, '$1@$2');
                     vscode.postMessage({
                         type: 'editorSendContent',
                         data: trimmedContent,
