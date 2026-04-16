@@ -143,7 +143,8 @@
       },
       {
         "command": "secondaryTerminal.toggleClaudeSandbox",
-        "key": "cmd+ctrl+s"
+        "key": "cmd+ctrl+s",
+        "when": "workspaceFolderCount > 0"
       }
     ],
     "configuration": {

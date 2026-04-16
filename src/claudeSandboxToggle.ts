@@ -18,12 +18,14 @@ export function toggleClaudeSandbox(workspaceRoot: string): ToggleResult {
 
     let json: Record<string, any> = {};
     if (fs.existsSync(settingsPath)) {
-        const content = fs.readFileSync(settingsPath, 'utf8');
-        const parsed = JSON.parse(content);
-        if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
-            throw new Error(`${settingsPath} is not a JSON object`);
+        const content = fs.readFileSync(settingsPath, 'utf8').trim();
+        if (content !== '') {
+            const parsed = JSON.parse(content);
+            if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
+                throw new Error(`${settingsPath} is not a JSON object`);
+            }
+            json = parsed;
         }
-        json = parsed;
     }
 
     const current = json.sandbox?.enabled === true;
