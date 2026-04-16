@@ -21,7 +21,7 @@ interface TabState {
 
 // WebView メッセージの型定義
 interface WebViewMessage {
-    type: 'terminalInput' | 'terminalReady' | 'tabReady' | 'resize' | 'error' | 'buttonSendSelection' | 'buttonCopySelection' | 'refreshCliAgentStatus' | 'bufferCleanupRequest' | 'terminalInputBegin' | 'terminalInputChunk' | 'terminalInputEnd' | 'editorSendContent' | 'getEnv' | 'log' | 'extractToTodos' | 'openPromptHistory' | 'createTab' | 'switchTab' | 'closeTab' | 'pasteImage' | 'openDropZone';
+    type: 'terminalInput' | 'terminalReady' | 'tabReady' | 'resize' | 'error' | 'buttonSendSelection' | 'buttonCopySelection' | 'refreshCliAgentStatus' | 'bufferCleanupRequest' | 'terminalInputBegin' | 'terminalInputChunk' | 'terminalInputEnd' | 'editorSendContent' | 'getEnv' | 'log' | 'extractToTodos' | 'openPromptHistory' | 'createTab' | 'switchTab' | 'closeTab' | 'pasteImage' | 'openDropZone' | 'openLink';
     data?: string;
     cols?: number;
     rows?: number;
@@ -368,6 +368,15 @@ export class TerminalProvider implements vscode.WebviewViewProvider {
                         break;
                     case 'openDropZone':
                         vscode.commands.executeCommand('secondaryTerminal.openDropZone');
+                        break;
+                    case 'openLink':
+                        if (message.data && /^https?:\/\//i.test(message.data)) {
+                            try {
+                                vscode.env.openExternal(vscode.Uri.parse(message.data));
+                            } catch (error) {
+                                this.appendLog(`Invalid URL ignored: ${message.data}`);
+                            }
+                        }
                         break;
                 }
             },
