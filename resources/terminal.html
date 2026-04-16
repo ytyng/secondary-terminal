@@ -1866,6 +1866,14 @@
                                             if (event.metaKey) {
                                                 vscode.postMessage({ type: 'openLink', data: linkText });
                                             }
+                                        },
+                                        // WebGL renderer では xterm-cursor-pointer クラスが
+                                        // canvas に反映されないため、直接 cursor を制御する
+                                        hover() {
+                                            terminalElement.style.cursor = 'pointer';
+                                        },
+                                        leave() {
+                                            terminalElement.style.cursor = '';
                                         }
                                     });
                                 }
@@ -1882,6 +1890,8 @@
                             if (linkDisposable) { linkDisposable.dispose(); linkDisposable = null; }
                         },
                         recreate(showDeco) {
+                            // Cmd 解除時にカーソルもリセット
+                            if (!showDeco) { terminalElement.style.cursor = ''; }
                             if (linkDisposable) { linkDisposable.dispose(); }
                             linkDisposable = createProvider(showDeco);
                         }
