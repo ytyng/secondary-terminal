@@ -371,7 +371,11 @@ export class TerminalProvider implements vscode.WebviewViewProvider {
                         break;
                     case 'openLink':
                         if (message.data && /^https?:\/\//i.test(message.data)) {
-                            vscode.env.openExternal(vscode.Uri.parse(message.data));
+                            try {
+                                vscode.env.openExternal(vscode.Uri.parse(message.data));
+                            } catch (error) {
+                                this.appendLog(`Invalid URL ignored: ${message.data}`);
+                            }
                         }
                         break;
                 }

@@ -1838,7 +1838,7 @@
                 // URL リンクプロバイダー: Cmd+Click でブラウザ起動、Cmd+Hover でアンダーライン表示
                 // 制約: 行折り返し(isWrapped)で分断された長いURLは検出できない（1行内のURLのみ対応）
                 // decorations の動的切り替えは xterm.js API で不可能なため、
-                // Cmd 状態変化時に provider を dispose → 再登録してキャッシュを無効化する
+                // Cmd 状態変化時に provider を dispose → 再登録する（hover 再計算時に反映される）
                 (function setupUrlLinkProvider() {
                     const URL_REGEX = /https?:\/\/[^\s<>"'\])}>,]+(?<![.,;:!?])/g;
                     let linkDisposable = null;
@@ -1846,6 +1846,8 @@
                     function createProvider(showDeco) {
                         return state.term.registerLinkProvider({
                             provideLinks(lineNumber, callback) {
+                                // Cmd 未押下時はリンク検出をスキップ（通常のターミナル動作を保持）
+                                if (!showDeco) { callback(undefined); return; }
                                 const line = state.term.buffer.active.getLine(lineNumber - 1);
                                 if (!line) { callback(undefined); return; }
                                 const lineText = line.translateToString();
