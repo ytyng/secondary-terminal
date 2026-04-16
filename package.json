@@ -94,6 +94,11 @@
         "command": "secondaryTerminal.pasteImage",
         "title": "Paste Image from Clipboard",
         "category": "Secondary Terminal"
+      },
+      {
+        "command": "secondaryTerminal.toggleClaudeSandbox",
+        "title": "Toggle Claude Sandbox",
+        "category": "Secondary Terminal"
       }
     ],
     "menus": {
@@ -135,6 +140,10 @@
         "command": "secondaryTerminal.copyMainTerminalSelection",
         "key": "cmd+shift+l",
         "when": "terminalFocus"
+      },
+      {
+        "command": "secondaryTerminal.toggleClaudeSandbox",
+        "key": "cmd+ctrl+s"
       }
     ],
     "configuration": {
