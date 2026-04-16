@@ -620,6 +620,32 @@
             attributeFilter: ['style'],
         });
 
+        // Cmd(Meta) キー状態のグローバル追跡（URL リンク装飾の切り替えに使用）
+        // タブごとではなくグローバルで1つだけ管理し、各タブの link provider が参照する
+        const urlLinkState = {
+            isMetaDown: false,
+            // 各タブの link provider disposable を管理。Cmd 状態変化時に全タブの provider を再登録する
+            tabProviders: new Map(), // tabId -> { dispose, recreate }
+        };
+
+        (function setupGlobalMetaTracking() {
+            function onMetaChange(metaDown) {
+                if (urlLinkState.isMetaDown === metaDown) { return; }
+                urlLinkState.isMetaDown = metaDown;
+                // 全タブの link provider を再登録して decoration を切り替える
+                for (const entry of urlLinkState.tabProviders.values()) {
+                    entry.recreate(metaDown);
+                }
+            }
+            document.addEventListener('keydown', (e) => {
+                if (e.key === 'Meta') { onMetaChange(true); }
+            });
+            document.addEventListener('keyup', (e) => {
+                if (e.key === 'Meta') { onMetaChange(false); }
+            });
+            window.addEventListener('blur', () => { onMetaChange(false); });
+        })();
+
         // 新しいタブ用のデフォルト terminalState を生成
         function createTerminalState() {
             return {
@@ -1808,6 +1834,66 @@
                 } else {
                     throw new Error('WebglAddon is not defined');
                 }
+
+                // URL リンクプロバイダー: Cmd+Click でブラウザ起動、Cmd+Hover でアンダーライン表示
+                // 制約: 行折り返し(isWrapped)で分断された長いURLは検出できない（1行内のURLのみ対応）
+                // decorations の動的切り替えは xterm.js API で不可能なため、
+                // Cmd 状態変化時に provider を dispose → 再登録してキャッシュを無効化する
+                (function setupUrlLinkProvider() {
+                    const URL_REGEX = /https?:\/\/[^\s<>"'\])}>,]+(?<![.,;:!?])/g;
+                    let linkDisposable = null;
+
+                    function createProvider(showDeco) {
+                        return state.term.registerLinkProvider({
+                            provideLinks(lineNumber, callback) {
+                                const line = state.term.buffer.active.getLine(lineNumber - 1);
+                                if (!line) { callback(undefined); return; }
+                                const lineText = line.translateToString();
+                                URL_REGEX.lastIndex = 0;
+                                const links = [];
+                                let m;
+                                while ((m = URL_REGEX.exec(lineText)) !== null) {
+                                    links.push({
+                                        range: {
+                                            start: { x: m.index + 1, y: lineNumber },
+                                            end: { x: m.index + m[0].length, y: lineNumber }
+                                        },
+                                        text: m[0],
+                                        decorations: { underline: showDeco, pointerCursor: showDeco },
+                                        activate(event, linkText) {
+                                            if (event.metaKey) {
+                                                vscode.postMessage({ type: 'openLink', data: linkText });
+                                            }
+                                        }
+                                    });
+                                }
+                                callback(links.length > 0 ? links : undefined);
+                            }
+                        });
+                    }
+
+                    linkDisposable = createProvider(false);
+
+                    // グローバル Meta 追跡に登録（Cmd 状態変化時に provider を再登録）
+                    urlLinkState.tabProviders.set(tabId, {
+                        dispose() {
+                            if (linkDisposable) { linkDisposable.dispose(); linkDisposable = null; }
+                        },
+                        recreate(showDeco) {
+                            if (linkDisposable) { linkDisposable.dispose(); }
+                            linkDisposable = createProvider(showDeco);
+                        }
+                    });
+
+                    // タブ破棄時のクリーンアップ登録
+                    state.xtermListeners.push({
+                        dispose() {
+                            urlLinkState.tabProviders.delete(tabId);
+                            if (linkDisposable) { linkDisposable.dispose(); linkDisposable = null; }
+                        }
+                    });
+                    log('[LINK] URL link provider registered for tab:', tabId);
+                })();
 
                 // ターミナル要素のサイズが確定するまで待機
                 function waitForSize() {
