@@ -5,6 +5,7 @@ import { TerminalSessionManager } from './terminalSessionManager';
 import { createContextTextForSelectedText } from './utils';
 import { registerDropZoneProvider } from './dropZoneProvider';
 import { getImageFromClipboard } from './clipboardImageHandler';
+import { toggleClaudeSandbox } from './claudeSandboxToggle';
 
 /**
  * ターミナルの選択テキストをクリップボードにコピーして取得
@@ -208,6 +209,25 @@ export function activate(context: vscode.ExtensionContext) {
                 vscode.window.setStatusBarMessage('$(check) Image pasted', 3000);
             } else {
                 vscode.window.showInformationMessage('No image found in clipboard');
+            }
+        })
+    );
+
+    // Claude Code の sandbox をトグル (<workspace>/.claude/settings.local.json の sandbox.enabled)
+    context.subscriptions.push(
+        vscode.commands.registerCommand('secondaryTerminal.toggleClaudeSandbox', () => {
+            const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
+            if (!workspaceFolder) {
+                vscode.window.showWarningMessage('No workspace folder open');
+                return;
+            }
+            try {
+                const result = toggleClaudeSandbox(workspaceFolder.uri.fsPath);
+                const status = result.enabled ? 'ON' : 'OFF';
+                vscode.window.showInformationMessage(`Claude sandbox: ${status}`);
+            } catch (error) {
+                const msg = error instanceof Error ? error.message : String(error);
+                vscode.window.showErrorMessage(`Failed to toggle Claude sandbox: ${msg}`);
             }
         })
     );
