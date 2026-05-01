@@ -225,6 +225,9 @@ export function activate(context: vscode.ExtensionContext) {
                 const result = toggleClaudeSandbox(workspaceFolder.uri.fsPath);
                 const status = result.enabled ? 'ON' : 'OFF';
                 vscode.window.showInformationMessage(`Claude sandbox: ${status}`);
+                if (!result.enabled) {
+                    provider.sendTextToEditorIfEmpty('I released the sandbox. Try again.');
+                }
             } catch (error) {
                 const msg = error instanceof Error ? error.message : String(error);
                 vscode.window.showErrorMessage(`Failed to toggle Claude sandbox: ${msg}`);

@@ -1552,6 +1552,16 @@
                         }
                         break;
 
+                    case 'sendTextToEditorIfEmpty':
+                        if (getActiveEditor() && message.text) {
+                            const currentValue = getActiveEditor().getValue();
+                            if (currentValue === '') {
+                                getActiveEditor().setValue(message.text, -1);
+                                getActiveEditor().focus();
+                            }
+                        }
+                        break;
+
                     case 'extractToTodosResult':
                         if (message.success && getActiveEditor()) {
                             const reference = `See [@${message.filePath}]`;
