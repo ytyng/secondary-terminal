@@ -1555,7 +1555,7 @@
                     case 'sendTextToEditorIfEmpty':
                         if (getActiveEditor() && message.text) {
                             const currentValue = getActiveEditor().getValue();
-                            if (currentValue === '') {
+                            if (!currentValue.trim()) {
                                 getActiveEditor().setValue(message.text, -1);
                                 getActiveEditor().focus();
                             }

@@ -512,14 +512,19 @@ export class TerminalProvider implements vscode.WebviewViewProvider {
             return;
         }
 
+        const handleError = (error: unknown) => {
+            console.error('Failed to send text to editor (if empty):', error);
+            vscode.window.showErrorMessage(`エディタへの送信に失敗しました: ${error}`);
+        };
+
         try {
-            this._view?.webview.postMessage({
+            const result = this._view?.webview.postMessage({
                 type: 'sendTextToEditorIfEmpty',
                 text: text
             });
+            Promise.resolve(result).catch(handleError);
         } catch (error) {
-            console.error('Failed to send text to editor (if empty):', error);
-            vscode.window.showErrorMessage(`エディタへの送信に失敗しました: ${error}`);
+            handleError(error);
         }
     }
 
