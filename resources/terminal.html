@@ -664,10 +664,132 @@
                 recentWriteCount: 0,
                 adaptiveDelayMs: 16,
                 addons: [],
+                webgl: null, // WebGL アドオン参照 (refreshRenderer 用)
+                // GPU 連続コンテキストロスト時の暴走防止。recoverRenderer が
+                // 呼ばれた回数を数え、上限を超えたら WebGL を諦めて DOM レンダラに留まる。
+                // 手動 refreshRenderer で 0 にリセットされる。
+                recoverAttempts: 0,
+                recoverDebounceTimer: null,
                 xtermListeners: [],
                 cliAgentState: { active: false, agent_type: null },
                 editor: null, // ACE editor instance per tab
             };
+        }
+
+        // WebGL アドオンをロードして state に保存する
+        // 初期化時と onContextLoss 後の再構築の両方から呼ばれる
+        function loadWebglAddon(state) {
+            if (!state || !state.term) {
+                return null;
+            }
+            if (typeof WebglAddon === 'undefined') {
+                throw new Error('WebglAddon is not defined');
+            }
+            const webgl = new WebglAddon.WebglAddon();
+            webgl.onContextLoss(() => {
+                log('[RENDERER] WebGL context lost! attempting recovery');
+                recoverRenderer(state);
+            });
+            state.term.loadAddon(webgl);
+            state.webgl = webgl;
+            state.addons.push(webgl);
+            log('[RENDERER] WebGL addon loaded');
+            return webgl;
+        }
+
+        // recoverRenderer の動作パラメータ。
+        // - DEBOUNCE_MS: 連続呼び出しを丸める時間幅。短いと同一 GPU 事象に対して何度も走る。
+        // - MAX_ATTEMPTS: 連続失敗で WebGL を諦めるしきい値。手動 refreshRenderer でリセットされる。
+        const RECOVER_DEBOUNCE_MS = 2000;
+        const RECOVER_MAX_ATTEMPTS = 3;
+
+        // 現在の WebGL アドオンを state.addons から除去し dispose し、state.webgl を null にする。
+        // _doRecoverRenderer の前段クリーンアップと、上限到達時の give-up クリーンアップで共通使用。
+        // 例外パスでも state.webgl が必ず null になるよう finally で確定させる。
+        function _disposeCurrentWebgl(state) {
+            try {
+                if (state.webgl) {
+                    const idx = state.addons.indexOf(state.webgl);
+                    if (idx >= 0) {
+                        state.addons.splice(idx, 1);
+                    }
+                    try {
+                        state.webgl.dispose();
+                    } catch (e) {
+                        log('[RENDERER] dispose of WebGL addon failed:', e);
+                    }
+                }
+            } catch (e) {
+                log('[RENDERER] Error during WebGL cleanup:', e);
+            } finally {
+                state.webgl = null;
+            }
+        }
+
+        // 現 WebGL アドオンを破棄して新規ロードする内部実装 (デバウンス無し)。
+        function _doRecoverRenderer(state) {
+            _disposeCurrentWebgl(state);
+
+            // 新規にロードし直す。失敗した場合は WebGL なしでデフォルトレンダラに任せる。
+            try {
+                loadWebglAddon(state);
+                if (state.term) {
+                    state.term.refresh(0, state.term.rows - 1);
+                }
+                log('[RENDERER] WebGL addon recreated (attempt ' + state.recoverAttempts + ')');
+                return true;
+            } catch (e) {
+                log('[RENDERER] WebGL recreate failed, falling back to default renderer:', e);
+                state.webgl = null;
+                return false;
+            }
+        }
+
+        // WebGL コンテキストロスト時 or refreshRenderer のフォールバック:
+        // デバウンス + リトライ上限付きで _doRecoverRenderer を呼ぶ。
+        // GPU メモリ逼迫等で context loss が連鎖した時の暴走 (= 短時間に WebGL を作っては失う) を防ぐ。
+        // 戻り値: 復旧を試みたら true、上限到達で諦めたら false。
+        function recoverRenderer(state) {
+            if (!state || !state.term) {
+                return false;
+            }
+            // 既に同 state のデバウンス待機中なら何もしない (連続発火を丸める)
+            if (state.recoverDebounceTimer) {
+                return true;
+            }
+            if ((state.recoverAttempts || 0) >= RECOVER_MAX_ATTEMPTS) {
+                log('[RENDERER] Max recovery attempts reached, staying on default renderer');
+                _disposeCurrentWebgl(state);
+                return false;
+            }
+            state.recoverDebounceTimer = setTimeout(() => {
+                state.recoverDebounceTimer = null;
+                state.recoverAttempts = (state.recoverAttempts || 0) + 1;
+                _doRecoverRenderer(state);
+            }, RECOVER_DEBOUNCE_MS);
+            return true;
+        }
+
+        // glyph atlas 破損による表示崩れを再起動なしで復旧する。
+        // 軽量パス (clearTextureAtlas) → 失敗時に重量パス (recoverRenderer)。
+        // 戻り値: 軽量パスで復旧できたら true、重量パスに委譲したら false。
+        // (重量パスの成否は非同期で recoverRenderer 側に任せるためここでは判定しない)
+        function refreshRendererForState(state) {
+            if (!state || !state.term) {
+                return false;
+            }
+            try {
+                if (state.webgl && typeof state.webgl.clearTextureAtlas === 'function') {
+                    state.webgl.clearTextureAtlas();
+                    state.term.refresh(0, state.term.rows - 1);
+                    log('[RENDERER] clearTextureAtlas + refresh succeeded');
+                    return true;
+                }
+            } catch (e) {
+                log('[RENDERER] clearTextureAtlas failed, attempting recreate:', e);
+            }
+            recoverRenderer(state);
+            return false;
         }
 
         // 後方互換性のため、現在のアクティブタブの terminalState を返すゲッター
@@ -689,11 +811,22 @@
 
         /**
          * ログメッセージを送信する
+         * Error は JSON.stringify では {} になり message/stack が落ちるので特殊扱い。
          */
         function log(...args) {
-            const message = args.map(arg =>
-                typeof arg === 'object' ? JSON.stringify(arg) : String(arg)
-            ).join(' ');
+            const message = args.map(arg => {
+                if (arg instanceof Error) {
+                    return arg.stack || arg.message || String(arg);
+                }
+                if (arg !== null && typeof arg === 'object') {
+                    try {
+                        return JSON.stringify(arg);
+                    } catch (e) {
+                        return String(arg);
+                    }
+                }
+                return String(arg);
+            }).join(' ');
             vscode.postMessage({
                 type: 'log',
                 message: `[terminal.html] ${message}`
@@ -896,6 +1029,12 @@
                     state.timers[timerKey] = null;
                 }
             });
+
+            // recoverRenderer のデバウンスタイマーも明示的にクリア (state.timers の外側にある)
+            if (state.recoverDebounceTimer) {
+                try { clearTimeout(state.recoverDebounceTimer); } catch (e) { }
+                state.recoverDebounceTimer = null;
+            }
 
             // イベントリスナーを削除
             state.eventListeners.forEach(({ element, event, handler }) => {
@@ -1472,6 +1611,34 @@
                         }, 10);
                         break;
 
+                    case 'refreshRenderer':
+                        // glyph atlas 破損による表示崩れを再起動なしで復旧する。
+                        // tabId 指定があればそのタブだけ、なければ全タブを対象。
+                        // ユーザー操作経由なので:
+                        //  - recoverRenderer のリトライカウンタをリセット (自動諦め後の再試行を許す)
+                        //  - 進行中の debounce timer もクリア (clearTextureAtlas が成功した後に
+                        //    遅延発火した recover で予期せず dispose/recreate されるのを防ぐ)
+                        try {
+                            const _resetAndRefresh = (s) => {
+                                if (!s) return;
+                                if (s.recoverDebounceTimer) {
+                                    try { clearTimeout(s.recoverDebounceTimer); } catch (e) { }
+                                    s.recoverDebounceTimer = null;
+                                }
+                                s.recoverAttempts = 0;
+                                refreshRendererForState(s);
+                            };
+                            if (message.tabId) {
+                                _resetAndRefresh(tabState.terminalStates.get(message.tabId));
+                            } else {
+                                tabState.terminalStates.forEach(_resetAndRefresh);
+                            }
+                            log('[RENDERER] refreshRenderer handled');
+                        } catch (e) {
+                            log('[RENDERER] refreshRenderer error:', e);
+                        }
+                        break;
+
                     case 'visibility_restored':
                         log('[LEAK CHECK] visibility_restored event received');
                         const activeState = getActiveTerminalState();
@@ -1822,28 +1989,41 @@
                     }
                 }
 
-                // WebGL アドオンをロード
-                if (typeof WebglAddon !== 'undefined') {
-                    try {
-                        const webgl = new WebglAddon.WebglAddon();
-
-                        // WebGL context loss のハンドリング
-                        webgl.onContextLoss(() => {
-                            log('[RENDERER] WebGL context lost!');
-                            webgl.dispose();
-                        });
-
-                        state.term.loadAddon(webgl);
-                        log('[RENDERER] WebGL addon loaded successfully');
-
-                        state.addons.push(webgl);
-                    } catch (error) {
-                        log('[RENDERER] Failed to load WebGL addon:', error);
-                        throw error;
-                    }
-                } else {
-                    throw new Error('WebglAddon is not defined');
+                // WebGL アドオンをロード (loadWebglAddon ヘルパーで再構築可能にしてある)。
+                // ロード失敗時は throw せず、xterm.js の既定 DOM レンダラで初期化を続行する。
+                // (URL リンクプロバイダー等の後続セットアップを止めないため)
+                try {
+                    loadWebglAddon(state);
+                } catch (error) {
+                    log('[RENDERER] Failed to load WebGL addon, continuing with default renderer:', error);
                 }
+
+                // 新規タブで WebGL コンテキストを作成すると、Chromium のコンテキスト数上限や
+                // GPU メモリ圧迫により既存タブの glyph atlas が silently 失効することがある。
+                // この瞬間に既存タブのアトラスを再構築しておけば、ユーザーがタブを切り替えた
+                // 時点で崩れているという事態を防げる。
+                // 注意: 自分自身は除く (今ロードしたばかりで再構築は不要)。
+                //
+                // 100ms 遅延は経験値。「新規 WebGL コンテキスト初期化が落ち着いてから他タブの
+                // 再構築を開始する」ことを意図しているが、GPU コンテキスト確立完了を検知する
+                // 公式 API は存在しないためこの値に厳密な根拠は無い。短すぎると同時並行で
+                // GPU 圧迫を増やすため、安全側に振った値。
+                setTimeout(() => {
+                    try {
+                        let refreshed = 0;
+                        tabState.terminalStates.forEach((otherState, otherTabId) => {
+                            if (otherTabId === tabId) return;
+                            if (!otherState || !otherState.term || !otherState.webgl) return;
+                            refreshRendererForState(otherState);
+                            refreshed++;
+                        });
+                        if (refreshed > 0) {
+                            log('[RENDERER] Refreshed', refreshed, 'existing tab(s) after new tab init');
+                        }
+                    } catch (e) {
+                        log('[RENDERER] Failed to refresh other tabs on new tab init:', e);
+                    }
+                }, 100);
 
                 // URL リンクプロバイダー: Cmd+Click でブラウザ起動、Cmd+Hover でアンダーライン表示
                 // 制約: 行折り返し(isWrapped)で分断された長いURLは検出できない（1行内のURLのみ対応）
