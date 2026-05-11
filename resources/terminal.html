@@ -703,9 +703,10 @@
         const RECOVER_DEBOUNCE_MS = 2000;
         const RECOVER_MAX_ATTEMPTS = 3;
 
-        // 現 WebGL アドオンを破棄して新規ロードする内部実装 (デバウンス無し)。
-        function _doRecoverRenderer(state) {
-            // 旧 WebGL アドオンを破棄する。例外パスでも state.webgl が必ず null になるよう finally で確定させる。
+        // 現在の WebGL アドオンを state.addons から除去し dispose し、state.webgl を null にする。
+        // _doRecoverRenderer の前段クリーンアップと、上限到達時の give-up クリーンアップで共通使用。
+        // 例外パスでも state.webgl が必ず null になるよう finally で確定させる。
+        function _disposeCurrentWebgl(state) {
             try {
                 if (state.webgl) {
                     const idx = state.addons.indexOf(state.webgl);
@@ -715,14 +716,19 @@
                     try {
                         state.webgl.dispose();
                     } catch (e) {
-                        log('[RENDERER] dispose of old WebGL addon failed:', e);
+                        log('[RENDERER] dispose of WebGL addon failed:', e);
                     }
                 }
             } catch (e) {
-                log('[RENDERER] Error during old WebGL cleanup:', e);
+                log('[RENDERER] Error during WebGL cleanup:', e);
             } finally {
                 state.webgl = null;
             }
+        }
+
+        // 現 WebGL アドオンを破棄して新規ロードする内部実装 (デバウンス無し)。
+        function _doRecoverRenderer(state) {
+            _disposeCurrentWebgl(state);
 
             // 新規にロードし直す。失敗した場合は WebGL なしでデフォルトレンダラに任せる。
             try {
@@ -753,20 +759,7 @@
             }
             if ((state.recoverAttempts || 0) >= RECOVER_MAX_ATTEMPTS) {
                 log('[RENDERER] Max recovery attempts reached, staying on default renderer');
-                // 残存している壊れた WebGL アドオンも片付ける
-                try {
-                    if (state.webgl) {
-                        const idx = state.addons.indexOf(state.webgl);
-                        if (idx >= 0) {
-                            state.addons.splice(idx, 1);
-                        }
-                        try { state.webgl.dispose(); } catch (e) { log('[RENDERER] dispose during giveup:', e); }
-                    }
-                } catch (e) {
-                    log('[RENDERER] Error during giveup cleanup:', e);
-                } finally {
-                    state.webgl = null;
-                }
+                _disposeCurrentWebgl(state);
                 return false;
             }
             state.recoverDebounceTimer = setTimeout(() => {
@@ -1621,11 +1614,17 @@
                     case 'refreshRenderer':
                         // glyph atlas 破損による表示崩れを再起動なしで復旧する。
                         // tabId 指定があればそのタブだけ、なければ全タブを対象。
-                        // ユーザー操作経由なので、recoverRenderer のリトライカウンタは
-                        // リセットする (= 自動で諦めたあとでも手動再試行を許す)。
+                        // ユーザー操作経由なので:
+                        //  - recoverRenderer のリトライカウンタをリセット (自動諦め後の再試行を許す)
+                        //  - 進行中の debounce timer もクリア (clearTextureAtlas が成功した後に
+                        //    遅延発火した recover で予期せず dispose/recreate されるのを防ぐ)
                         try {
                             const _resetAndRefresh = (s) => {
                                 if (!s) return;
+                                if (s.recoverDebounceTimer) {
+                                    try { clearTimeout(s.recoverDebounceTimer); } catch (e) { }
+                                    s.recoverDebounceTimer = null;
+                                }
                                 s.recoverAttempts = 0;
                                 refreshRendererForState(s);
                             };
