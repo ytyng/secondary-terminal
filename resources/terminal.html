@@ -1156,12 +1156,171 @@
                    data.includes('\x1b[?1049');   // 代替バッファ切り替え
         }
 
+        // ACE エディタの全角文字判定を拡張するパッチ。
+        // ace-builds の EditSession は内部クロージャ変数 `isFullWidth` を使うため
+        // EditSession.prototype.isFullWidth を差し替えても効かない。
+        // そこで $getDisplayTokens と $getStringScreenWidth を丸ごと差し替えて、
+        // BMP 内の絵文字 (✅ U+2705 ✨ U+2728 など Unicode 11 East Asian Width = W のもの) を
+        // 2 セル幅として扱う。これでカーソル位置が描画グリフ幅とずれる問題が直る。
+        //
+        // 注: サロゲートペアの絵文字 (🦀 U+1F980 等) は元々 UTF-16 で 2 code unit 占有しているので
+        // ACE 上も 2 column 扱いとなり、すでにカーソル幅と一致している。BMP 単体絵文字だけが対象。
+        //
+        // 保守注意: 下記の $getDisplayTokens / $getStringScreenWidth / 元の isFullWidth レンジは、
+        // node_modules/ace-builds/src-noconflict/ace.js の同名関数 (それぞれ 11639 / 11667 / 12019 行付近)
+        // を絵文字レンジ追加だけ加えてコピーしたもの。ace-builds をバージョンアップした際は、
+        // 必ず ace.js 側の実装と差分を取り、必要な変更 (例: surrogate pair 対応の追加など)
+        // をこのパッチにも反映すること。さもないと ace 側の改善が消えて退化する。
+        let aceFullWidthPatched = false;
+        function patchAceForEmojiFullWidth() {
+            if (aceFullWidthPatched) return;
+            if (typeof ace === 'undefined' || typeof ace.require !== 'function') return;
+            let EditSession;
+            try {
+                EditSession = ace.require('ace/edit_session').EditSession;
+            } catch (e) {
+                log('[ACE] Failed to require ace/edit_session for emoji patch:', e);
+                return;
+            }
+            if (!EditSession || !EditSession.prototype || !EditSession.prototype.$getDisplayTokens) {
+                log('[ACE] EditSession.$getDisplayTokens not found, emoji full-width patch skipped (ace-builds API may have changed)');
+                return;
+            }
+
+            // ace-builds 内の定数と一致させる
+            const CHAR = 1, CHAR_EXT = 2, PUNCTUATION = 9, SPACE = 10, TAB = 11, TAB_SPACE = 12;
+
+            function isFullWidthPatched(c) {
+                if (c < 0x1100) return false;
+                // ace の元のレンジ
+                if (
+                    (c >= 0x1100 && c <= 0x115F) ||
+                    (c >= 0x11A3 && c <= 0x11A7) ||
+                    (c >= 0x11FA && c <= 0x11FF) ||
+                    (c >= 0x2329 && c <= 0x232A) ||
+                    (c >= 0x2E80 && c <= 0x2E99) ||
+                    (c >= 0x2E9B && c <= 0x2EF3) ||
+                    (c >= 0x2F00 && c <= 0x2FD5) ||
+                    (c >= 0x2FF0 && c <= 0x2FFB) ||
+                    (c >= 0x3000 && c <= 0x303E) ||
+                    (c >= 0x3041 && c <= 0x3096) ||
+                    (c >= 0x3099 && c <= 0x30FF) ||
+                    (c >= 0x3105 && c <= 0x312D) ||
+                    (c >= 0x3131 && c <= 0x318E) ||
+                    (c >= 0x3190 && c <= 0x31BA) ||
+                    (c >= 0x31C0 && c <= 0x31E3) ||
+                    (c >= 0x31F0 && c <= 0x321E) ||
+                    (c >= 0x3220 && c <= 0x3247) ||
+                    (c >= 0x3250 && c <= 0x32FE) ||
+                    (c >= 0x3300 && c <= 0x4DBF) ||
+                    (c >= 0x4E00 && c <= 0xA48C) ||
+                    (c >= 0xA490 && c <= 0xA4C6) ||
+                    (c >= 0xA960 && c <= 0xA97C) ||
+                    (c >= 0xAC00 && c <= 0xD7A3) ||
+                    (c >= 0xD7B0 && c <= 0xD7C6) ||
+                    (c >= 0xD7CB && c <= 0xD7FB) ||
+                    (c >= 0xF900 && c <= 0xFAFF) ||
+                    (c >= 0xFE10 && c <= 0xFE19) ||
+                    (c >= 0xFE30 && c <= 0xFE52) ||
+                    (c >= 0xFE54 && c <= 0xFE66) ||
+                    (c >= 0xFE68 && c <= 0xFE6B) ||
+                    (c >= 0xFF01 && c <= 0xFF60) ||
+                    (c >= 0xFFE0 && c <= 0xFFE6)
+                ) return true;
+
+                // 追加: Unicode 11 East Asian Width = W の BMP 絵文字レンジ
+                return (
+                    (c >= 0x231A && c <= 0x231B) ||                       // ⌚⌛
+                    (c >= 0x23E9 && c <= 0x23EC) ||                       // ⏩⏪⏫⏬
+                    c === 0x23F0 || c === 0x23F3 ||                       // ⏰ ⏳
+                    (c >= 0x25FD && c <= 0x25FE) ||                       // ◽◾
+                    (c >= 0x2614 && c <= 0x2615) ||                       // ☔☕
+                    (c >= 0x2648 && c <= 0x2653) ||                       // 星座
+                    c === 0x267F || c === 0x2693 ||                       // ♿ ⚓
+                    c === 0x26A1 ||                                        // ⚡
+                    (c >= 0x26AA && c <= 0x26AB) ||                       // ⚪⚫
+                    (c >= 0x26BD && c <= 0x26BE) ||                       // ⚽⚾
+                    (c >= 0x26C4 && c <= 0x26C5) ||                       // ⛄⛅
+                    c === 0x26CE || c === 0x26D4 ||                       // ⛎ ⛔
+                    c === 0x26EA ||                                        // ⛪
+                    (c >= 0x26F2 && c <= 0x26F3) ||                       // ⛲⛳
+                    c === 0x26F5 || c === 0x26FA || c === 0x26FD ||       // ⛵⛺⛽
+                    c === 0x2705 ||                                        // ✅
+                    (c >= 0x270A && c <= 0x270B) ||                       // ✊✋
+                    c === 0x2728 ||                                        // ✨
+                    c === 0x274C || c === 0x274E ||                       // ❌ ❎
+                    (c >= 0x2753 && c <= 0x2755) || c === 0x2757 ||       // ❓❔❕ ❗
+                    (c >= 0x2795 && c <= 0x2797) ||                       // ➕➖➗
+                    c === 0x27B0 || c === 0x27BF ||                       // ➰ ➿
+                    (c >= 0x2B1B && c <= 0x2B1C) || c === 0x2B50 || c === 0x2B55  // ⬛⬜ ⭐ ⭕
+                );
+            }
+
+            // 注: 下記の prototype.isFullWidth 書き換えは ace 内部の $getDisplayTokens /
+            // $getStringScreenWidth には反映されない (それらは内部クロージャ変数 isFullWidth を
+            // 直接参照しているため)。本当に挙動を変えているのは直後の prototype 書き換え 2 つ。
+            // この行は「外部から session.isFullWidth() を呼ぶ第三者コードとの一貫性確保」目的。
+            EditSession.prototype.isFullWidth = isFullWidthPatched;
+
+            EditSession.prototype.$getDisplayTokens = function (str, offset) {
+                const arr = [];
+                let tabSize;
+                offset = offset || 0;
+                for (let i = 0; i < str.length; i++) {
+                    const c = str.charCodeAt(i);
+                    if (c == 9) {
+                        tabSize = this.getScreenTabSize(arr.length + offset);
+                        arr.push(TAB);
+                        for (let n = 1; n < tabSize; n++) {
+                            arr.push(TAB_SPACE);
+                        }
+                    } else if (c == 32) {
+                        arr.push(SPACE);
+                    } else if ((c > 39 && c < 48) || (c > 57 && c < 64)) {
+                        arr.push(PUNCTUATION);
+                    } else if (c >= 0x1100 && isFullWidthPatched(c)) {
+                        arr.push(CHAR, CHAR_EXT);
+                    } else {
+                        arr.push(CHAR);
+                    }
+                }
+                return arr;
+            };
+
+            EditSession.prototype.$getStringScreenWidth = function (str, maxScreenColumn, screenColumn) {
+                if (maxScreenColumn == 0) return [0, 0];
+                if (maxScreenColumn == null) maxScreenColumn = Infinity;
+                screenColumn = screenColumn || 0;
+                let c, column;
+                for (column = 0; column < str.length; column++) {
+                    c = str.charCodeAt(column);
+                    if (c == 9) {
+                        screenColumn += this.getScreenTabSize(screenColumn);
+                    } else if (c >= 0x1100 && isFullWidthPatched(c)) {
+                        screenColumn += 2;
+                    } else {
+                        screenColumn += 1;
+                    }
+                    if (screenColumn > maxScreenColumn) {
+                        break;
+                    }
+                }
+                return [screenColumn, column];
+            };
+
+            aceFullWidthPatched = true;
+            log('[ACE] Emoji full-width patch applied');
+        }
+
         // タブ専用 ACE エディタ初期化関数
         function initializeAceEditorForTab(tabId) {
             try {
                 if (typeof ace === 'undefined') {
                     throw new Error('ACE is not defined. ace-builds may not have loaded.');
                 }
+
+                // ACE が ready になった直後に 1 回だけ絵文字幅パッチを適用
+                patchAceForEmojiFullWidth();
 
                 const state = tabState.terminalStates.get(tabId);
                 if (!state) return;
@@ -1976,12 +2135,19 @@
                 log('[LEAK CHECK] Added scroll position check interval (2000ms)');
 
                 // Unicode 11 アドオンをロード
+                // @xterm/addon-unicode11 v0.8.0 の activate() は unicode.register() だけ呼んで
+                // activeVersion を切り替えないバグがあるため、ここで明示的に '11' を設定する。
+                // これをしないと UnicodeV6 のままで ✅ (U+2705) などの絵文字が wcwidth=1 になり、
+                // 後続の文字とセルが重なって表示が崩れる。
                 if (typeof Unicode11Addon !== 'undefined') {
                     try {
                         const unicode11 = new Unicode11Addon.Unicode11Addon();
                         state.term.loadAddon(unicode11);
                         unicode11.activate(state.term);
-                        log('[LEAK CHECK] Unicode11 addon loaded');
+                        if (state.term.unicode && state.term.unicode.versions && state.term.unicode.versions.indexOf('11') !== -1) {
+                            state.term.unicode.activeVersion = '11';
+                        }
+                        log('[LEAK CHECK] Unicode11 addon loaded, activeVersion=', state.term.unicode && state.term.unicode.activeVersion);
 
                         state.addons.push(unicode11);
                     } catch (error) {
