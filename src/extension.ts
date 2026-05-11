@@ -108,6 +108,13 @@ export function activate(context: vscode.ExtensionContext) {
         })
     );
 
+    // glyph atlas 破損による表示崩れを VSCode 再起動なしで復旧する
+    context.subscriptions.push(
+        vscode.commands.registerCommand('secondaryTerminal.refreshRenderer', () => {
+            provider.refreshRenderer();
+        })
+    );
+
     // エディターの選択範囲をSecondary Terminal の下部エディターに送信
     context.subscriptions.push(
         vscode.commands.registerCommand('secondaryTerminal.sendMainEditorSelection', () => {

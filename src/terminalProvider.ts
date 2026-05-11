@@ -472,6 +472,13 @@ export class TerminalProvider implements vscode.WebviewViewProvider {
         this._processManager.sendToProcess(this._workspaceKey, '\x0C'); // Form Feed (Ctrl+L)
     }
 
+    // glyph atlas 破損による表示崩れを VSCode 再起動なしで復旧する。
+    // webview 側で clearTextureAtlas → 失敗時に WebGL アドオンを再構築する。
+    public refreshRenderer() {
+        this.appendLog('Refresh renderer requested');
+        this._view?.webview.postMessage({ type: 'refreshRenderer' });
+    }
+
     public sendTextToTerminal(text: string) {
         if (!text) {
             return;

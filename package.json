@@ -2,7 +2,7 @@
   "name": "secondary-terminal",
   "displayName": "Secondary Terminal",
   "description": "Terminal in sidebar",
-  "version": "0.16.276",
+  "version": "0.16.281",
   "engines": {
     "vscode": "^1.101.0"
   },
@@ -79,6 +79,12 @@
         "icon": "$(refresh)"
       },
       {
+        "command": "secondaryTerminal.refreshRenderer",
+        "title": "Refresh Renderer (glyph atlas)",
+        "category": "Secondary Terminal",
+        "icon": "$(symbol-color)"
+      },
+      {
         "command": "secondaryTerminal.showLogs",
         "title": "Show Logs",
         "category": "Secondary Terminal",
@@ -110,6 +116,11 @@
         },
         {
           "command": "secondaryTerminal.restart",
+          "when": "view == secondaryTerminalMainView",
+          "group": "navigation"
+        },
+        {
+          "command": "secondaryTerminal.refreshRenderer",
           "when": "view == secondaryTerminalMainView",
           "group": "navigation"
         },
