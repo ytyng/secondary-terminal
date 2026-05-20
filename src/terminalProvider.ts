@@ -750,6 +750,7 @@ export class TerminalProvider implements vscode.WebviewViewProvider {
         // アドオンの URI を生成
         const xtermWebglJsUri = webview.asWebviewUri(vscode.Uri.joinPath(this._extensionContext.extensionUri, 'node_modules', '@xterm', 'addon-webgl', 'lib', 'addon-webgl.js'));
         const xtermUnicode11JsUri = webview.asWebviewUri(vscode.Uri.joinPath(this._extensionContext.extensionUri, 'node_modules', '@xterm', 'addon-unicode11', 'lib', 'addon-unicode11.js'));
+        const xtermSearchJsUri = webview.asWebviewUri(vscode.Uri.joinPath(this._extensionContext.extensionUri, 'node_modules', '@xterm', 'addon-search', 'lib', 'addon-search.js'));
 
         // ACE エディタの URI を生成
         const aceJsUri = webview.asWebviewUri(vscode.Uri.joinPath(this._extensionContext.extensionUri, 'node_modules', 'ace-builds', 'src-min-noconflict', 'ace.js'));
@@ -776,6 +777,7 @@ export class TerminalProvider implements vscode.WebviewViewProvider {
                 .replace(/{{XTERM_JS_URI}}/g, xtermJsUri.toString())
                 .replace(/{{XTERM_WEBGL_JS_URI}}/g, xtermWebglJsUri.toString())
                 .replace(/{{XTERM_UNICODE11_JS_URI}}/g, xtermUnicode11JsUri.toString())
+                .replace(/{{XTERM_SEARCH_JS_URI}}/g, xtermSearchJsUri.toString())
                 .replace(/{{ACE_JS_URI}}/g, aceJsUri.toString())
                 .replace(/{{ACE_MODE_JAVASCRIPT_URI}}/g, aceModeJavaScriptUri.toString())
                 .replace(/{{ACE_MODE_MARKDOWN_URI}}/g, aceModeMarkdownUri.toString())

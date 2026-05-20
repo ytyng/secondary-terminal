@@ -228,6 +228,74 @@
                     flex: 1;
                     min-height: 0;
                     padding: 0 0 0 5px;
+                    position: relative;
+                }
+
+                .terminal-search-bar {
+                    position: absolute;
+                    top: 6px;
+                    right: 14px;
+                    display: none;
+                    align-items: center;
+                    gap: 4px;
+                    padding: 4px 6px;
+                    background-color: var(--vscode-editorWidget-background, #252526);
+                    border: 1px solid var(--vscode-editorWidget-border, #454545);
+                    border-radius: 3px;
+                    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+                    z-index: 10;
+                    font-size: 12px;
+
+                    &.visible {
+                        display: flex;
+                    }
+
+                    .terminal-search-input {
+                        background-color: var(--vscode-input-background, #3c3c3c);
+                        color: var(--vscode-input-foreground, #ccc);
+                        border: 1px solid var(--vscode-input-border, transparent);
+                        border-radius: 2px;
+                        padding: 2px 6px;
+                        font-family: inherit;
+                        font-size: 12px;
+                        width: 180px;
+                        outline: none;
+
+                        &:focus {
+                            border-color: var(--vscode-focusBorder, #007acc);
+                        }
+
+                        &.no-match {
+                            border-color: var(--vscode-inputValidation-errorBorder, #be1100);
+                        }
+                    }
+
+                    .terminal-search-count {
+                        color: var(--vscode-descriptionForeground, #888);
+                        min-width: 60px;
+                        text-align: center;
+                        font-size: 11px;
+                    }
+
+                    .terminal-search-btn {
+                        background: none;
+                        border: none;
+                        color: var(--vscode-foreground, #ccc);
+                        cursor: pointer;
+                        padding: 2px 5px;
+                        border-radius: 2px;
+                        font-size: 12px;
+                        line-height: 1;
+
+                        &:hover {
+                            background-color: var(--vscode-toolbar-hoverBackground, #444);
+                        }
+
+                        &:disabled {
+                            opacity: 0.4;
+                            cursor: not-allowed;
+                        }
+                    }
                 }
 
                 .pane-editor-container {
@@ -576,6 +644,7 @@
     <script src="{{XTERM_JS_URI}}"></script>
     <script src="{{XTERM_UNICODE11_JS_URI}}"></script>
     <script src="{{XTERM_WEBGL_JS_URI}}"></script>
+    <script src="{{XTERM_SEARCH_JS_URI}}"></script>
 
     <!-- ACE Editor Scripts -->
     <script src="{{ACE_JS_URI}}"></script>
@@ -1043,6 +1112,11 @@
                 } catch (e) { }
             });
             state.eventListeners = [];
+
+            // 検索バー関連のクロージャ参照を明示的に外す (DOM への参照を残さない)
+            state.openTerminalSearch = null;
+            state.closeTerminalSearch = null;
+            state.searchAddon = null;
         }
 
         /**
@@ -1059,6 +1133,38 @@
             const termArea = document.createElement('div');
             termArea.className = 'terminal-area';
             termArea.id = `terminal-area-${tabId}`;
+            // 検索バー（Cmd+F で表示）
+            const searchBar = document.createElement('div');
+            searchBar.className = 'terminal-search-bar';
+            searchBar.id = `terminal-search-bar-${tabId}`;
+            const searchInput = document.createElement('input');
+            searchInput.type = 'text';
+            searchInput.className = 'terminal-search-input';
+            searchInput.placeholder = 'Find';
+            searchInput.spellcheck = false;
+            searchBar.appendChild(searchInput);
+            const searchCount = document.createElement('span');
+            searchCount.className = 'terminal-search-count';
+            searchBar.appendChild(searchCount);
+            const searchBtnPrev = document.createElement('button');
+            searchBtnPrev.className = 'terminal-search-btn';
+            searchBtnPrev.dataset.action = 'prev';
+            searchBtnPrev.title = 'Previous (Shift+Enter)';
+            searchBtnPrev.textContent = '↑';
+            searchBar.appendChild(searchBtnPrev);
+            const searchBtnNext = document.createElement('button');
+            searchBtnNext.className = 'terminal-search-btn';
+            searchBtnNext.dataset.action = 'next';
+            searchBtnNext.title = 'Next (Enter)';
+            searchBtnNext.textContent = '↓';
+            searchBar.appendChild(searchBtnNext);
+            const searchBtnClose = document.createElement('button');
+            searchBtnClose.className = 'terminal-search-btn';
+            searchBtnClose.dataset.action = 'close';
+            searchBtnClose.title = 'Close (Esc)';
+            searchBtnClose.textContent = '✕';
+            searchBar.appendChild(searchBtnClose);
+            termArea.appendChild(searchBar);
             pane.appendChild(termArea);
 
             // タブ専用 ACE エディタコンテナ
@@ -1436,6 +1542,25 @@
                                 sendEditorContent(editor);
                             }
                             return false;
+                        }
+                    }, true);
+
+                    // クリップボードに画像があれば pasteImage コマンドに委譲する
+                    // (📷 ボタンと同じ挙動。テキストが含まれている場合は通常ペースト)
+                    aceContainer.addEventListener('paste', function(event) {
+                        const cd = event.clipboardData;
+                        if (!cd) return;
+                        const types = Array.from(cd.types || []);
+                        const hasImage = types.includes('Files') ||
+                            types.some(t => typeof t === 'string' && t.startsWith('image/'));
+                        const text = typeof cd.getData === 'function'
+                            ? cd.getData('text/plain')
+                            : '';
+                        if (hasImage && !text) {
+                            event.preventDefault();
+                            event.stopPropagation();
+                            log('[PASTE] Image detected in clipboard, delegating to pasteImage');
+                            vscode.postMessage({ type: 'pasteImage' });
                         }
                     }, true);
                 }
@@ -2058,6 +2183,126 @@
             return tabId;
         }
 
+        // ターミナル検索バーのセットアップ
+        // Cmd+F で表示、Enter で次へ、Shift+Enter で前へ、Esc で閉じる
+        function setupTerminalSearch(tabId, state, searchAddon) {
+            const searchBar = document.getElementById('terminal-search-bar-' + tabId);
+            if (!searchBar) return;
+            const input = searchBar.querySelector('.terminal-search-input');
+            const countEl = searchBar.querySelector('.terminal-search-count');
+            const btnPrev = searchBar.querySelector('[data-action="prev"]');
+            const btnNext = searchBar.querySelector('[data-action="next"]');
+            const btnClose = searchBar.querySelector('[data-action="close"]');
+
+            const searchOptions = {
+                regex: false,
+                wholeWord: false,
+                caseSensitive: false,
+                decorations: {
+                    matchBackground: '#515c6a',
+                    matchBorder: '#f0a020',
+                    matchOverviewRuler: '#f0a020',
+                    activeMatchBackground: '#a67822',
+                    activeMatchBorder: '#ffe000',
+                    activeMatchColorOverviewRuler: '#ffe000'
+                }
+            };
+
+            function updateCount(idx, total) {
+                if (total === 0) {
+                    countEl.textContent = input.value ? 'No results' : '';
+                    input.classList.toggle('no-match', !!input.value);
+                } else {
+                    countEl.textContent = (idx + 1) + ' / ' + total;
+                    input.classList.remove('no-match');
+                }
+            }
+
+            if (searchAddon.onDidChangeResultsCount) {
+                const disp = searchAddon.onDidChangeResultsCount((e) => {
+                    updateCount(e.resultIndex, e.resultCount);
+                });
+                state.xtermListeners.push(disp);
+            }
+
+            function findNext() {
+                if (!input.value) return;
+                searchAddon.findNext(input.value, searchOptions);
+            }
+            function findPrev() {
+                if (!input.value) return;
+                searchAddon.findPrevious(input.value, searchOptions);
+            }
+
+            function openSearch() {
+                searchBar.classList.add('visible');
+                const selection = state.term && state.term.getSelection ? state.term.getSelection() : '';
+                if (selection && !selection.includes('\n')) {
+                    input.value = selection;
+                }
+                input.focus();
+                input.select();
+                if (input.value) {
+                    findNext();
+                }
+            }
+
+            function closeSearch() {
+                searchBar.classList.remove('visible');
+                try { searchAddon.clearDecorations(); } catch (e) {}
+                countEl.textContent = '';
+                input.classList.remove('no-match');
+                if (state.term) state.term.focus();
+            }
+
+            state.openTerminalSearch = openSearch;
+            state.closeTerminalSearch = closeSearch;
+
+            // インクリメンタル検索 (連打時の無駄なスキャンを抑えるためデバウンス)
+            // タイマは state.timers に置いて cleanupTerminalState で自動 clear される
+            const INCREMENTAL_DEBOUNCE_MS = 100;
+            let lastQuery = '';
+            const inputHandler = () => {
+                if (state.timers.searchIncremental) {
+                    clearTimeout(state.timers.searchIncremental);
+                }
+                state.timers.searchIncremental = setTimeout(() => {
+                    state.timers.searchIncremental = null;
+                    const q = input.value;
+                    if (q === lastQuery) return;
+                    lastQuery = q;
+                    if (q) {
+                        findNext();
+                    } else {
+                        try { searchAddon.clearDecorations(); } catch (e) {}
+                        updateCount(0, 0);
+                    }
+                }, INCREMENTAL_DEBOUNCE_MS);
+            };
+
+            const keydownHandler = (event) => {
+                if (event.key === 'Enter') {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    if (event.shiftKey) findPrev(); else findNext();
+                } else if (event.key === 'Escape') {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    closeSearch();
+                } else if (event.metaKey && !event.ctrlKey && event.key === 'f') {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    input.select();
+                }
+            };
+
+            addManagedEventListener(input, 'input', inputHandler, state);
+            addManagedEventListener(input, 'keydown', keydownHandler, state);
+            addManagedEventListener(btnPrev, 'click', findPrev, state);
+            addManagedEventListener(btnNext, 'click', findNext, state);
+            addManagedEventListener(btnClose, 'click', closeSearch, state);
+        }
+
         // ターミナル初期化関数（タブ対応）
         function initializeTerminal(tabId) {
             // タブ固有の状態を取得または作成
@@ -2162,6 +2407,20 @@
                     loadWebglAddon(state);
                 } catch (error) {
                     log('[RENDERER] Failed to load WebGL addon, continuing with default renderer:', error);
+                }
+
+                // Search アドオンをロード (Cmd+F 用)
+                try {
+                    if (typeof SearchAddon !== 'undefined') {
+                        const searchAddon = new SearchAddon.SearchAddon();
+                        state.term.loadAddon(searchAddon);
+                        state.searchAddon = searchAddon;
+                        state.addons.push(searchAddon);
+                        setupTerminalSearch(tabId, state, searchAddon);
+                        log('[SEARCH] Search addon loaded for tab:', tabId);
+                    }
+                } catch (error) {
+                    log('[SEARCH] Failed to load search addon:', error);
                 }
 
                 // 新規タブで WebGL コンテキストを作成すると、Chromium のコンテキスト数上限や
@@ -2407,6 +2666,21 @@
                 try {
                     if (typeof state.term.attachCustomKeyEventHandler === 'function') {
                         state.term.attachCustomKeyEventHandler(function (event) {
+                            // Cmd+F で検索バーを開く
+                            // Ctrl+F は TUI アプリ (bash forward-char / less forward-page など) で
+                            // 多用されるため横取りしない。
+                            if (event.type === 'keydown' &&
+                                event.metaKey && !event.ctrlKey &&
+                                !event.shiftKey && !event.altKey &&
+                                (event.key === 'f' || event.key === 'F')) {
+                                event.preventDefault();
+                                event.stopPropagation();
+                                if (state.openTerminalSearch) {
+                                    state.openTerminalSearch();
+                                }
+                                return false;
+                            }
+
                             // ESC キーの処理（vim など対応）
                             if (event.type === 'keydown' && event.key === 'Escape') {
                                 // ブラウザのデフォルト動作を完全に停止
