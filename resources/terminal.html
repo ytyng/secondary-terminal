@@ -1815,6 +1815,73 @@
             globalHandlersInitialized = true;
             log('[GLOBAL] Initializing global handlers');
 
+            // ===== Cmd+C コピー不具合調査用 診断ログ =====
+            // _issues/20260524-investigate-cmd-c-copy-failure 参照。
+            // 「ターミナル/エディタどちらでも Cmd+C が効かなくなる」事象の
+            // 再現条件を特定するため、focus 推移と copy イベント発火を観測する。
+            // 原因特定後は削除可。
+            (function setupCmdCDiagnostics() {
+                function describeEl(el) {
+                    if (!el) return 'null';
+                    const tag = el.tagName || '?';
+                    const id = el.id ? ('#' + el.id) : '';
+                    const cls = (typeof el.className === 'string' && el.className)
+                        ? ('.' + el.className.split(/\s+/).join('.'))
+                        : '';
+                    return tag + id + cls;
+                }
+
+                document.addEventListener('focusin', (e) => {
+                    log('[DIAG][focusin]', describeEl(e.target));
+                }, true);
+
+                document.addEventListener('focusout', (e) => {
+                    log('[DIAG][focusout]', describeEl(e.target),
+                        '-> next:', describeEl(e.relatedTarget));
+                }, true);
+
+                window.addEventListener('blur', () => {
+                    log('[DIAG][window blur] activeElement:',
+                        describeEl(document.activeElement));
+                });
+                window.addEventListener('focus', () => {
+                    log('[DIAG][window focus] activeElement:',
+                        describeEl(document.activeElement));
+                });
+
+                // copy イベントが実際に発火したか (発火しないと OS にコピーされない)
+                document.addEventListener('copy', (e) => {
+                    log('[DIAG][copy] target:', describeEl(e.target),
+                        'activeElement:', describeEl(document.activeElement),
+                        'hasFocus:', document.hasFocus());
+                }, true);
+
+                // Cmd+C / Ctrl+C キーダウン時の状態スナップショット
+                document.addEventListener('keydown', (e) => {
+                    if ((e.metaKey || e.ctrlKey) && !e.shiftKey && !e.altKey
+                        && (e.key === 'c' || e.key === 'C')) {
+                        const activeTermState = getActiveTerminalState();
+                        const xtermHasSelection = !!(activeTermState && activeTermState.term
+                            && activeTermState.term.hasSelection
+                            && activeTermState.term.hasSelection());
+                        const activeEditor = getActiveEditor();
+                        let aceHasSelection = false;
+                        try {
+                            aceHasSelection = !!(activeEditor && !activeEditor.selection.isEmpty());
+                        } catch (_) { /* ignore */ }
+                        log('[DIAG][Cmd+C keydown] activeElement:',
+                            describeEl(document.activeElement),
+                            'hasFocus:', document.hasFocus(),
+                            'xtermSel:', xtermHasSelection,
+                            'aceSel:', aceHasSelection);
+                    }
+                }, true);
+
+                log('[DIAG] Cmd+C diagnostics installed');
+            })();
+            // ===== 診断ログここまで =====
+
+
             // グローバルメッセージハンドラ（全タブに対応）
             const globalMessageHandler = (event) => {
                 const message = event.data;
@@ -2161,6 +2228,15 @@
                         log('[TAB] Tab clicked:', tabId);
                         switchToTab(tabId);
                         vscode.postMessage({ type: 'switchTab', tabId: tabId });
+                    } else {
+                        // 既にアクティブなタブを再クリックした場合でも、focus を
+                        // ターミナルに戻す。タブ要素は <div> で body に focus が
+                        // 落ちる経路になりやすく、その状態で Cmd+C を押しても
+                        // xterm/ACE の copy ハンドラに event が届かないため。
+                        const activeTermState = getActiveTerminalState();
+                        if (activeTermState && activeTermState.term) {
+                            activeTermState.term.focus();
+                        }
                     }
                 });
             }
