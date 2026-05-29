@@ -21,7 +21,7 @@ interface TabState {
 
 // WebView メッセージの型定義
 interface WebViewMessage {
-    type: 'terminalInput' | 'terminalReady' | 'tabReady' | 'resize' | 'error' | 'buttonSendSelection' | 'buttonCopySelection' | 'refreshCliAgentStatus' | 'bufferCleanupRequest' | 'terminalInputBegin' | 'terminalInputChunk' | 'terminalInputEnd' | 'editorSendContent' | 'getEnv' | 'log' | 'extractToTodos' | 'openPromptHistory' | 'createTab' | 'switchTab' | 'closeTab' | 'pasteImage' | 'openDropZone' | 'openLink';
+    type: 'terminalInput' | 'terminalReady' | 'tabReady' | 'resize' | 'error' | 'buttonSendSelection' | 'buttonCopySelection' | 'refreshCliAgentStatus' | 'bufferCleanupRequest' | 'terminalInputBegin' | 'terminalInputChunk' | 'terminalInputEnd' | 'editorSendContent' | 'getEnv' | 'log' | 'extractToTodos' | 'openPromptHistory' | 'createTab' | 'switchTab' | 'closeTab' | 'pasteImage' | 'openDropZone' | 'openLink' | 'oscNotification';
     data?: string;
     cols?: number;
     rows?: number;
@@ -46,6 +46,10 @@ interface WebViewMessage {
     text?: string;
     // Environment variable properties
     name?: string;
+    // OSC notification properties (OSC 9 / 777 / 99)
+    osc?: number;
+    title?: string;
+    body?: string;
 }
 
 export class TerminalProvider implements vscode.WebviewViewProvider {
@@ -378,6 +382,9 @@ export class TerminalProvider implements vscode.WebviewViewProvider {
                             }
                         }
                         break;
+                    case 'oscNotification':
+                        this.handleOscNotification(message);
+                        break;
                 }
             },
             undefined,
@@ -607,6 +614,55 @@ export class TerminalProvider implements vscode.WebviewViewProvider {
 
         const uri = vscode.Uri.file(historyPath);
         vscode.window.showTextDocument(uri, { preview: false });
+    }
+
+    /**
+     * ターミナル出力に含まれる OSC 通知シーケンス (OSC 9 / 777 / 99) を
+     * VSCode のトースト通知 (通知センターに残る) として表示する。
+     * 通知本文は信頼境界の外 (webview) から渡ってくるため、表示直前のここで必ず
+     * サニタイズする。webview 側のサニタイズがすり抜けても、最終的にここで効く。
+     */
+    private handleOscNotification(message: WebViewMessage): void {
+        const config = vscode.workspace.getConfiguration('secondaryTerminal');
+        // 通知機能が無効なら何もしない (フラッシュもしない)
+        if (!config.get<boolean>('notifications.enabled', true)) {
+            return;
+        }
+
+        const title = this.sanitizeNotificationText(message.title);
+        const body = this.sanitizeNotificationText(message.body);
+        let text = title && body ? `${title}: ${body}` : title || body;
+        if (!text) {
+            // 制御文字のみ等で本文が空になった場合は通知しない
+            return;
+        }
+        // 長すぎる通知本文は 100 文字に制限する
+        const MAX_LENGTH = 100;
+        if (text.length > MAX_LENGTH) {
+            text = text.slice(0, MAX_LENGTH) + '…';
+        }
+        this.appendLog(`OSC notification (OSC ${message.osc ?? '?'}): ${text}`);
+        // webview 全面を一瞬フラッシュさせて視覚的にも気づけるようにする (設定で無効化可能)
+        if (config.get<boolean>('notifications.flashBackground', true)) {
+            this._view?.webview.postMessage({ type: 'flashBackground' });
+        }
+        vscode.window.showInformationMessage(text);
+    }
+
+    /**
+     * 通知テキストのサニタイズ。
+     * - C0/C1 制御文字と DEL (改行・タブ含む) を除去してトースト 1 行に収める。
+     * - 双方向制御文字 (U+202A-202E, U+2066-2069 等) とゼロ幅文字 (U+200B-200F, U+FEFF) も
+     *   除去する。これらは通知本文の見た目を実際の文字列と食い違わせる視覚偽装に悪用できるため。
+     */
+    private sanitizeNotificationText(value: string | undefined): string {
+        if (!value || typeof value !== 'string') {
+            return '';
+        }
+        return value
+            .replace(/[\x00-\x1f\x7f-\x9f]/g, '')
+            .replace(/[\u200b-\u200f\u202a-\u202e\u2066-\u2069\ufeff]/g, '')
+            .trim();
     }
 
     private handleExtractToTodos(message: WebViewMessage) {

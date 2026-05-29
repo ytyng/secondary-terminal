@@ -1882,6 +1882,46 @@
             // ===== 診断ログここまで =====
 
 
+            // OSC 通知が出たときに webview 全面を一瞬フラッシュさせるためのオーバーレイ。
+            // VSCode 本体のウィンドウ背景は拡張から操作できないため、対象はこの webview 内のみ。
+            let flashOverlayEl = null;
+            function flashTerminalBackground() {
+                // アクセシビリティ: 低モーション設定時はフラッシュしない
+                try {
+                    if (window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+                        return;
+                    }
+                } catch (_) { /* matchMedia 非対応環境は無視して続行 */ }
+                if (!flashOverlayEl) {
+                    flashOverlayEl = document.createElement('div');
+                    flashOverlayEl.style.position = 'fixed';
+                    flashOverlayEl.style.inset = '0';
+                    flashOverlayEl.style.pointerEvents = 'none';
+                    flashOverlayEl.style.zIndex = '99999';
+                    flashOverlayEl.style.opacity = '0';
+                    // テーマのアクセント色 (フォーカスボーダー) を使う。無ければ青系フォールバック。
+                    flashOverlayEl.style.backgroundColor = 'var(--vscode-focusBorder, #007acc)';
+                    document.body.appendChild(flashOverlayEl);
+                }
+                try {
+                    // 通知が連続発火したとき、前のアニメーションが重なって不自然に点滅するのを防ぐ
+                    flashOverlayEl.getAnimations().forEach((a) => a.cancel());
+                    flashOverlayEl.animate(
+                        [{ opacity: 0 }, { opacity: 0.3 }, { opacity: 0 }],
+                        { duration: 350, easing: 'ease-out' }
+                    );
+                } catch (_) {
+                    // Web Animations 非対応環境のフォールバック。
+                    // フェードイン(120ms) → フェードアウト(230ms) で合計 ~350ms に揃える。
+                    flashOverlayEl.style.transition = 'opacity 0.12s ease-out';
+                    flashOverlayEl.style.opacity = '0.3';
+                    setTimeout(() => {
+                        flashOverlayEl.style.transition = 'opacity 0.23s ease-out';
+                        flashOverlayEl.style.opacity = '0';
+                    }, 120);
+                }
+            }
+
             // グローバルメッセージハンドラ（全タブに対応）
             const globalMessageHandler = (event) => {
                 const message = event.data;
@@ -1941,6 +1981,11 @@
                                 outputState.timers.writeBuffer = null;
                             }, outputState.adaptiveDelayMs);
                         }
+                        break;
+
+                    case 'flashBackground':
+                        // OSC 通知発火時に webview 全面を一瞬フラッシュ
+                        flashTerminalBackground();
                         break;
 
                     case 'clear':
@@ -2497,6 +2542,56 @@
                     }
                 } catch (error) {
                     log('[SEARCH] Failed to load search addon:', error);
+                }
+
+                // OSC 通知シーケンス (OSC 9 / 777 / 99) を検知して拡張側へ通知を依頼する。
+                // 出力データ (term.write) に乗ってくるので、xterm.js のパーサにハンドラを
+                // 登録すれば終端 (BEL/ST) 処理や抽出は xterm.js 側がやってくれる。
+                // 本文のサニタイズ・文字数制限は拡張側 (terminalProvider.ts) で行う。
+                try {
+                    if (state.term.parser && typeof state.term.parser.registerOscHandler === 'function') {
+                        // OSC 9: ESC]9;<message>BEL  (iTerm2 スタイルの簡易通知)
+                        // ConEmu/Windows Terminal のサブコマンド (4;<progress>, 9;<cwd> 等) は
+                        // "<1桁の数字>;" で始まるので通知ではない。false を返して既定処理に流す。
+                        // 注意: "5;30に集合" のような 1桁数字+";" で始まる正規メッセージは
+                        // 誤って抑制されうる (許容範囲とする)。2桁以上始まりは通知として扱う。
+                        state.term.parser.registerOscHandler(9, (data) => {
+                            if (/^\d;/.test(data)) {
+                                return false;
+                            }
+                            vscode.postMessage({ type: 'oscNotification', osc: 9, body: data });
+                            return true;
+                        });
+
+                        // OSC 777: ESC]777;notify;<title>;<body>BEL  (rxvt-unicode notify 拡張)
+                        // 先頭トークンが notify のときのみ通知扱い。
+                        state.term.parser.registerOscHandler(777, (data) => {
+                            const parts = data.split(';');
+                            if (parts[0] !== 'notify') {
+                                return false;
+                            }
+                            vscode.postMessage({
+                                type: 'oscNotification',
+                                osc: 777,
+                                title: parts[1] || '',
+                                body: parts.slice(2).join(';')
+                            });
+                            return true;
+                        });
+
+                        // OSC 99: ESC]99;<metadata>;<payload>ST  (kitty デスクトップ通知プロトコル)
+                        // multi-chunk (分割通知) には現状未対応。最初の ';' 以降を本文として扱う。
+                        state.term.parser.registerOscHandler(99, (data) => {
+                            const idx = data.indexOf(';');
+                            const payload = idx >= 0 ? data.slice(idx + 1) : data;
+                            vscode.postMessage({ type: 'oscNotification', osc: 99, body: payload });
+                            return true;
+                        });
+
+                        log('[OSC NOTIFY] Registered OSC notification handlers (9/777/99) for tab:', tabId);
+                    }
+                } catch (error) {
+                    log('[OSC NOTIFY] Failed to register OSC handlers:', error);
                 }
 
                 // 新規タブで WebGL コンテキストを作成すると、Chromium のコンテキスト数上限や
