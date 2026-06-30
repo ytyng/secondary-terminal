@@ -27,3 +27,7 @@ HOW_TO_INSTALL_FOR_LOCAL.md
 vsc-extension-quickstart.md
 *.code-workspace
 *.vsix
+
+# tooling-only deps that leak into the package (vsce/cheerio transitive)
+node_modules/css-select/**
+node_modules/nth-check/**
