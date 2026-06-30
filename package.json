@@ -1,8 +1,27 @@
 {
   "name": "secondary-terminal",
   "displayName": "Secondary Terminal",
-  "description": "Terminal in sidebar",
-  "version": "0.16.295",
+  "description": "A full-featured PTY terminal in the VSCode sidebar, with multi-tab support and a built-in command editor.",
+  "version": "0.16.296",
+  "publisher": "ytyng",
+  "icon": "icon.png",
+  "license": "MIT",
+  "author": "ytyng",
+  "homepage": "https://github.com/ytyng/secondary-terminal#readme",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/ytyng/secondary-terminal.git"
+  },
+  "bugs": {
+    "url": "https://github.com/ytyng/secondary-terminal/issues"
+  },
+  "keywords": [
+    "terminal",
+    "sidebar",
+    "pty",
+    "shell",
+    "tabs"
+  ],
   "engines": {
     "vscode": "^1.101.0"
   },
@@ -199,7 +218,8 @@
     "clean": "rm -rf out/",
     "rebuild": "npm ci && npm run clean && npm run compile",
     "update-version": "node scripts/update-version.js",
-    "increment-version": "npm version patch && npm run update-version"
+    "increment-version": "npm version patch && npm run update-version",
+    "publish": "npx --yes @vscode/vsce publish"
   },
   "devDependencies": {
     "@types/mocha": "^10.0.10",
