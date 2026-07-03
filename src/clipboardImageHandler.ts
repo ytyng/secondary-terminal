@@ -60,6 +60,8 @@ export async function getImageFromClipboard(): Promise<string | null> {
         if (!fs.existsSync(ATTACHMENT_DIR)) {
             fs.mkdirSync(ATTACHMENT_DIR, { recursive: true, mode: 0o700 });
         }
+        // 旧バージョンがパーミッション指定なしで作成したディレクトリにも 0700 を適用する
+        fs.chmodSync(ATTACHMENT_DIR, 0o700);
 
         // 古い添付ファイルを掃除する (無制限な蓄積を防ぐ)
         cleanupOldAttachments();
