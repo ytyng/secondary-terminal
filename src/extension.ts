@@ -18,7 +18,13 @@ async function copyTerminalSelection(): Promise<string | null> {
         return null;
     }
 
-    // 元のクリップボード内容を退避する (copySelection で上書きされるため)
+    // 元のクリップボード内容を退避する (copySelection で上書きされるため)。
+    // 注: readText はテキストしか取得できないため、画像等の非テキスト内容は退避できない。
+    // 選択が無い場合 copySelection はクリップボードを変更しないので、
+    // 「内容が変化した場合のみ復元する」ことで非テキスト内容の不要な破壊を避ける。
+    // 制約: 選択テキストが退避内容と完全一致する場合は「選択なし」と誤判定する。
+    // クリップボード API から選択の有無を直接知る手段が無く、判定用に毎回書き込む
+    // センチネル方式は非テキスト内容を必ず破壊してしまうため、この誤判定を許容する。
     const previousClipboard = await vscode.env.clipboard.readText();
 
     try {
@@ -31,20 +37,17 @@ async function copyTerminalSelection(): Promise<string | null> {
         // クリップボードから選択テキストを取得
         const selectedText = await vscode.env.clipboard.readText();
 
-        // 選択が無い場合 copySelection はクリップボードを変更しないため、
-        // 退避した内容と同じなら「選択なし」として扱う
         if (selectedText && selectedText.trim() && selectedText !== previousClipboard) {
+            // クリップボードが上書きされたので、退避した内容を復元してから返す
+            await vscode.env.clipboard.writeText(previousClipboard);
             return selectedText;
-        } else {
-            vscode.window.showWarningMessage('ターミナルでテキストが選択されていません');
-            return null;
         }
+        // クリップボードが変化していない = 選択なし。復元も行わない
+        vscode.window.showWarningMessage('ターミナルでテキストが選択されていません');
+        return null;
     } catch (error) {
         vscode.window.showWarningMessage('ターミナルの選択テキストを取得できませんでした');
         return null;
-    } finally {
-        // ユーザーのクリップボード内容を復元する
-        await vscode.env.clipboard.writeText(previousClipboard);
     }
 }
 
