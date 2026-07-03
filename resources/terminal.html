@@ -303,7 +303,7 @@
                     background-color: var(--vscode-editor-background);
                     border-top: 1px solid var(--vscode-panel-border, #3c3c3c);
                     border-bottom: 1px solid var(--vscode-panel-border, #3c3c3c);
-                    height: 200px;
+                    height: var(--editor-height, 200px);
                     overflow: hidden;
 
                     .ace-editor-instance {
@@ -656,6 +656,13 @@
         // フォント・レイアウト設定 (VSCode 設定から注入。updateFontSettings メッセージで動的更新される)
         let fontSettings = {{FONT_SETTINGS_JSON}};
         const vscode = acquireVsCodeApi();
+
+        // ACE エディタコンテナの高さを CSS 変数に反映する
+        function applyEditorHeight() {
+            const height = typeof fontSettings.editorHeight === 'number' ? fontSettings.editorHeight : 200;
+            document.documentElement.style.setProperty('--editor-height', height + 'px');
+        }
+        applyEditorHeight();
 
         // CSS変数からターミナルテーマ色を読み取る
         function getTerminalThemeFromCssVars() {
@@ -2043,6 +2050,7 @@
                         try {
                             if (message.settings) {
                                 fontSettings = message.settings;
+                                applyEditorHeight();
                                 // 全ターミナルのフォントオプションを更新
                                 for (const term of tabState.terminals.values()) {
                                     term.options.fontFamily = fontSettings.fontFamily;
@@ -2050,13 +2058,14 @@
                                     term.options.lineHeight = fontSettings.lineHeight;
                                     term.options.letterSpacing = fontSettings.letterSpacing;
                                 }
-                                // 全 ACE エディタのフォントも更新
+                                // 全 ACE エディタのフォントも更新 (コンテナ高さ変更後は resize も必要)
                                 tabState.terminalStates.forEach((s) => {
                                     if (s && s.editor) {
                                         s.editor.setOptions({
                                             fontSize: fontSettings.fontSize,
                                             fontFamily: fontSettings.fontFamily
                                         });
+                                        s.editor.resize();
                                     }
                                 });
                                 // フォントメトリクスが変わったので行数・列数を再計算

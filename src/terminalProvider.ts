@@ -90,6 +90,7 @@ export class TerminalProvider implements vscode.WebviewViewProvider {
                 event.affectsConfiguration('secondaryTerminal.fontSize') ||
                 event.affectsConfiguration('secondaryTerminal.lineHeight') ||
                 event.affectsConfiguration('secondaryTerminal.letterSpacing') ||
+                event.affectsConfiguration('secondaryTerminal.editorHeight') ||
                 event.affectsConfiguration('secondaryTerminal.layout')) {
                 this._view?.webview.postMessage({
                     type: 'updateFontSettings',
@@ -105,6 +106,7 @@ export class TerminalProvider implements vscode.WebviewViewProvider {
         fontSize: number;
         lineHeight: number;
         letterSpacing: number;
+        editorHeight: number;
         widthAdjustment: number;
         heightAdjustment: number;
     } {
@@ -120,6 +122,7 @@ export class TerminalProvider implements vscode.WebviewViewProvider {
             fontSize: clamp(config.get('fontSize'), 6, 32, 13),
             lineHeight: clamp(config.get('lineHeight'), 1, 2, 1.2),
             letterSpacing: clamp(config.get('letterSpacing'), -2, 10, 0),
+            editorHeight: clamp(config.get('editorHeight'), 40, 1000, 200),
             widthAdjustment: clamp(config.get('layout.widthAdjustment'), 0.5, 1.5, 0.88),
             heightAdjustment: clamp(config.get('layout.heightAdjustment'), 0.5, 2, 1.34)
         };

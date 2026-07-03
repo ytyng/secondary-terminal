@@ -2,7 +2,7 @@
   "name": "secondary-terminal",
   "displayName": "Secondary Sidebar Terminal",
   "description": "A full-featured PTY terminal in the VSCode sidebar, with multi-tab support and a built-in command editor.",
-  "version": "0.17.308",
+  "version": "0.17.309",
   "publisher": "ytyng",
   "icon": "icon.png",
   "license": "MIT",
@@ -227,6 +227,13 @@
           "type": "number",
           "default": 0,
           "description": "ターミナルの文字間隔 (px)"
+        },
+        "secondaryTerminal.editorHeight": {
+          "type": "number",
+          "default": 200,
+          "minimum": 40,
+          "maximum": 1000,
+          "description": "ターミナル下部の ACE エディタ (コマンド入力エディタ) の高さ (px)"
         },
         "secondaryTerminal.layout.widthAdjustment": {
           "type": "number",
