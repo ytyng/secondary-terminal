@@ -141,12 +141,26 @@ secondary-terminal/
 
 ## 既知の問題
 
-使っていると、次第に動作が遅くなる。
-原因は不明。
+### 「使っていると次第に動作が遅くなる」問題 (2026-07-03 に原因候補を修正済み)
 
-改善したいが原因がわからない。
+長らく原因不明だったが、2026-07-03 の全体コードレビュー (PR #16) で以下の蓄積要因を特定し修正した。
 
-遅くなる原因を調査するため、Performanc3e Metrics HID を表示する機能をつけて、それで計測しているが、原因はわからない。
+- タブ開閉のたびに `TerminalSessionManager.sessions` Map が無限増加 (`removeSession` 未使用)
+- リセットのたびに pty-shell.py プロセスが孤立して蓄積 (`resetTerminal` のマルチタブ未対応)
+- pty-shell.py が子孫プロセス数に比例した回数の pgrep を 3 秒ごとに spawn
+- タブクローズ後も残る `waitForSize` の 10ms 無限ポーリング
+- `resolveWebviewView` 再解決時の WebviewView / リスナー残留
+
+修正後も遅くなる場合は、`ps aux | grep pty-shell` でプロセス数、
+`getSessionInfo()` (デバッグ用) で Map サイズを確認すること。
+
+### pty-shell.py の実動テストは Claude Code のサンドボックスでは不可
+
+Claude Code の Bash ツールのサンドボックスは `/dev/ptmx` へのアクセスをブロックするため、
+`pty.openpty()` が `OSError: out of pty devices` で失敗する
+(`dangerouslyDisableSandbox` や `/sandbox` での無効化でも回避できない別レイヤー)。
+PTY を伴う動作確認は、ロジックの単体シミュレーション (デコード処理等) と、
+拡張のリロードによる実機確認で行うこと。
 
 
 ## インストール・開発手順
