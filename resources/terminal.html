@@ -653,6 +653,8 @@
     <script src="{{ACE_KEYBINDING_VSCODE_URI}}"></script>
     <script>
         const MAX_BUFFER_LINES = parseInt('{{SCROLLBACK_MAX}}'); // 設定された最大行数
+        // フォント・レイアウト設定 (VSCode 設定から注入。updateFontSettings メッセージで動的更新される)
+        let fontSettings = {{FONT_SETTINGS_JSON}};
         const vscode = acquireVsCodeApi();
 
         // CSS変数からターミナルテーマ色を読み取る
@@ -1205,14 +1207,14 @@
             }
 
             // フォント情報から文字サイズを正確に計算
-            const fontSize = 13;
-            const targetLineHeight = 1.2;
+            const fontSize = fontSettings.fontSize;
+            const targetLineHeight = fontSettings.lineHeight;
 
             // 一時的な測定用エレメントを作成して文字幅を正確に測定
             const measurer = document.createElement('div');
             measurer.style.position = 'absolute';
             measurer.style.visibility = 'hidden';
-            measurer.style.fontFamily = '"RobotoMono Nerd Font Mono", "RobotoMono Nerd Font", "Roboto Mono", Consolas, "Courier New", monospace';
+            measurer.style.fontFamily = fontSettings.fontFamily;
             measurer.style.fontSize = fontSize + 'px';
             measurer.style.lineHeight = targetLineHeight;
             measurer.style.whiteSpace = 'pre';
@@ -1223,11 +1225,12 @@
             const rawLineHeight = measurer.getBoundingClientRect().height;
             document.body.removeChild(measurer);
 
-            // サイズ調整係数
-            const widthAdjustment = 0.88;
-            const heightAdjustment = 1.34;
+            // サイズ調整係数 (フォントメトリクス依存。VSCode 設定で調整可能)
+            const widthAdjustment = fontSettings.widthAdjustment;
+            const heightAdjustment = fontSettings.heightAdjustment;
 
-            const adjustedCharWidth = rawCharWidth * widthAdjustment;
+            // xterm は letterSpacing をセル幅に加算するので、補正後に加算して合わせる
+            const adjustedCharWidth = rawCharWidth * widthAdjustment + fontSettings.letterSpacing;
             const adjustedLineHeight = rawLineHeight * heightAdjustment;
 
             // 列数と行数を計算
@@ -1451,8 +1454,8 @@
                 editor.setKeyboardHandler("ace/keyboard/vscode");
 
                 editor.setOptions({
-                    fontSize: 13,
-                    fontFamily: '"RobotoMono Nerd Font Mono", "RobotoMono Nerd Font", "Roboto Mono", Consolas, "Courier New", monospace',
+                    fontSize: fontSettings.fontSize,
+                    fontFamily: fontSettings.fontFamily,
                     showPrintMargin: false,
                     wrap: true,
                     showInvisibles: true,
@@ -2035,6 +2038,38 @@
                         }
                         break;
 
+                    case 'updateFontSettings':
+                        // VSCode 設定変更を再読込なしで全タブに反映する
+                        try {
+                            if (message.settings) {
+                                fontSettings = message.settings;
+                                // 全ターミナルのフォントオプションを更新
+                                for (const term of tabState.terminals.values()) {
+                                    term.options.fontFamily = fontSettings.fontFamily;
+                                    term.options.fontSize = fontSettings.fontSize;
+                                    term.options.lineHeight = fontSettings.lineHeight;
+                                    term.options.letterSpacing = fontSettings.letterSpacing;
+                                }
+                                // 全 ACE エディタのフォントも更新
+                                tabState.terminalStates.forEach((s) => {
+                                    if (s && s.editor) {
+                                        s.editor.setOptions({
+                                            fontSize: fontSettings.fontSize,
+                                            fontFamily: fontSettings.fontFamily
+                                        });
+                                    }
+                                });
+                                // フォントメトリクスが変わったので行数・列数を再計算
+                                for (const id of tabState.terminals.keys()) {
+                                    setTerminalSize(id);
+                                }
+                                log('[FONT] Font settings updated:', JSON.stringify(fontSettings));
+                            }
+                        } catch (e) {
+                            log('[FONT] updateFontSettings error:', e);
+                        }
+                        break;
+
                     case 'visibility_restored':
                         log('[LEAK CHECK] visibility_restored event received');
                         const activeState = getActiveTerminalState();
@@ -2462,10 +2497,10 @@
 
                 state.term = new Terminal({
                     theme: getTerminalThemeFromCssVars(),
-                    fontFamily: '"RobotoMono Nerd Font Mono", "RobotoMono Nerd Font", "Roboto Mono", Consolas, "Courier New", monospace',
-                    fontSize: 13,
-                    letterSpacing: 0,
-                    lineHeight: 1.2,
+                    fontFamily: fontSettings.fontFamily,
+                    fontSize: fontSettings.fontSize,
+                    letterSpacing: fontSettings.letterSpacing,
+                    lineHeight: fontSettings.lineHeight,
                     cursorBlink: false,
                     smoothScrollDuration: 0,  // スムーズスクロールを無効化（パフォーマンス向上）
                     convertEol: true,

@@ -2,7 +2,7 @@
   "name": "secondary-terminal",
   "displayName": "Secondary Sidebar Terminal",
   "description": "A full-featured PTY terminal in the VSCode sidebar, with multi-tab support and a built-in command editor.",
-  "version": "0.16.301",
+  "version": "0.16.302",
   "publisher": "ytyng",
   "icon": "icon.png",
   "license": "MIT",
@@ -203,6 +203,44 @@
           "type": "boolean",
           "default": true,
           "description": "OSC 通知を表示するとき、ターミナル領域 (webview) の背景を一瞬フラッシュさせる"
+        },
+        "secondaryTerminal.fontFamily": {
+          "type": "string",
+          "default": "\"RobotoMono Nerd Font Mono\", \"RobotoMono Nerd Font\", \"Roboto Mono\", Consolas, \"Courier New\", monospace",
+          "description": "ターミナルと ACE エディタのフォントファミリー (CSS font-family 形式)"
+        },
+        "secondaryTerminal.fontSize": {
+          "type": "number",
+          "default": 13,
+          "minimum": 6,
+          "maximum": 32,
+          "description": "ターミナルと ACE エディタのフォントサイズ (px)"
+        },
+        "secondaryTerminal.lineHeight": {
+          "type": "number",
+          "default": 1.2,
+          "minimum": 1,
+          "maximum": 2,
+          "description": "ターミナルの行の高さ (フォントサイズに対する倍率)"
+        },
+        "secondaryTerminal.letterSpacing": {
+          "type": "number",
+          "default": 0,
+          "description": "ターミナルの文字間隔 (px)"
+        },
+        "secondaryTerminal.layout.widthAdjustment": {
+          "type": "number",
+          "default": 0.88,
+          "minimum": 0.5,
+          "maximum": 1.5,
+          "description": "列数計算時の文字幅補正係数。フォントによって実測幅と xterm の描画幅がずれるため、フォント変更時に調整する。値を小さくすると列数が増える"
+        },
+        "secondaryTerminal.layout.heightAdjustment": {
+          "type": "number",
+          "default": 1.34,
+          "minimum": 0.5,
+          "maximum": 2,
+          "description": "行数計算時の行高補正係数。フォント変更時に調整する。値を小さくすると行数が増える"
         }
       }
     }

@@ -83,6 +83,46 @@ export class TerminalProvider implements vscode.WebviewViewProvider {
         this._cwd = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath || os.homedir();
         // ワークスペースキーはワークスペースフォルダのパスまたはホームディレクトリを使用
         this._workspaceKey = this._cwd;
+
+        // フォント・レイアウト設定の変更を webview に即時反映する
+        vscode.workspace.onDidChangeConfiguration((event) => {
+            if (event.affectsConfiguration('secondaryTerminal.fontFamily') ||
+                event.affectsConfiguration('secondaryTerminal.fontSize') ||
+                event.affectsConfiguration('secondaryTerminal.lineHeight') ||
+                event.affectsConfiguration('secondaryTerminal.letterSpacing') ||
+                event.affectsConfiguration('secondaryTerminal.layout')) {
+                this._view?.webview.postMessage({
+                    type: 'updateFontSettings',
+                    settings: this.getFontSettings()
+                });
+            }
+        }, null, this._extensionContext.subscriptions);
+    }
+
+    // フォント・レイアウト設定を VSCode 設定から取得する
+    private getFontSettings(): {
+        fontFamily: string;
+        fontSize: number;
+        lineHeight: number;
+        letterSpacing: number;
+        widthAdjustment: number;
+        heightAdjustment: number;
+    } {
+        const config = vscode.workspace.getConfiguration('secondaryTerminal');
+        // package.json の minimum/maximum は設定 UI でしか強制されないため、
+        // settings.json 直編集による範囲外の値 (widthAdjustment: 0 → cols=Infinity 等) をここでクランプする
+        const clamp = (value: unknown, min: number, max: number, defaultValue: number): number =>
+            typeof value === 'number' && Number.isFinite(value)
+                ? Math.min(max, Math.max(min, value))
+                : defaultValue;
+        return {
+            fontFamily: config.get<string>('fontFamily', '"RobotoMono Nerd Font Mono", "RobotoMono Nerd Font", "Roboto Mono", Consolas, "Courier New", monospace'),
+            fontSize: clamp(config.get('fontSize'), 6, 32, 13),
+            lineHeight: clamp(config.get('lineHeight'), 1, 2, 1.2),
+            letterSpacing: clamp(config.get('letterSpacing'), -2, 10, 0),
+            widthAdjustment: clamp(config.get('layout.widthAdjustment'), 0.5, 1.5, 0.88),
+            heightAdjustment: clamp(config.get('layout.heightAdjustment'), 0.5, 2, 1.34)
+        };
     }
 
     private getVersionInfo(): { version: string; buildDate: string } {
@@ -821,10 +861,14 @@ export class TerminalProvider implements vscode.WebviewViewProvider {
 
             // VSCode 設定から scrollback 最大行数を取得
             // 設定キー: secondaryTerminal.maxHistoryLines
-            // const config = vscode.workspace.getConfiguration('secondaryTerminal');
-            // const maxHistoryLines = Math.max(50, Math.floor(config.get('maxHistoryLines', 1000)));
-            const maxHistoryLines = 1000;
+            const config = vscode.workspace.getConfiguration('secondaryTerminal');
+            const maxHistoryLines = Math.max(50, Math.floor(config.get<number>('maxHistoryLines', 1000)));
             const versionInfo = this.getVersionInfo();
+
+            // フォント・レイアウト設定を JSON で webview に注入する
+            // JSON 内の "</script>" 等でスクリプトが分断されないよう "<" をエスケープする
+            const fontSettingsJson = JSON.stringify(this.getFontSettings())
+                .replace(/</g, '\\u003c');
 
             // プレースホルダーを実際の値に置換
             htmlContent = htmlContent
@@ -839,6 +883,7 @@ export class TerminalProvider implements vscode.WebviewViewProvider {
                 .replace(/{{ACE_MODE_MARKDOWN_URI}}/g, aceModeMarkdownUri.toString())
                 .replace(/{{ACE_KEYBINDING_VSCODE_URI}}/g, aceKeybindingVscodeUri.toString())
                 .replace(/{{SCROLLBACK_MAX}}/g, String(maxHistoryLines))
+                .replace(/{{FONT_SETTINGS_JSON}}/g, () => fontSettingsJson)
                 .replace(/{{VERSION}}/g, versionInfo.version)
                 .replace(/{{BUILD_DATE}}/g, versionInfo.buildDate);
 
