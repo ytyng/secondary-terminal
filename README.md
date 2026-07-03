@@ -123,6 +123,25 @@ npm run lint
 6. Paste images from clipboard using the 📷 button (macOS) — the image is saved to a temp file and inserted as `[@<filepath>]`
 7. Drag & drop files onto the Drop Zone to insert file path references into the editor
 
+## Settings
+
+The following settings are available in VSCode Settings (search for "Secondary Terminal"):
+
+| Setting | Type | Default | Description |
+|---|---|---|---|
+| `secondaryTerminal.fontFamily` | string | `"RobotoMono Nerd Font Mono", "RobotoMono Nerd Font", "Roboto Mono", Consolas, "Courier New", monospace` | Font family for the terminal and the ACE editor (CSS `font-family` format) |
+| `secondaryTerminal.fontSize` | number | `13` | Font size in px for the terminal and the ACE editor (6–32) |
+| `secondaryTerminal.lineHeight` | number | `1.2` | Terminal line height as a multiple of the font size (1–2) |
+| `secondaryTerminal.letterSpacing` | number | `0` | Terminal letter spacing in px |
+| `secondaryTerminal.layout.widthAdjustment` | number | `0.88` | Correction factor for character width used when calculating the number of columns. Font metrics differ between fonts, so adjust this when changing fonts. Smaller values produce more columns (0.5–1.5) |
+| `secondaryTerminal.layout.heightAdjustment` | number | `1.34` | Correction factor for line height used when calculating the number of rows. Adjust when changing fonts. Smaller values produce more rows (0.5–2) |
+| `secondaryTerminal.startupCommands` | array | `[]` | Commands automatically executed when the terminal starts |
+| `secondaryTerminal.maxHistoryLines` | number | `1000` | Maximum number of history lines kept (applied to xterm scrollback and the session-restore buffer, minimum 50) |
+| `secondaryTerminal.notifications.enabled` | boolean | `true` | Detect OSC notification sequences (OSC 9 / 777 / 99) in terminal output and show VSCode notifications |
+| `secondaryTerminal.notifications.flashBackground` | boolean | `true` | Flash the terminal (webview) background briefly when an OSC notification is shown |
+
+Font and layout settings are applied to all open terminal tabs immediately when changed. `maxHistoryLines` requires a webview reload (e.g. reopening the sidebar or `Developer: Reload Window`).
+
 ## Technical Specifications
 
 - **Frontend**: High-performance terminal emulator using xterm.js
