@@ -218,6 +218,11 @@ Developer: Install Extension from Location...
      ```bash
      npm version patch --no-git-tag-version && npm run update-version
      ```
+   - **パッチ番号の実体**: `scripts/update-version.js` はパッチ番号を `git rev-list --count HEAD`
+     (コミット数) で上書きする。`npm version patch` の表示と最終バージョンがずれるのは正常。
+   - **package-lock.json の同期**: update-version.js は package.json を直接書き換えるため、
+     lockfile のバージョンが古いまま残る (PR #15 で Codex に指摘された)。バージョン更新後は
+     `npm install --package-lock-only` を実行して lockfile も同期し、一緒にコミットすること。
 
 2. **手動バージョン更新**:
    ```bash
@@ -262,6 +267,13 @@ secondary-terminal/
 #### UI の変更
 - `package.json` の `contributes` セクションでアイコンやメニューを変更
 - VSCode API の追加機能実装
+
+#### 設定項目の追加・変更 (日英対応)
+- 設定の説明文は VSCode 標準の NLS 機構で日英対応している (PR #15 以降)
+- `package.json` の `description` には `%configuration.<key>.description%` プレースホルダを書く
+- 実際の文言は `package.nls.json` (英語・デフォルト) と `package.nls.ja.json` (日本語) に書く。
+  **設定を追加・変更するときは必ず両ファイルにキーを追加すること** (片方に無いとキー名がそのまま表示される)
+- README.md の Settings テーブル (英語) にも同じ設定の行を追記すること
 
 ### トラブルシューティング
 
