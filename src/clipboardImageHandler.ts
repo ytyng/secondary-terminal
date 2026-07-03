@@ -1,8 +1,36 @@
 import * as fs from 'fs';
 import * as path from 'path';
-import { execSync } from 'child_process';
+import { execFile } from 'child_process';
+import { promisify } from 'util';
+
+const execFileAsync = promisify(execFile);
 
 const ATTACHMENT_DIR = '/tmp/secondary-terminal/attachments';
+
+// 保存した画像を自動削除するまでの期間 (ミリ秒)。/tmp への無制限な蓄積を防ぐ。
+const ATTACHMENT_MAX_AGE_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * 保存期間を過ぎた添付ファイルを削除する (ベストエフォート)
+ */
+function cleanupOldAttachments(): void {
+    try {
+        const now = Date.now();
+        for (const fileName of fs.readdirSync(ATTACHMENT_DIR)) {
+            const fullPath = path.join(ATTACHMENT_DIR, fileName);
+            try {
+                const stat = fs.statSync(fullPath);
+                if (stat.isFile() && now - stat.mtimeMs > ATTACHMENT_MAX_AGE_MS) {
+                    fs.unlinkSync(fullPath);
+                }
+            } catch (e) {
+                // 個別ファイルの削除失敗は無視 (他プロセスとの競合など)
+            }
+        }
+    } catch (e) {
+        // ディレクトリ走査の失敗は無視
+    }
+}
 
 /**
  * UUID7 を生成（タイムスタンプベース）
@@ -28,9 +56,15 @@ export async function getImageFromClipboard(): Promise<string | null> {
 
     try {
         // ディレクトリが存在しない場合は作成
+        // /tmp 配下に置くため、他ユーザーから読めないようパーミッションを絞る
         if (!fs.existsSync(ATTACHMENT_DIR)) {
-            fs.mkdirSync(ATTACHMENT_DIR, { recursive: true });
+            fs.mkdirSync(ATTACHMENT_DIR, { recursive: true, mode: 0o700 });
         }
+        // 旧バージョンがパーミッション指定なしで作成したディレクトリにも 0700 を適用する
+        fs.chmodSync(ATTACHMENT_DIR, 0o700);
+
+        // 古い添付ファイルを掃除する (無制限な蓄積を防ぐ)
+        cleanupOldAttachments();
 
         const uuid = generateUUID7();
         const filePath = path.join(ATTACHMENT_DIR, `${uuid}.png`);
@@ -81,20 +115,28 @@ end if
 return "FAILED"
 `;
 
-        // スクリプトを一時ファイルに書き出して実行
-        const scriptPath = path.join(ATTACHMENT_DIR, 'clipboard_script.applescript');
+        // スクリプトを一時ファイルに書き出して実行。
+        // 複数の VSCode ウィンドウ (別プロセス) が同時実行しても衝突しないよう、
+        // スクリプトファイル名にも UUID を含める。
+        const scriptPath = path.join(ATTACHMENT_DIR, `clipboard_script_${uuid}.applescript`);
         fs.writeFileSync(scriptPath, script);
 
-        const result = execSync(`osascript "${scriptPath}"`, {
-            encoding: 'utf-8',
-            timeout: 5000
-        }).trim();
-
-        // 一時スクリプトを削除
+        // execSync はイベントループ全体をブロックするため、非同期の execFile を使う
+        // (macOS の自動化許可ダイアログ待ちで拡張ホストが最大 5 秒固まるのを防ぐ)
+        let result: string;
         try {
-            fs.unlinkSync(scriptPath);
-        } catch (e) {
-            // 削除失敗は無視
+            const { stdout } = await execFileAsync('osascript', [scriptPath], {
+                encoding: 'utf-8',
+                timeout: 5000
+            });
+            result = stdout.trim();
+        } finally {
+            // 一時スクリプトを削除
+            try {
+                fs.unlinkSync(scriptPath);
+            } catch (e) {
+                // 削除失敗は無視
+            }
         }
 
         console.log('[ClipboardImage] AppleScript result:', result);

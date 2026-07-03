@@ -683,7 +683,9 @@
             terminalStates: new Map(),   // tabId -> per-tab terminalState
             globalEventListeners: [],    // グローバルなイベントリスナー
             resizeObserver: null,
-            sendAfterExtract: false,
+            // Extract 後にターミナルへ送信する予約。発行元タブの ID を保持する
+            // (タブ切り替え中に応答が届いても別タブへ送信しないため)
+            sendAfterExtractTabId: null,
         };
 
         // VSCodeテーマ変更時に全タブのxterm.jsテーマを追従させる
@@ -923,10 +925,16 @@
             const tab = document.createElement('div');
             tab.className = 'tab';
             tab.dataset.tabId = tabInfo.id;
-            tab.innerHTML = `
-                <span class="tab-title">${tabInfo.title}</span>
-                <button class="tab-close" title="Close">×</button>
-            `;
+            // タイトルはバックエンド由来の文字列なので innerHTML ではなく textContent で挿入する
+            const titleSpan = document.createElement('span');
+            titleSpan.className = 'tab-title';
+            titleSpan.textContent = tabInfo.title;
+            tab.appendChild(titleSpan);
+            const closeButton = document.createElement('button');
+            closeButton.className = 'tab-close';
+            closeButton.title = 'Close';
+            closeButton.textContent = '×';
+            tab.appendChild(closeButton);
             tabList.appendChild(tab);
             updateTabCloseButtons();
             updateEmptyState();
@@ -1115,9 +1123,9 @@
             }
 
             // イベントリスナーを削除
-            state.eventListeners.forEach(({ element, event, handler }) => {
+            state.eventListeners.forEach(({ element, event, handler, options }) => {
                 try {
-                    element.removeEventListener(event, handler);
+                    element.removeEventListener(event, handler, options);
                 } catch (e) { }
             });
             state.eventListeners = [];
@@ -1520,8 +1528,8 @@
                 function extractAndSendEditorContent(ed) {
                     const content = ed.getValue();
                     if (!content.trim() || content.split('\n').length <= 1) return;
-                    tabState.sendAfterExtract = true;
-                    vscode.postMessage({ type: 'extractToTodos', data: content });
+                    tabState.sendAfterExtractTabId = tabId;
+                    vscode.postMessage({ type: 'extractToTodos', data: content, tabId: tabId });
                 }
 
                 editor.commands.addCommand({
@@ -1540,9 +1548,10 @@
                 });
 
                 // DOM キーイベントのフォールバック
+                // (他の箇所と同様、addManagedEventListener でタブクローズ時に解除されるようにする)
                 const aceContainer = document.getElementById(editorElementId);
                 if (aceContainer) {
-                    aceContainer.addEventListener('keydown', function(event) {
+                    addManagedEventListener(aceContainer, 'keydown', function(event) {
                         if (event.key === 'Enter' && (event.metaKey || event.ctrlKey) && !event.altKey) {
                             event.preventDefault();
                             event.stopPropagation();
@@ -1553,11 +1562,11 @@
                             }
                             return false;
                         }
-                    }, true);
+                    }, state, true);
 
                     // クリップボードに画像があれば pasteImage コマンドに委譲する
                     // (📷 ボタンと同じ挙動。テキストが含まれている場合は通常ペースト)
-                    aceContainer.addEventListener('paste', function(event) {
+                    addManagedEventListener(aceContainer, 'paste', function(event) {
                         const cd = event.clipboardData;
                         if (!cd) return;
                         const types = Array.from(cd.types || []);
@@ -1572,7 +1581,7 @@
                             log('[PASTE] Image detected in clipboard, delegating to pasteImage');
                             vscode.postMessage({ type: 'pasteImage' });
                         }
-                    }, true);
+                    }, state, true);
                 }
 
                 editor.setOption('dragEnabled', false);
@@ -1580,24 +1589,24 @@
                 // ドラッグ&ドロップ設定
                 const editorWrapper = aceContainer?.closest('.pane-editor-container');
                 if (editorWrapper) {
-                    editorWrapper.addEventListener('dragenter', (e) => { e.preventDefault(); }, true);
-                    editorWrapper.addEventListener('dragover', (e) => {
+                    addManagedEventListener(editorWrapper, 'dragenter', (e) => { e.preventDefault(); }, state, true);
+                    addManagedEventListener(editorWrapper, 'dragover', (e) => {
                         e.preventDefault();
                         e.stopPropagation();
                         e.dataTransfer.dropEffect = 'copy';
                         editorWrapper.style.outline = '2px dashed var(--vscode-focusBorder, #007acc)';
-                    }, true);
-                    editorWrapper.addEventListener('dragleave', (e) => {
+                    }, state, true);
+                    addManagedEventListener(editorWrapper, 'dragleave', (e) => {
                         if (!editorWrapper.contains(e.relatedTarget)) {
                             editorWrapper.style.outline = '';
                         }
-                    }, true);
-                    editorWrapper.addEventListener('drop', (e) => {
+                    }, state, true);
+                    addManagedEventListener(editorWrapper, 'drop', (e) => {
                         e.preventDefault();
                         e.stopPropagation();
                         editorWrapper.style.outline = '';
                         vscode.postMessage({ type: 'openDropZone' });
-                    }, true);
+                    }, state, true);
                 }
 
                 state.editor = editor;
@@ -1629,9 +1638,9 @@
             }
 
             // グローバルイベントリスナーを削除
-            tabState.globalEventListeners.forEach(({ element, event, handler }) => {
+            tabState.globalEventListeners.forEach(({ element, event, handler, options }) => {
                 try {
-                    element.removeEventListener(event, handler);
+                    element.removeEventListener(event, handler, options);
                 } catch (error) {
                     log('Error removing global event listener:', error);
                 }
@@ -1659,20 +1668,45 @@
 
         // イベントリスナー登録ヘルパー（管理対象に追加）
         // targetState が指定された場合はそのタブの state に、なければグローバルに登録
-        function addManagedEventListener(element, event, handler, targetState = null) {
-            element.addEventListener(event, handler);
+        // options は addEventListener の第3引数 (capture 指定など)。removeEventListener 時にも必要。
+        function addManagedEventListener(element, event, handler, targetState = null, options = undefined) {
+            element.addEventListener(event, handler, options);
             if (targetState && targetState.eventListeners) {
-                targetState.eventListeners.push({ element, event, handler });
+                targetState.eventListeners.push({ element, event, handler, options });
             } else {
-                tabState.globalEventListeners.push({ element, event, handler });
+                tabState.globalEventListeners.push({ element, event, handler, options });
             }
         }
 
         // 大量ペーストのチャンク送信機能
         function sendBytesInChunks(bytes, meta) {
             const CHUNK_SIZE = 32 * 1024; // 32KB チャンクサイズ
+            const ACK_TIMEOUT_MS = 10000; // ACK が返らない場合の打ち切り時間
             const id = Math.random().toString(36).slice(2); // ランダム ID
             let offset = 0;
+            let ackTimeoutTimer = null;
+            let endSent = false;
+
+            // リスナーとタイマーを確実に解放する。
+            // タイムアウト処理が無いと、バックエンドから ACK が返らなくなった場合に
+            // ペーストデータをクロージャで抱えたリスナーが window に永久に残留する。
+            const cleanup = () => {
+                window.removeEventListener('message', onAck);
+                if (ackTimeoutTimer) {
+                    clearTimeout(ackTimeoutTimer);
+                    ackTimeoutTimer = null;
+                }
+            };
+
+            const armAckTimeout = () => {
+                if (ackTimeoutTimer) {
+                    clearTimeout(ackTimeoutTimer);
+                }
+                ackTimeoutTimer = setTimeout(() => {
+                    log('[PASTE CHUNKS] ACK timeout, aborting chunked paste:', id);
+                    cleanup();
+                }, ACK_TIMEOUT_MS);
+            };
 
             // ACK 待ち用のイベントリスナー
             const onAck = (event) => {
@@ -1683,16 +1717,18 @@
 
                 if (message.done) {
                     // 送信完了
-                    window.removeEventListener('message', onAck);
+                    cleanup();
                     log('[PASTE CHUNKS] All chunks sent successfully');
                     return;
                 }
 
                 // 次のチャンクを送信
+                armAckTimeout();
                 sendNextChunk();
             };
 
             window.addEventListener('message', onAck);
+            armAckTimeout();
 
             // 送信開始通知
             log('[PASTE CHUNKS] Starting chunked paste, total bytes:', bytes.length);
@@ -1705,8 +1741,12 @@
 
             function sendNextChunk() {
                 if (offset >= bytes.length) {
-                    // 送信終了通知
-                    vscode.postMessage({ type: 'terminalInputEnd', id: id });
+                    // 送信終了通知。begin の ACK と chunk の ACK の両方から
+                    // 呼ばれるため、二重送信しないようフラグで一度だけ送る
+                    if (!endSent) {
+                        endSent = true;
+                        vscode.postMessage({ type: 'terminalInputEnd', id: id });
+                    }
                     return;
                 }
 
@@ -2008,6 +2048,11 @@
 
                     case 'reset':
                         resetTerminalResources();
+                        // resetTerminalResources は globalEventListeners に登録された
+                        // この message リスナー自身も解除する。再登録しないと
+                        // リセット後の出力メッセージが一切処理されなくなる。
+                        window.addEventListener('message', globalMessageHandler);
+                        tabState.globalEventListeners.push({ element: window, event: 'message', handler: globalMessageHandler });
                         // 新しいタブを作成して初期化
                         setTimeout(() => {
                             const newTabId = createNewTab();
@@ -2169,34 +2214,43 @@
                         }
                         break;
 
-                    case 'extractToTodosResult':
-                        if (message.success && getActiveEditor()) {
+                    case 'extractToTodosResult': {
+                        // 応答受信時点のアクティブタブではなく、リクエスト発行元のタブに書き込む。
+                        // タブ切り替え中に応答が届くと、別タブのエディタ・ターミナルに
+                        // 内容が漏れてしまうため。
+                        const extractTabId = message.tabId || tabState.activeTabId;
+                        const extractState = tabState.terminalStates.get(extractTabId);
+                        const extractEditor = extractState ? extractState.editor : null;
+                        if (message.success && extractEditor) {
                             const reference = `See [@${message.filePath}]`;
-                            getActiveEditor().setValue(reference, -1);
+                            extractEditor.setValue(reference, -1);
                             log('[EXTRACT] Editor content replaced with reference:', reference);
-                            if (tabState.sendAfterExtract) {
-                                tabState.sendAfterExtract = false;
-                                const activeTabId = tabState.activeTabId;
+                            if (tabState.sendAfterExtractTabId === extractTabId) {
+                                tabState.sendAfterExtractTabId = null;
                                 const trimmedRef = reference.trimEnd();
                                 vscode.postMessage({
                                     type: 'editorSendContent',
                                     data: trimmedRef,
-                                    tabId: activeTabId
+                                    tabId: extractTabId
                                 });
                                 setTimeout(() => {
                                     vscode.postMessage({
                                         type: 'terminalInput',
                                         data: '\r',
-                                        tabId: activeTabId
+                                        tabId: extractTabId
                                     });
-                                    getActiveEditor().setValue('', -1);
+                                    const delayedState = tabState.terminalStates.get(extractTabId);
+                                    if (delayedState && delayedState.editor) {
+                                        delayedState.editor.setValue('', -1);
+                                    }
                                 }, 200);
                             }
                         } else if (!message.success) {
                             log('[EXTRACT] Failed to write TODOS.md:', message.error);
-                            tabState.sendAfterExtract = false;
+                            tabState.sendAfterExtractTabId = null;
                         }
                         break;
+                    }
                 }
             };
             window.addEventListener('message', globalMessageHandler);
@@ -2244,7 +2298,7 @@
                     if (!getActiveEditor()) return;
                     const content = getActiveEditor().getValue();
                     if (!content.trim() || content.split('\n').length <= 1) return;
-                    vscode.postMessage({ type: 'extractToTodos', data: content });
+                    vscode.postMessage({ type: 'extractToTodos', data: content, tabId: tabState.activeTabId });
                 });
             }
 
@@ -2317,6 +2371,12 @@
                         log('[TAB] Tab clicked:', tabId);
                         switchToTab(tabId);
                         vscode.postMessage({ type: 'switchTab', tabId: tabId });
+                        // セッション復元 (tabList) 直後などで xterm が未初期化のタブは、
+                        // ここで初期化しないと出力も入力も効かない空のペインになる
+                        const clickedState = tabState.terminalStates.get(tabId);
+                        if (!clickedState || !clickedState.isInitialized) {
+                            initializeTerminal(tabId);
+                        }
                     } else {
                         // 既にアクティブなタブを再クリックした場合でも、focus を
                         // ターミナルに戻す。タブ要素は <div> で body に focus が
@@ -2336,7 +2396,7 @@
         // 新しいタブを作成するヘルパー関数
         let nextTabNumber = 1;
         function createNewTab() {
-            const tabId = 'tab-' + Date.now() + '-' + Math.random().toString(36).substr(2, 9);
+            const tabId = 'tab-' + Date.now() + '-' + Math.random().toString(36).slice(2, 11);
             const tab = {
                 id: tabId,
                 title: 'Terminal ' + nextTabNumber++
@@ -2530,6 +2590,10 @@
 
                 // 2秒ごとにスクロール位置をチェックし、最上部なら最下部にスクロール
                 const scrollCheckInterval = setInterval(() => {
+                    // 非アクティブ (非表示) のタブでは何もしない
+                    if (tabState.activeTabId !== tabId) {
+                        return;
+                    }
                     if (!state.term || !state.term.buffer || !state.term.buffer.active) {
                         return;
                     }
@@ -2727,16 +2791,23 @@
                     log('[LINK] URL link provider registered for tab:', tabId);
                 })();
 
-                // ターミナル要素のサイズが確定するまで待機
+                // ターミナル要素のサイズが確定するまで待機。
+                // タイマーは state.timers に置き、タブクローズ時に cleanupTerminalState で
+                // 確実に停止させる。停止手段が無いと、非表示のまま閉じられたタブの
+                // ポーリングが 10ms 間隔で永久に回り続ける。
                 function waitForSize() {
                     return new Promise((resolve) => {
                         const checkSize = () => {
+                            state.timers.waitForSize = null;
+                            if (!state.term || !terminalElement.isConnected) {
+                                // タブが閉じられた場合はポーリングを打ち切る
+                                return;
+                            }
                             const rect = terminalElement.getBoundingClientRect();
                             if (rect.width > 0 && rect.height > 0) {
-
                                 resolve();
                             } else {
-                                setTimeout(checkSize, 10);
+                                state.timers.waitForSize = setTimeout(checkSize, 10);
                             }
                         };
                         checkSize();
@@ -2989,7 +3060,8 @@
                         if (pastedText) {
                             log('[PASTE] Intercepted paste event, length:', pastedText.length);
                             // 大量ペースト時はチャンク送信でフロー制御
-                            sendBytesInChunks(new TextEncoder().encode(pastedText), { kind: 'paste' });
+                            // tabId を含めて、バックエンドが正しいタブのプロセスに書き込めるようにする
+                            sendBytesInChunks(new TextEncoder().encode(pastedText), { kind: 'paste', tabId: tabId });
                         }
                     }
                 };
@@ -3023,7 +3095,11 @@
                 vscode.postMessage({ type: 'error', error: error.message });
                 const pane = document.getElementById(`terminal-pane-${tabId}`);
                 if (pane) {
-                    pane.innerHTML = '<p style="color: red;">Error loading terminal: ' + error.message + '</p>';
+                    // error.message を HTML として解釈させない (textContent で挿入する)
+                    const errorParagraph = document.createElement('p');
+                    errorParagraph.style.color = 'red';
+                    errorParagraph.textContent = 'Error loading terminal: ' + error.message;
+                    pane.replaceChildren(errorParagraph);
                 }
             }
         }
