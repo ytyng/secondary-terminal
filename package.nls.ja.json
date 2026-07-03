@@ -1,0 +1,13 @@
+{
+  "configuration.startupCommands.description": "ターミナル起動時に自動実行するコマンド一覧",
+  "configuration.maxHistoryLines.description": "ターミナルの履歴として保持する最大行数 (xterm の scrollback とセッション復元バッファに適用)",
+  "configuration.notifications.enabled.description": "ターミナル出力の OSC 通知シーケンス (OSC 9 / 777 / 99) を検知して VSCode 通知を表示する",
+  "configuration.notifications.flashBackground.description": "OSC 通知を表示するとき、ターミナル領域 (webview) の背景を一瞬フラッシュさせる",
+  "configuration.fontFamily.description": "ターミナルと ACE エディタのフォントファミリー (CSS font-family 形式)",
+  "configuration.fontSize.description": "ターミナルと ACE エディタのフォントサイズ (px)",
+  "configuration.lineHeight.description": "ターミナルの行の高さ (フォントサイズに対する倍率)",
+  "configuration.letterSpacing.description": "ターミナルの文字間隔 (px)",
+  "configuration.editorHeight.description": "ターミナル下部の ACE エディタ (コマンド入力エディタ) の高さ (px)",
+  "configuration.layout.widthAdjustment.description": "列数計算時の文字幅補正係数。フォントによって実測幅と xterm の描画幅がずれるため、フォント変更時に調整する。値を小さくすると列数が増える",
+  "configuration.layout.heightAdjustment.description": "行数計算時の行高補正係数。フォント変更時に調整する。値を小さくすると行数が増える"
+}
