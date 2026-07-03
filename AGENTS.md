@@ -213,6 +213,11 @@ Developer: Install Extension from Location...
    ```
    - package.json のバージョンを自動で 0.0.1 増加
    - src/version.json のバージョンとビルド日時を自動更新
+   - **注意**: 内部の `npm version patch` は working tree がクリーンでないと失敗する。
+     未コミットの変更がある状態 (コミット直前の通常フロー) では、代わりに以下を実行する:
+     ```bash
+     npm version patch --no-git-tag-version && npm run update-version
+     ```
 
 2. **手動バージョン更新**:
    ```bash
