@@ -326,30 +326,31 @@ export class TerminalSessionManager {
     }
 
     private flushPendingOutput(session: TerminalSession): void {
-        if (session.pendingOutput && session.currentView) {
-            try {
-                const outputData = session.pendingOutput;
-                session.pendingOutput = '';
-                session.lastOutputTime = Date.now();
-                session.pendingSince = null;
-                // タブIDが設定されている場合は含める
-                const tabId = (session as TerminalSessionWithTabId).tabId;
-                const message: { type: string; data: string; tabId?: string } = {
-                    type: 'output',
-                    data: outputData
-                };
-                if (tabId) {
-                    message.tabId = tabId;
-                }
-                session.currentView.webview.postMessage(message);
-            } catch (error) {
-                console.error('Error sending data to view:', error);
-                session.isConnected = false;
-                session.pendingOutput = '';
-                session.pendingSince = null;
-            }
-        }
+        // currentView の有無に関わらず pendingOutput は必ずクリアする。
+        // タイマー発火前に disconnectView されると pendingOutput が永久に残留するため。
+        const outputData = session.pendingOutput;
+        session.pendingOutput = '';
+        session.pendingSince = null;
         session.outputTimer = undefined;
+        if (!outputData || !session.currentView) {
+            return;
+        }
+        try {
+            session.lastOutputTime = Date.now();
+            // タブIDが設定されている場合は含める
+            const tabId = (session as TerminalSessionWithTabId).tabId;
+            const message: { type: string; data: string; tabId?: string } = {
+                type: 'output',
+                data: outputData
+            };
+            if (tabId) {
+                message.tabId = tabId;
+            }
+            session.currentView.webview.postMessage(message);
+        } catch (error) {
+            console.error('Error sending data to view:', error);
+            session.isConnected = false;
+        }
     }
 
     /**

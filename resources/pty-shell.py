@@ -13,6 +13,7 @@ import errno
 import re
 import fcntl
 import termios
+import traceback
 
 # I/O バッファサイズ定数（vim などの対話的アプリに優しいサイズに調整）
 IO_BUFFER_SIZE = 1024
@@ -27,121 +28,93 @@ def set_winsize(fd, rows, cols):
         pass
 
 
-def get_foreground_process_name(shell_pid):
+def get_process_snapshot():
+    """ps を 1 回だけ実行してプロセステーブルのスナップショットを取得する。
+
+    以前は pgrep をプロセスツリーのノード 1 つにつき 1 回 spawn しており、
+    子孫プロセス数 N に比例して 3 秒ごとに O(N) 回のプロセス起動が発生していた。
+    ps 1 回で全プロセスの pid/ppid/comm を取得し、メモリ上でツリーを構築する。
+
+    戻り値: {pid: (ppid, comm)} の辞書。取得失敗時は空辞書。
+    """
+    try:
+        r = subprocess.run(
+            ['ps', '-axo', 'pid=,ppid=,comm='],
+            capture_output=True,
+            text=True,
+            timeout=2,
+            encoding='utf-8',
+            errors='ignore',
+        )
+        if r.returncode != 0:
+            return {}
+        table = {}
+        for line in r.stdout.splitlines():
+            # comm はパスにスペースを含み得るため、先頭 2 フィールドのみ分割する
+            parts = line.split(None, 2)
+            if len(parts) < 3:
+                continue
+            try:
+                table[int(parts[0])] = (int(parts[1]), parts[2])
+            except ValueError:
+                continue
+        return table
+    except (OSError, subprocess.TimeoutExpired, subprocess.SubprocessError):
+        return {}
+
+
+def list_descendants(table, root_pid, max_depth=5):
+    """スナップショットから root_pid の子孫 PID を BFS で列挙する (深さ max_depth まで)。"""
+    children = {}
+    for pid, (ppid, _comm) in table.items():
+        children.setdefault(ppid, []).append(pid)
+
+    result = []
+    queue = [(root_pid, 0)]
+    seen = {root_pid}
+    while queue:
+        pid, depth = queue.pop(0)
+        if depth >= max_depth:
+            continue
+        for c in children.get(pid, []):
+            if c in seen:
+                continue
+            seen.add(c)
+            result.append(c)
+            queue.append((c, depth + 1))
+    return result
+
+
+def get_foreground_process_name(shell_pid, table):
     """シェルプロセスのフォアグラウンド子プロセス名を取得する。
 
-    シェルの子プロセスを探し、その名前を返す。
+    シェルの直接の子プロセスを探し、その名前を返す。
     子プロセスがない場合はシェル自体の名前を返す。
     """
-    try:
-        # シェルの直接の子プロセスを取得
-        result = subprocess.run(
-            ['pgrep', '-P', str(shell_pid)],
-            capture_output=True,
-            text=True,
-            timeout=1,
-            encoding='utf-8',
-            errors='ignore',
-        )
-
-        if result.returncode == 0 and result.stdout.strip():
-            child_pids = result.stdout.strip().split('\n')
-            # 最後の（最新の）子プロセスの名前を取得
-            for child_pid in reversed(child_pids):
-                child_pid = child_pid.strip()
-                if not child_pid:
-                    continue
-                try:
-                    ps_result = subprocess.run(
-                        ['ps', '-p', child_pid, '-o', 'comm='],
-                        capture_output=True,
-                        text=True,
-                        timeout=1,
-                        encoding='utf-8',
-                        errors='ignore',
-                    )
-                    if ps_result.returncode == 0 and ps_result.stdout.strip():
-                        process_name = ps_result.stdout.strip()
-                        if '/' in process_name:
-                            process_name = os.path.basename(process_name)
-                        return process_name
-                except (subprocess.TimeoutExpired, subprocess.SubprocessError):
-                    continue
-
-        # 子プロセスがない場合はシェル自体の名前を返す
-        result = subprocess.run(
-            ['ps', '-p', str(shell_pid), '-o', 'comm='],
-            capture_output=True,
-            text=True,
-            timeout=1,
-            encoding='utf-8',
-            errors='ignore',
-        )
-        if result.returncode == 0 and result.stdout.strip():
-            process_name = result.stdout.strip()
-            if '/' in process_name:
-                process_name = os.path.basename(process_name)
-            return process_name
-
-        return None
-    except (OSError, subprocess.TimeoutExpired, subprocess.SubprocessError):
+    child_comms = [
+        comm for pid, (ppid, comm) in table.items() if ppid == shell_pid
+    ]
+    if child_comms:
+        # 最後の (最新の) 子プロセスの名前を取得
+        process_name = child_comms[-1]
+    elif shell_pid in table:
+        process_name = table[shell_pid][1]
+    else:
         return None
 
+    if '/' in process_name:
+        process_name = os.path.basename(process_name)
+    return process_name
 
-def check_cli_agent_active(shell_pid):
+
+def check_cli_agent_active(shell_pid, table):
     """シェルプロセス配下で CLI エージェント（Claude, Gemini, Codex, Copilot）の稼働有無を軽量に判定する。
 
-    以前は `ps -eo pid,ppid,comm,args` で全プロセスを列挙していたが、
-    環境によっては出力が大きくなり、3秒ごとの実行でも徐々に CPU 使用率が上がる可能性があった。
-    ここでは pgrep を用いた親子探索(BFS)と、対象 PID 群に限定した ps 呼び出しにより負荷を抑える。
+    プロセステーブルのスナップショット (get_process_snapshot) から子孫 PID を求め、
+    その PID 群に限定した ps 呼び出し (50 件ずつ) で args を取得して判定する。
     """
     try:
-        # BFS で深さ5までの子孫 PID を列挙
-        def list_children(parent_pid):
-            try:
-                r = subprocess.run(
-                    ['pgrep', '-P', str(parent_pid)],
-                    capture_output=True,
-                    text=True,
-                    timeout=1,
-                    encoding='utf-8',
-                    errors='ignore',
-                )
-                if r.returncode not in (0, 1):
-                    return []
-                lines = r.stdout.strip().split('\n') if r.stdout else []
-                result = []
-                for line in lines:
-                    line = line.strip()
-                    if not line:
-                        continue
-                    try:
-                        result.append(int(line))
-                    except ValueError:
-                        pass
-                return result
-            except (
-                subprocess.TimeoutExpired,
-                subprocess.SubprocessError,
-                FileNotFoundError,
-            ):
-                return []
-
-        max_depth = 5
-        descendants = []
-        queue = [(shell_pid, 0)]
-        seen = {shell_pid}
-
-        while queue:
-            pid, depth = queue.pop(0)
-            if depth >= max_depth:
-                continue
-            for c in list_children(pid):
-                if c in seen:
-                    continue
-                seen.add(c)
-                descendants.append(c)
-                queue.append((c, depth + 1))
+        descendants = list_descendants(table, shell_pid)
 
         if not descendants:
             return {'active': False, 'agent_type': None}
@@ -184,39 +157,35 @@ def check_cli_agent_active(shell_pid):
                         continue
                     # comm と args はスペース区切りだが、args はスペースを含む。
                     # 'comm=,args=' により先頭フィールドはコマンド名のみ、それ以降を args として扱える。
-                    try:
-                        # 先頭のコマンド名と残りを args として分離
-                        parts = line.strip().split(None, 1)
-                        comm = parts[0].lower() if parts else ''
-                        args = parts[1].lower() if len(parts) > 1 else ''
+                    # 先頭のコマンド名と残りを args として分離
+                    parts = line.strip().split(None, 1)
+                    comm = parts[0].lower() if parts else ''
+                    args = parts[1].lower() if len(parts) > 1 else ''
 
-                        # Claude 検出
-                        if 'claude' in comm or ' claude ' in args:
-                            return {'active': True, 'agent_type': 'claude'}
-                        # Gemini 検出
-                        if (
-                            '/bin/gemini' in args
-                            or ' gemini ' in args
-                            or comm == 'gemini'
-                        ):
-                            return {'active': True, 'agent_type': 'gemini'}
-                        # Codex 検出
-                        if (
-                            'codex' in comm
-                            or ' codex ' in args
-                            or '/bin/codex' in args
-                        ):
-                            return {'active': True, 'agent_type': 'codex'}
-                        # Copilot 検出
-                        if (
-                            'copilot' in comm
-                            or ' copilot ' in args
-                            or '/bin/copilot' in args
-                        ):
-                            return {'active': True, 'agent_type': 'copilot'}
-                    except Exception:
-                        # 行のパース失敗は無視して続行
-                        continue
+                    # Claude 検出
+                    if 'claude' in comm or ' claude ' in args:
+                        return {'active': True, 'agent_type': 'claude'}
+                    # Gemini 検出
+                    if (
+                        '/bin/gemini' in args
+                        or ' gemini ' in args
+                        or comm == 'gemini'
+                    ):
+                        return {'active': True, 'agent_type': 'gemini'}
+                    # Codex 検出
+                    if (
+                        'codex' in comm
+                        or ' codex ' in args
+                        or '/bin/codex' in args
+                    ):
+                        return {'active': True, 'agent_type': 'codex'}
+                    # Copilot 検出
+                    if (
+                        'copilot' in comm
+                        or ' copilot ' in args
+                        or '/bin/copilot' in args
+                    ):
+                        return {'active': True, 'agent_type': 'copilot'}
             except (
                 subprocess.TimeoutExpired,
                 subprocess.SubprocessError,
@@ -225,8 +194,12 @@ def check_cli_agent_active(shell_pid):
                 continue
 
         return {'active': False, 'agent_type': None}
-    except Exception:
-        # 想定外のエラーは検出無効として扱う
+    except Exception as e:
+        # 想定外のエラーは検出無効として扱う (内容はフロント経由でログに残す)
+        log(
+            f'[check_cli_agent_active] {e.__class__.__name__}: {e}\n'
+            f'{traceback.format_exc()}'
+        )
         return {'active': False, 'agent_type': None}
 
 
@@ -242,7 +215,9 @@ def send_status_message(message_type, data):
         status_sequence = f'\x1b]777;{message_json}\x07'
         sys.stdout.buffer.write(status_sequence.encode('utf-8'))
         sys.stdout.buffer.flush()
-    except Exception:
+    except (TypeError, ValueError, OSError):
+        # JSON 化できないデータ、または stdout (拡張ホストへのパイプ) の破損。
+        # ログの送り先自体が stdout なので、ここで通知する手段は無い。
         pass
 
 
@@ -308,7 +283,7 @@ def main():
                     pass
 
         except Exception as e:
-            log(f"Error during cleanup: {e}")
+            log(f"Error during cleanup: {e.__class__.__name__}: {e}")
 
     def signal_handler(signum, frame):
         """シグナルハンドラー"""
@@ -330,7 +305,9 @@ def main():
         # macOS では pty.openpty() + setsid() で制御端末が自動設定される
         os.setsid()
 
-    while True:  # シェルプロセスが終了したら再起動するループ
+    # 注: このループは末尾で必ず break するため 1 回しか実行されない。
+    # シェル終了時の再起動は Node.js 側 (タブを閉じる処理) が担当する。
+    while True:
         # 環境変数を設定
         os.environ['TERM'] = 'xterm-256color'
         os.environ['COLUMNS'] = str(initial_cols)
@@ -358,10 +335,10 @@ def main():
                 cwd=cwd,
             )
             current_shell_process = p  # グローバル変数に保存
-        except Exception as e:
+        except (OSError, subprocess.SubprocessError) as e:
             log(
                 'zsh launch failed, falling back to bash. '
-                f'{e.__class__.__name__}: {e}'
+                f'{e.__class__.__name__}: {e}\n{traceback.format_exc()}'
             )
 
             # zsh が失敗した場合は bash にフォールバック
@@ -380,8 +357,6 @@ def main():
 
         # 非ブロッキング I/O を設定
         try:
-            import fcntl
-
             # PTY マスターを非ブロッキングに設定
             flags = fcntl.fcntl(master, fcntl.F_GETFL)
             fcntl.fcntl(master, fcntl.F_SETFL, flags | os.O_NONBLOCK)
@@ -391,9 +366,8 @@ def main():
             fcntl.fcntl(
                 sys.stdin.fileno(), fcntl.F_SETFL, stdin_flags | os.O_NONBLOCK
             )
-        except (ImportError, OSError):
+        except OSError:
             log("fcntl: Warning: Failed to set non-blocking I/O")
-            pass
 
         # CLI エージェント監視のための変数
         last_agent_check = 0
@@ -438,10 +412,24 @@ def main():
                             )
                             time.sleep(0.1)  # コマンド間に少し間隔を空ける
 
+                # プロセス監視 (エージェント検出とフォアグラウンドプロセス名) は
+                # 同じ ps スナップショットを共有し、プロセス起動回数を抑える
+                need_agent_check = (
+                    current_time - last_agent_check >= check_interval
+                )
+                need_fg_check = (
+                    current_time - last_fg_process_check
+                    >= fg_process_check_interval
+                )
+                if need_agent_check or need_fg_check:
+                    process_table = get_process_snapshot()
+
                 # CLI エージェントアクティブチェック（3秒間隔で実行）
-                if current_time - last_agent_check >= check_interval:
+                if need_agent_check:
                     # Claude や Gemini の検出を実行（負荷軽減のため3秒間隔）
-                    new_agent_state = check_cli_agent_active(p.pid)
+                    new_agent_state = check_cli_agent_active(
+                        p.pid, process_table
+                    )
                     if (
                         new_agent_state
                         and new_agent_state != current_agent_state
@@ -454,8 +442,10 @@ def main():
                     last_agent_check = current_time
 
                 # フォアグラウンドプロセス名チェック（1秒間隔）
-                if current_time - last_fg_process_check >= fg_process_check_interval:
-                    new_fg_process = get_foreground_process_name(p.pid)
+                if need_fg_check:
+                    new_fg_process = get_foreground_process_name(
+                        p.pid, process_table
+                    )
                     if new_fg_process and new_fg_process != current_fg_process:
                         current_fg_process = new_fg_process
                         send_status_message(
@@ -482,27 +472,49 @@ def main():
                                 # 前回の未完成バイト列と結合
                                 input_buffer += data
 
-                                # UTF-8 incomplete sequence を考慮したデコード
-                                text = ''
-                                try:
-                                    # 全体をデコードしてみる
-                                    text = input_buffer.decode('utf-8')
-                                    # 成功したらバッファをクリア
+                                # 不正データが続いた場合の暴走防止 (通常は到達しない)
+                                if len(input_buffer) > 65536:
+                                    log(
+                                        'Input buffer overflow, discarding '
+                                        f'{len(input_buffer)} bytes'
+                                    )
                                     input_buffer = b''
-                                except UnicodeDecodeError as e:
-                                    # デコードエラーが発生した場合、完全にデコードできる部分だけを取り出す
-                                    if e.start > 0:
-                                        # エラー開始位置より前は正常にデコードできる
-                                        text = input_buffer[: e.start].decode(
-                                            'utf-8'
+
+                                # UTF-8 incomplete sequence を考慮したデコード。
+                                # デコードできる部分を全て排出し、末尾の不完全な
+                                # マルチバイト列だけをバッファに残す。
+                                text_parts = []
+                                while input_buffer:
+                                    try:
+                                        text_parts.append(
+                                            input_buffer.decode('utf-8')
                                         )
-                                        # 未処理部分をバッファに残す
-                                        input_buffer = input_buffer[e.start :]
-                                    else:
-                                        # 先頭からエラーの場合、1文字分進めて再試行（破損データの回避）
-                                        if len(input_buffer) > 1:
-                                            input_buffer = input_buffer[1:]
-                                        text = ''
+                                        input_buffer = b''
+                                    except UnicodeDecodeError as e:
+                                        # エラー開始位置より前は正常にデコードできる
+                                        text_parts.append(
+                                            input_buffer[: e.start].decode(
+                                                'utf-8'
+                                            )
+                                        )
+                                        if (
+                                            e.reason
+                                            == 'unexpected end of data'
+                                        ):
+                                            # マルチバイト文字の途中で分断されて
+                                            # いる。続きのバイトを待つため残す。
+                                            # (先頭バイトを捨てると分断された
+                                            # 日本語や絵文字が丸ごと失われる)
+                                            input_buffer = input_buffer[
+                                                e.start :
+                                            ]
+                                            break
+                                        # 本当に不正なバイトは 1 バイトだけ捨てて
+                                        # 続きのデコードを試みる
+                                        input_buffer = input_buffer[
+                                            e.start + 1 :
+                                        ]
+                                text = ''.join(text_parts)
 
                                 if text:
                                     #
@@ -523,7 +535,10 @@ def main():
                                             >= forced_check_cooldown
                                         ):
                                             new_agent_state = (
-                                                check_cli_agent_active(p.pid)
+                                                check_cli_agent_active(
+                                                    p.pid,
+                                                    get_process_snapshot(),
+                                                )
                                             )
                                             if new_agent_state:
                                                 current_agent_state = (
@@ -555,8 +570,9 @@ def main():
                                         except (ValueError, IndexError):
                                             return
                                         set_winsize(master, rows, cols)
-                                        os.environ['LINES'] = str(rows)
-                                        os.environ['COLUMNS'] = str(cols)
+                                        # 注: 起動済みのシェルの環境変数は変更
+                                        # できないため os.environ の更新は行わない。
+                                        # サイズ通知は ioctl と SIGWINCH で足りる。
                                         # シェルへウィンドウサイズ変更通知
                                         if p.pid:
                                             try:
@@ -630,15 +646,23 @@ def main():
                                                         raise
                                         else:
                                             # 小さなデータはそのまま送信
-                                            os.write(
-                                                master,
-                                                cleaned_text.encode(
-                                                    'utf-8', errors='ignore'
-                                                ),
+                                            # (EAGAIN 時は 1 回だけリトライする)
+                                            encoded = cleaned_text.encode(
+                                                'utf-8', errors='ignore'
                                             )
-                                else:
-                                    # デコードされたテキストがない場合は何もしない（バッファに残っている）
-                                    pass
+                                            try:
+                                                os.write(master, encoded)
+                                            except OSError as e:
+                                                if e.errno == errno.EAGAIN:
+                                                    time.sleep(0.05)
+                                                    try:
+                                                        os.write(
+                                                            master, encoded
+                                                        )
+                                                    except OSError:
+                                                        pass
+                                                else:
+                                                    raise
                         except OSError as e:
                             # EAGAIN は未準備、EIO/ENXIO などは実質クローズとみなす
                             if e.errno in (errno.EIO, errno.ENXIO):
@@ -651,21 +675,14 @@ def main():
                         try:
                             data = os.read(master, IO_BUFFER_SIZE)
                             if data:
-                                # UTF-8 でデコードしてから再エンコード（文字化け対策）
-                                try:
-                                    decoded_text = data.decode(
-                                        'utf-8', errors='ignore'
-                                    )
-                                    encoded_data = decoded_text.encode('utf-8')
-                                    sys.stdout.buffer.write(encoded_data)
-                                    sys.stdout.buffer.flush()
-                                except (
-                                    UnicodeDecodeError,
-                                    UnicodeEncodeError,
-                                ):
-                                    # エラー時はバイナリデータをそのまま送信
-                                    sys.stdout.buffer.write(data)
-                                    sys.stdout.buffer.flush()
+                                # バイト列をそのまま転送する。
+                                # UTF-8 のデコードはフロントエンド (xterm.js) が
+                                # ストリームとして行うため、ここで decode すると
+                                # バッファ境界で分断されたマルチバイト文字を
+                                # 破損させてしまう (errors='ignore' は不完全な
+                                # 末尾バイト列を黙って捨てる)。
+                                sys.stdout.buffer.write(data)
+                                sys.stdout.buffer.flush()
                         except OSError as e:
                             # EAGAIN は PTY バッファが空なので無視
                             if e.errno == errno.EAGAIN:
@@ -706,7 +723,9 @@ def main():
                             os.getpgid(current_shell_process.pid),
                             signal.SIGKILL,
                         )
-                except OSError:
+                        # SIGKILL 後にゾンビを回収する
+                        current_shell_process.wait(timeout=1)
+                except (OSError, subprocess.TimeoutExpired):
                     pass
             finally:
                 current_shell_process = None

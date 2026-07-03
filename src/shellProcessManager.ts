@@ -1,6 +1,7 @@
 import * as childProcess from 'child_process';
 import * as path from 'path';
 import * as vscode from 'vscode';
+import { StringDecoder } from 'string_decoder';
 import { TerminalSessionManager } from './terminalSessionManager';
 
 interface ShellProcessInfo {
@@ -49,13 +50,17 @@ export class ShellProcessManager {
 
     /**
      * 指定されたワークスペースのシェルプロセスを取得または作成
+     * @param startupScopeKey startup commands の実行済み判定に使うキー。
+     *   workspaceKey はタブ ID を含む複合キーになるため、
+     *   「ワークスペースごとに一度だけ」の判定には別途このキーを渡す。
      */
     public getOrCreateProcess(
         workspaceKey: string,
         extensionPath: string,
         cwd: string,
         cols: number,
-        rows: number
+        rows: number,
+        startupScopeKey?: string
     ): childProcess.ChildProcess {
         let processInfo = this.processes.get(workspaceKey);
 
@@ -65,7 +70,7 @@ export class ShellProcessManager {
             || !this.isProcessStdinWritable(processInfo.process);
 
         if (shouldCreate) {
-            processInfo = this.createNewProcess(workspaceKey, extensionPath, cwd, cols, rows);
+            processInfo = this.createNewProcess(workspaceKey, extensionPath, cwd, cols, rows, startupScopeKey ?? workspaceKey);
         }
 
         if (!processInfo) {
@@ -89,16 +94,21 @@ export class ShellProcessManager {
         extensionPath: string,
         cwd: string,
         cols: number,
-        rows: number
+        rows: number,
+        startupScopeKey: string
     ): ShellProcessInfo {
         // Creating new shell process
 
         const pythonScriptPath = path.join(extensionPath, 'resources', 'pty-shell.py');
-        
+
         // VSCode 設定から startup commands を取得（初回起動時のみ有効化）
+        // 未信頼ワークスペースでは実行しない。ワークスペース設定 (.vscode/settings.json) 経由の
+        // 任意コマンド実行 (Workspace Trust バイパス) を防ぐため。
         const config = vscode.workspace.getConfiguration('secondaryTerminal');
-        const configuredStartup: string[] = config.get('startupCommands', []);
-        const shouldIncludeStartup = !this.startupExecuted.has(workspaceKey) && configuredStartup.length > 0;
+        const configuredStartup: string[] = vscode.workspace.isTrusted
+            ? config.get('startupCommands', [])
+            : [];
+        const shouldIncludeStartup = !this.startupExecuted.has(startupScopeKey) && configuredStartup.length > 0;
         
         const args = [
             pythonScriptPath,
@@ -138,21 +148,38 @@ export class ShellProcessManager {
 
         // 起動に成功したので、このワークスペースでは startup を実行済み扱いにする
         if (shouldIncludeStartup) {
-            this.startupExecuted.add(workspaceKey);
+            this.startupExecuted.add(startupScopeKey);
         }
 
-        // 出力データをセッションマネージャーに送信
+        // stdin の 'error' リスナーを登録する。
+        // 子プロセス突然死の直後に write すると EPIPE が発生し得るが、
+        // Writable ストリームの 'error' にリスナーが無いと拡張ホスト全体が
+        // 未処理例外でクラッシュするため、ここで受けてログに留める。
+        shellProcess.stdin?.on('error', (error: Error) => {
+            console.warn(`Shell stdin error for ${workspaceKey}:`, error);
+        });
+
+        // 出力データをセッションマネージャーに送信。
+        // チャンク境界で分断されたマルチバイト文字を破損させないよう、
+        // Buffer ごとの toString ではなく StringDecoder でストリームとしてデコードする
+        // (未完成の末尾バイト列は次の data イベントまで decoder 内部に保持される)。
         if (shellProcess.stdout) {
+            const stdoutDecoder = new StringDecoder('utf8');
             shellProcess.stdout.on('data', (data: Buffer) => {
-                const output = data.toString('utf8');
-                this.sessionManager.addOutput(workspaceKey, output);
+                const output = stdoutDecoder.write(data);
+                if (output) {
+                    this.sessionManager.addOutput(workspaceKey, output);
+                }
             });
         }
 
         if (shellProcess.stderr) {
+            const stderrDecoder = new StringDecoder('utf8');
             shellProcess.stderr.on('data', (data: Buffer) => {
-                const output = data.toString('utf8').replace(/\n/g, '\r\n');
-                this.sessionManager.addOutput(workspaceKey, output);
+                const output = stderrDecoder.write(data).replace(/\n/g, '\r\n');
+                if (output) {
+                    this.sessionManager.addOutput(workspaceKey, output);
+                }
             });
         }
 
@@ -254,7 +281,7 @@ export class ShellProcessManager {
      */
     public updateProcessSize(workspaceKey: string, cols: number, rows: number): void {
         const processInfo = this.processes.get(workspaceKey);
-        if (processInfo && processInfo.process && processInfo.process.stdin && !(processInfo.process.stdin as any).destroyed) {
+        if (processInfo && processInfo.process && processInfo.process.stdin && this.isProcessStdinWritable(processInfo.process)) {
             if (processInfo.cols !== cols || processInfo.rows !== rows) {
                 processInfo.cols = cols;
                 processInfo.rows = rows;

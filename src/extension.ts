@@ -9,6 +9,7 @@ import { toggleClaudeSandbox } from './claudeSandboxToggle';
 
 /**
  * ターミナルの選択テキストをクリップボードにコピーして取得
+ * ユーザーのクリップボード内容は処理後に復元する
  */
 async function copyTerminalSelection(): Promise<string | null> {
     const activeTerminal = vscode.window.activeTerminal;
@@ -16,6 +17,9 @@ async function copyTerminalSelection(): Promise<string | null> {
         vscode.window.showWarningMessage('アクティブなターミナルがありません');
         return null;
     }
+
+    // 元のクリップボード内容を退避する (copySelection で上書きされるため)
+    const previousClipboard = await vscode.env.clipboard.readText();
 
     try {
         // ターミナルの選択をクリップボードにコピー
@@ -27,7 +31,9 @@ async function copyTerminalSelection(): Promise<string | null> {
         // クリップボードから選択テキストを取得
         const selectedText = await vscode.env.clipboard.readText();
 
-        if (selectedText && selectedText.trim()) {
+        // 選択が無い場合 copySelection はクリップボードを変更しないため、
+        // 退避した内容と同じなら「選択なし」として扱う
+        if (selectedText && selectedText.trim() && selectedText !== previousClipboard) {
             return selectedText;
         } else {
             vscode.window.showWarningMessage('ターミナルでテキストが選択されていません');
@@ -36,6 +42,9 @@ async function copyTerminalSelection(): Promise<string | null> {
     } catch (error) {
         vscode.window.showWarningMessage('ターミナルの選択テキストを取得できませんでした');
         return null;
+    } finally {
+        // ユーザーのクリップボード内容を復元する
+        await vscode.env.clipboard.writeText(previousClipboard);
     }
 }
 
@@ -46,6 +55,27 @@ async function copyTerminalSelectionWithPrefix(): Promise<string | null> {
         return `[@terminal]\n\`\`\`\n${selectedText}\n\`\`\`\n`;
     }
     return null;
+}
+
+
+/**
+ * セッションとシェルプロセスを後始末する
+ * activate 時の exit ハンドラーと deactivate の双方から呼ばれる
+ */
+function performCleanup(): void {
+    try {
+        // セッションマネージャーを先にクリーンアップ
+        TerminalSessionManager.getInstance().removeAllSessions();
+    } catch (error) {
+        console.error('Error during sessions cleanup:', error);
+    }
+
+    try {
+        // プロセスマネージャーをクリーンアップ (同期的に SIGTERM 送信まで行われる)
+        ShellProcessManager.getInstance().terminateAllProcesses();
+    } catch (error) {
+        console.error('Error during process cleanup:', error);
+    }
 }
 
 
@@ -69,31 +99,16 @@ export function activate(context: vscode.ExtensionContext) {
         })
     );
 
-    // プロセス終了イベントリスナーを追加して強制終了時のクリーンアップを保証
-    const processManager = ShellProcessManager.getInstance();
-    const sessionManager = TerminalSessionManager.getInstance();
-
-    // Node.js プロセス終了時のクリーンアップ
-    const cleanupHandler = () => {
-        try {
-            // セッションマネージャーを先にクリーンアップ
-            sessionManager.removeAllSessions();
-            // プロセスマネージャーをクリーンアップ（同期版を使用）
-            processManager.terminateAllProcesses();
-        } catch (error) {
-            console.error('Error during cleanup:', error);
-            // エラーが発生してもプロセス終了は妨げない
-        }
-    };
-
-    process.on('exit', cleanupHandler);
-    process.on('SIGINT', cleanupHandler);
-    process.on('SIGTERM', cleanupHandler);
-    process.on('beforeExit', cleanupHandler);
+    // Node.js プロセス終了時のクリーンアップ。
+    // SIGINT / SIGTERM のハンドラーは登録しない。リスナーを登録すると Node.js の
+    // デフォルト終了動作が無効化され、process.exit() を呼ばない限り
+    // 拡張ホストプロセスがシグナル受信後もハングし続けるため。
+    // 通常のシャットダウンは deactivate() が、強制終了は 'exit' がカバーする。
+    process.on('exit', performCleanup);
 
     // context の subscriptions に cleanup 処理を登録
     context.subscriptions.push({
-        dispose: cleanupHandler
+        dispose: performCleanup
     });
 
     context.subscriptions.push(
@@ -245,21 +260,6 @@ export function activate(context: vscode.ExtensionContext) {
 
 export function deactivate() {
     // VSCode終了時は非同期処理やAPIを避けて、シンプルに同期処理のみ実行
-    try {
-        // セッションマネージャーのクリーンアップ
-        const sessionManager = TerminalSessionManager.getInstance();
-        sessionManager.removeAllSessions();
-    } catch (error) {
-        console.error('Error during sessions cleanup:', error);
-    }
-
-    try {
-        // プロセスマネージャーのクリーンアップ（同期版のみ使用）
-        const processManager = ShellProcessManager.getInstance();
-        processManager.terminateAllProcesses();
-    } catch (error) {
-        console.error('Error during process cleanup:', error);
-    }
-
+    performCleanup();
     // VSCode API は呼び出さない（終了時はコンテキストも自動でクリアされる）
 }

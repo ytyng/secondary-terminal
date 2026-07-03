@@ -21,7 +21,7 @@ interface TabState {
 
 // WebView メッセージの型定義
 interface WebViewMessage {
-    type: 'terminalInput' | 'terminalReady' | 'tabReady' | 'resize' | 'error' | 'buttonSendSelection' | 'buttonCopySelection' | 'refreshCliAgentStatus' | 'bufferCleanupRequest' | 'terminalInputBegin' | 'terminalInputChunk' | 'terminalInputEnd' | 'editorSendContent' | 'getEnv' | 'log' | 'extractToTodos' | 'openPromptHistory' | 'createTab' | 'switchTab' | 'closeTab' | 'pasteImage' | 'openDropZone' | 'openLink' | 'oscNotification';
+    type: 'terminalInput' | 'terminalReady' | 'tabReady' | 'resize' | 'error' | 'buttonSendSelection' | 'buttonCopySelection' | 'refreshCliAgentStatus' | 'bufferCleanupRequest' | 'terminalInputBegin' | 'terminalInputChunk' | 'terminalInputEnd' | 'editorSendContent' | 'log' | 'extractToTodos' | 'openPromptHistory' | 'createTab' | 'switchTab' | 'closeTab' | 'pasteImage' | 'openDropZone' | 'openLink' | 'oscNotification';
     data?: string;
     cols?: number;
     rows?: number;
@@ -44,8 +44,6 @@ interface WebViewMessage {
     size?: number;
     // Editor specific properties
     text?: string;
-    // Environment variable properties
-    name?: string;
     // OSC notification properties (OSC 9 / 777 / 99)
     osc?: number;
     title?: string;
@@ -69,12 +67,17 @@ export class TerminalProvider implements vscode.WebviewViewProvider {
     };
 
     // チャンクペースト用の状態管理
+    // terminalInputEnd が届かないままセッションが残留しないよう、タイムアウトタイマーを持つ
     private _chunkSessions: Map<string, {
-        buffer: Buffer[];
         totalBytes: number;
         receivedBytes: number;
         kind?: string | undefined;
+        tabId?: string | undefined;
+        timeoutTimer: NodeJS.Timeout;
     }> = new Map();
+
+    // チャンクセッションの無通信タイムアウト (ミリ秒)
+    private static readonly CHUNK_SESSION_TIMEOUT_MS = 30000;
 
     // ログ管理
     private _logs: string[] = [];
@@ -152,7 +155,7 @@ export class TerminalProvider implements vscode.WebviewViewProvider {
 
     // 新しいタブを作成
     private handleCreateTab(): TabInfo {
-        const tabId = `tab-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+        const tabId = `tab-${Date.now()}-${Math.random().toString(36).slice(2, 11)}`;
         const tab: TabInfo = {
             id: tabId,
             title: `Terminal ${this._tabState.nextTabNumber++}`
@@ -189,7 +192,9 @@ export class TerminalProvider implements vscode.WebviewViewProvider {
         const compositeKey = this.getCompositeKey(tabId);
         this._processManager.unregisterExitCallback(compositeKey);
         this._processManager.terminateProcess(compositeKey);
-        this._sessionManager.clearBuffer(compositeKey);
+        // clearBuffer ではなく removeSession で Map からエントリごと削除する。
+        // タブ ID は毎回ユニークなので、削除しないとタブ開閉のたびにセッションが蓄積する。
+        this._sessionManager.removeSession(compositeKey);
 
         // タブリストから削除
         this._tabState.tabs.splice(tabIndex, 1);
@@ -232,16 +237,19 @@ export class TerminalProvider implements vscode.WebviewViewProvider {
                     this._tabState.activeTabId = firstTab ? firstTab.id : null;
                 }
             }
-            this._sessionManager.clearBuffer(compositeKey);
+            // セッションを Map から完全に削除する (clearBuffer だとエントリが残留する)
+            this._sessionManager.removeSession(compositeKey);
         });
 
         // プロセスマネージャーからプロセスを取得または作成
+        // startup commands の「一度だけ実行」判定はタブ ID を含まないワークスペースキーで行う
         this._processManager.getOrCreateProcess(
             compositeKey,
             this._extensionContext.extensionPath,
             this._cwd,
             this._terminalCols,
-            this._terminalRows
+            this._terminalRows,
+            this._workspaceKey
         );
 
         // セッションに WebView を接続
@@ -277,7 +285,12 @@ export class TerminalProvider implements vscode.WebviewViewProvider {
 
         webviewView.webview.html = this._getHtmlForWebview(webviewView.webview);
 
-        webviewView.webview.onDidReceiveMessage(
+        // この resolve 呼び出しに閉じたリスナー群。ビュー破棄時にまとめて解放する。
+        // context.subscriptions に登録すると、ビューの再解決 (サイドバー移動等) のたびに
+        // 旧 WebviewView とハンドラが拡張終了まで残留してメモリリークになるため。
+        const viewDisposables: vscode.Disposable[] = [];
+
+        viewDisposables.push(webviewView.webview.onDidReceiveMessage(
             (message: WebViewMessage) => {
                 // 型ガード関数
                 if (!message || typeof message.type !== 'string') {
@@ -359,17 +372,6 @@ export class TerminalProvider implements vscode.WebviewViewProvider {
                             this.handleCloseTab(message.tabId);
                         }
                         break;
-                    case 'getEnv':
-                        // 環境変数を取得して WebView に返す
-                        if (message.name && typeof message.name === 'string') {
-                            const envValue = process.env[message.name];
-                            webviewView.webview.postMessage({
-                                type: 'envValue',
-                                name: message.name,
-                                value: envValue || null
-                            });
-                        }
-                        break;
                     case 'error':
                         console.error('WebView error:', message.error);
                         this.appendLog(`WebView error: ${message.error}`);
@@ -382,7 +384,7 @@ export class TerminalProvider implements vscode.WebviewViewProvider {
                         break;
                     case 'refreshCliAgentStatus':
                         // PTY プロセスに強制的な CLI Agent ステータスチェックを要求
-                        this.forceRefreshCliAgentStatus();
+                        this.forceRefreshCliAgentStatus(message);
                         break;
                     case 'bufferCleanupRequest':
                         this.handleBufferCleanupRequest(message);
@@ -429,13 +431,11 @@ export class TerminalProvider implements vscode.WebviewViewProvider {
                         this.handleOscNotification(message);
                         break;
                 }
-            },
-            undefined,
-            this._extensionContext.subscriptions
-        );
+            }
+        ));
 
         // WebView が非表示になってもプロセスは維持する
-        webviewView.onDidChangeVisibility(() => {
+        viewDisposables.push(webviewView.onDidChangeVisibility(() => {
             if (!webviewView.visible) {
                 // WebView is not visible, but keeping shell process alive
             } else {
@@ -459,7 +459,7 @@ export class TerminalProvider implements vscode.WebviewViewProvider {
                     });
                 }, 100);
             }
-        });
+        }));
 
         // WebView が破棄されたときはセッションから切断
         webviewView.onDidDispose(() => {
@@ -472,7 +472,27 @@ export class TerminalProvider implements vscode.WebviewViewProvider {
             // 後方互換性: 旧形式のセッションも切断
             this._sessionManager.disconnectView(this._workspaceKey, webviewView);
             this._processManager.deactivateProcess(this._workspaceKey);
-        }, null, this._extensionContext.subscriptions);
+
+            // 進行中のチャンクペーストセッションを破棄する (terminalInputEnd はもう届かない)
+            this.clearChunkSessions();
+
+            // このビューに紐づくリスナーを解放する
+            viewDisposables.forEach(d => {
+                try {
+                    d.dispose();
+                } catch (error) {
+                    console.error('Error disposing view listener:', error);
+                }
+            });
+        });
+    }
+
+    // 進行中のチャンクペーストセッションを全て破棄する
+    private clearChunkSessions(): void {
+        for (const session of this._chunkSessions.values()) {
+            clearTimeout(session.timeoutTimer);
+        }
+        this._chunkSessions.clear();
     }
 
     // タブ指定での入力処理
@@ -714,6 +734,7 @@ export class TerminalProvider implements vscode.WebviewViewProvider {
             this._view?.webview.postMessage({
                 type: 'extractToTodosResult',
                 success: false,
+                tabId: message.tabId,
                 error: 'No content provided'
             });
             return;
@@ -725,6 +746,7 @@ export class TerminalProvider implements vscode.WebviewViewProvider {
             this._view?.webview.postMessage({
                 type: 'extractToTodosResult',
                 success: false,
+                tabId: message.tabId,
                 error: 'No workspace folder found'
             });
             return;
@@ -740,10 +762,11 @@ export class TerminalProvider implements vscode.WebviewViewProvider {
             fs.writeFileSync(todosPath, content, 'utf8');
             this.appendLog(`[EXTRACT] Content written to ${todosPath}`);
 
-            // 成功結果を返す
+            // 成功結果を返す (発行元タブに紐づけるため tabId をエコーバックする)
             this._view?.webview.postMessage({
                 type: 'extractToTodosResult',
                 success: true,
+                tabId: message.tabId,
                 filePath: todosPath
             });
         } catch (error) {
@@ -753,6 +776,7 @@ export class TerminalProvider implements vscode.WebviewViewProvider {
             this._view?.webview.postMessage({
                 type: 'extractToTodosResult',
                 success: false,
+                tabId: message.tabId,
                 error: error instanceof Error ? error.message : String(error)
             });
         }
@@ -761,32 +785,41 @@ export class TerminalProvider implements vscode.WebviewViewProvider {
     public async resetTerminal() {
         this.appendLog('Terminal reset requested');
 
-        // 1. 既存のプロセスを明示的に終了完了まで待つ
-        await this._processManager.terminateProcessAsync(this._workspaceKey);
+        // 1. 全タブのプロセスとセッションを後始末する。
+        //    レガシーキーだけを対象にすると、compositeKey で管理されている実プロセスが
+        //    リセットのたびに孤立して蓄積するため、全タブを明示的に終了する。
+        const tabs = [...this._tabState.tabs];
+        for (const tab of tabs) {
+            const compositeKey = this.getCompositeKey(tab.id);
+            this._processManager.unregisterExitCallback(compositeKey);
+            await this._processManager.terminateProcessAsync(compositeKey);
+            this._sessionManager.removeSession(compositeKey);
+        }
+        this._tabState.tabs = [];
+        this._tabState.activeTabId = null;
 
-        // 2. セッションバッファとビューをクリア
-        this._sessionManager.clearBuffer(this._workspaceKey);
+        // 2. 後方互換性: レガシーキーのプロセス・セッションも後始末する
+        await this._processManager.terminateProcessAsync(this._workspaceKey);
+        this._sessionManager.removeSession(this._workspaceKey);
         this._view?.webview.postMessage({ type: 'clear' });
 
-        // 3. リセット完了通知（フロント側で完全再初期化→terminalReady→startShell）
+        // 3. リセット完了通知（フロント側で完全再初期化→tabReady→startShellForTab。
+        //    ウェルカムメッセージは startShellForTab が出力する）
         this._view?.webview.postMessage({ type: 'reset' });
-
-        // 4. ウェルカムメッセージ（再初期化後に出力される）
-        const versionInfo = this.getVersionInfo();
-        const welcomeMessage = `Terminal has been reset.\r\nWelcome to Secondary Terminal v${versionInfo.version} (${versionInfo.buildDate}).\r\n`;
-        this._sessionManager.addOutput(this._workspaceKey, welcomeMessage);
 
         this.appendLog('Terminal reset completed');
     }
 
-    private forceRefreshCliAgentStatus() {
+    private forceRefreshCliAgentStatus(message: WebViewMessage) {
         try {
             // PTY プロセスに特別なシーケンスを送信してステータスを強制チェック
             // この処理では、CLI Agent チェック間隔をリセットして即座に実行させる
             // PTY 側では特別な信号やシーケンスを受信する必要があるが、
             // 今回は簡単な方法として、非表示文字を送信することで次回のチェックを促進する
             const refreshSignal = '\x00'; // NULL文字（画面には表示されない）
-            this._processManager.sendToProcess(this._workspaceKey, refreshSignal);
+            // タブ ID が指定されている場合はそのタブの実プロセス (compositeKey) に送る
+            const key = message.tabId ? this.getCompositeKey(message.tabId) : this._workspaceKey;
+            this._processManager.sendToProcess(key, refreshSignal);
         } catch (error) {
             console.error('Failed to force refresh CLI Agent status:', error);
         }
@@ -817,7 +850,9 @@ export class TerminalProvider implements vscode.WebviewViewProvider {
                 });
             } else {
                 // 通常のバッファクリアを実行
-                this._sessionManager.trimBufferIfNeeded(this._workspaceKey);
+                // タブ ID が指定されている場合はそのタブのセッション (compositeKey) を対象にする
+                const key = message.tabId ? this.getCompositeKey(message.tabId) : this._workspaceKey;
+                this._sessionManager.trimBufferIfNeeded(key);
 
                 console.log('[BUFFER CLEANUP] Backend buffer cleanup completed');
 
@@ -913,17 +948,32 @@ export class TerminalProvider implements vscode.WebviewViewProvider {
     }
 
     // バックプレッシャー制御付きの書き込み関数
-    private async writeWithBackpressure(data: Buffer): Promise<void> {
+    private async writeWithBackpressure(processKey: string, data: Buffer): Promise<void> {
         try {
-            const success = this._processManager.sendToProcessWithBackpressure(this._workspaceKey, data);
+            const success = this._processManager.sendToProcessWithBackpressure(processKey, data);
             if (!success) {
                 // バックプレッシャーが発生した場合は drain を待つ
-                await this._processManager.waitForDrain(this._workspaceKey);
+                await this._processManager.waitForDrain(processKey);
             }
         } catch (error) {
             console.error('Failed to write with backpressure:', error);
             throw error;
         }
+    }
+
+    // チャンクセッションの無通信タイムアウトを (再) 設定する
+    private armChunkSessionTimeout(sessionId: string): NodeJS.Timeout {
+        return setTimeout(() => {
+            if (this._chunkSessions.delete(sessionId)) {
+                console.warn('[CHUNKED INPUT] Session timed out and was discarded:', sessionId);
+            }
+        }, TerminalProvider.CHUNK_SESSION_TIMEOUT_MS);
+    }
+
+    // チャンク入力の書き込み先プロセスキーを決定する
+    private getChunkProcessKey(tabId: string | undefined): string {
+        const targetTabId = tabId || this._tabState.activeTabId;
+        return targetTabId ? this.getCompositeKey(targetTabId) : this._workspaceKey;
     }
 
     // チャンク入力開始ハンドラー
@@ -937,10 +987,11 @@ export class TerminalProvider implements vscode.WebviewViewProvider {
 
         // セッション情報を保存
         this._chunkSessions.set(message.id, {
-            buffer: [],
             totalBytes: message.totalBytes || 0,
             receivedBytes: 0,
-            kind: message.kind
+            kind: message.kind,
+            tabId: message.tabId,
+            timeoutTimer: this.armChunkSessionTimeout(message.id)
         });
 
         // 最初の ACK を送信（次のチャンクを要求）
@@ -968,12 +1019,15 @@ export class TerminalProvider implements vscode.WebviewViewProvider {
             const chunkData = Buffer.from(message.b64, 'base64');
             console.log('[CHUNKED INPUT] Received chunk', message.offset, 'size:', chunkData.length);
 
-            // セッションに追加
-            session.buffer.push(chunkData);
             session.receivedBytes += chunkData.length;
 
+            // 受信のたびにタイムアウトを再設定する
+            clearTimeout(session.timeoutTimer);
+            session.timeoutTimer = this.armChunkSessionTimeout(message.id);
+
             // バックプレッシャー制御でプロセスに書き込み
-            await this.writeWithBackpressure(chunkData);
+            // 実プロセスは compositeKey で管理されているため、発行元タブのキーに書き込む
+            await this.writeWithBackpressure(this.getChunkProcessKey(session.tabId), chunkData);
 
             // ACK を送信（次のチャンクを要求）
             this._view?.webview.postMessage({
@@ -983,6 +1037,7 @@ export class TerminalProvider implements vscode.WebviewViewProvider {
         } catch (error) {
             console.error('Error handling chunked input:', error);
             // エラー時はセッションを終了
+            clearTimeout(session.timeoutTimer);
             this._chunkSessions.delete(message.id);
 
             this._view?.webview.postMessage({
@@ -1010,6 +1065,7 @@ export class TerminalProvider implements vscode.WebviewViewProvider {
         console.log('[CHUNKED INPUT] End session', message.id, 'received bytes:', session.receivedBytes);
 
         // セッション完了
+        clearTimeout(session.timeoutTimer);
         this._chunkSessions.delete(message.id);
 
         // 完了 ACK を送信
