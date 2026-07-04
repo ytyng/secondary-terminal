@@ -63,9 +63,10 @@ async function copyTerminalSelectionWithPrefix(): Promise<string | null> {
 
 /**
  * セッションとシェルプロセスを後始末する
- * activate 時の exit ハンドラーと deactivate の双方から呼ばれる
+ * deactivate と subscriptions.dispose から呼ばれる
+ * @returns プロセス終了処理の完了を待てる Promise
  */
-function performCleanup(): void {
+function performCleanup(): Promise<void> {
     try {
         // セッションマネージャーを先にクリーンアップ
         TerminalSessionManager.getInstance().removeAllSessions();
@@ -74,8 +75,27 @@ function performCleanup(): void {
     }
 
     try {
-        // プロセスマネージャーをクリーンアップ (同期的に SIGTERM 送信まで行われる)
-        ShellProcessManager.getInstance().terminateAllProcesses();
+        // プロセスマネージャーをクリーンアップ (SIGTERM → 2秒後 SIGKILL)
+        return ShellProcessManager.getInstance().terminateAllProcessesAsync();
+    } catch (error) {
+        console.error('Error during process cleanup:', error);
+        return Promise.resolve();
+    }
+}
+
+/**
+ * process.on('exit') 用の緊急クリーンアップ。
+ * 'exit' ハンドラー内ではイベントループが回らず setTimeout の SIGKILL
+ * フォールバックが実行されないため、猶予なしの完全同期で kill する。
+ */
+function performEmergencyCleanupSync(): void {
+    try {
+        TerminalSessionManager.getInstance().removeAllSessions();
+    } catch (error) {
+        console.error('Error during sessions cleanup:', error);
+    }
+    try {
+        ShellProcessManager.getInstance().killAllProcessesSync();
     } catch (error) {
         console.error('Error during process cleanup:', error);
     }
@@ -107,11 +127,11 @@ export function activate(context: vscode.ExtensionContext) {
     // デフォルト終了動作が無効化され、process.exit() を呼ばない限り
     // 拡張ホストプロセスがシグナル受信後もハングし続けるため。
     // 通常のシャットダウンは deactivate() が、強制終了は 'exit' がカバーする。
-    process.on('exit', performCleanup);
+    process.on('exit', performEmergencyCleanupSync);
 
     // context の subscriptions に cleanup 処理を登録
     context.subscriptions.push({
-        dispose: performCleanup
+        dispose: () => { void performCleanup(); }
     });
 
     context.subscriptions.push(
@@ -261,8 +281,9 @@ export function activate(context: vscode.ExtensionContext) {
     );
 }
 
-export function deactivate() {
-    // VSCode終了時は非同期処理やAPIを避けて、シンプルに同期処理のみ実行
-    performCleanup();
-    // VSCode API は呼び出さない（終了時はコンテキストも自動でクリアされる）
+export function deactivate(): Promise<void> {
+    // Promise を返すことで、VSCode が SIGKILL フォールバックを含む
+    // 非同期の終了処理の完了を待ってくれる
+    // (VSCode API は呼び出さない。終了時はコンテキストも自動でクリアされる)
+    return performCleanup();
 }

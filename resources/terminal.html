@@ -726,6 +726,23 @@
             window.addEventListener('blur', () => { onMetaChange(false); });
         })();
 
+        // ユーザーの手動スクロール操作の最終時刻をグローバルに追跡する。
+        // scrollCheckInterval (最上部に張り付いた viewport の自動復帰) が、
+        // 履歴を遡って読んでいる最中のユーザーを最下部へ引き戻さないようにするため。
+        const userScrollState = { lastScrollTs: 0 };
+        (function setupUserScrollTracking() {
+            const record = () => { userScrollState.lastScrollTs = Date.now(); };
+            document.addEventListener('wheel', record, { capture: true, passive: true });
+            document.addEventListener('touchmove', record, { capture: true, passive: true });
+            // Shift+PageUp/PageDown・Cmd+Home/End 等のキーボードスクロールも対象にする
+            document.addEventListener('keydown', (e) => {
+                if (e.key === 'PageUp' || e.key === 'PageDown'
+                    || e.key === 'Home' || e.key === 'End') {
+                    record();
+                }
+            }, true);
+        })();
+
         // 新しいタブ用のデフォルト terminalState を生成
         function createTerminalState() {
             return {
@@ -1869,8 +1886,13 @@
             // _issues/20260524-investigate-cmd-c-copy-failure 参照。
             // 「ターミナル/エディタどちらでも Cmd+C が効かなくなる」事象の
             // 再現条件を特定するため、focus 推移と copy イベント発火を観測する。
-            // 原因特定後は削除可。
+            // focusin/focusout のたびに postMessage (IPC) が飛び、常時有効だと
+            // オーバーヘッドとログ肥大の原因になるため、調査時のみ true にする。
+            const CMD_C_DIAGNOSTICS_ENABLED = false;
             (function setupCmdCDiagnostics() {
+                if (!CMD_C_DIAGNOSTICS_ENABLED) {
+                    return;
+                }
                 function describeEl(el) {
                     if (!el) return 'null';
                     const tag = el.tagName || '?';
@@ -2589,12 +2611,18 @@
                 tabState.terminals.set(tabId, state.term);
 
                 // 2秒ごとにスクロール位置をチェックし、最上部なら最下部にスクロール
+                // (WebView 復元時などに viewport が最上部に張り付く問題のワークアラウンド)
                 const scrollCheckInterval = setInterval(() => {
                     // 非アクティブ (非表示) のタブでは何もしない
                     if (tabState.activeTabId !== tabId) {
                         return;
                     }
                     if (!state.term || !state.term.buffer || !state.term.buffer.active) {
+                        return;
+                    }
+                    // ユーザーが直近に手動スクロールしている場合は引き戻さない
+                    // (履歴の先頭を読んでいる最中に最下部へ飛ばされるのを防ぐ)
+                    if (Date.now() - userScrollState.lastScrollTs < 10000) {
                         return;
                     }
                     const buffer = state.term.buffer.active;
