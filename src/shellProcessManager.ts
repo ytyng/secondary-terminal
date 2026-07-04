@@ -599,7 +599,10 @@ export class ShellProcessManager {
     public killAllProcessesSync(): void {
         for (const [workspaceKey, processInfo] of this.processes) {
             const proc = processInfo?.process;
-            if (!proc || proc.killed || proc.exitCode !== null) {
+            // killed は「シグナル送信に成功した」ことを示すだけで終了の証明にはならない
+            // (dispose 経由の SIGTERM 送信済みでもまだ生きていることがある)。
+            // 実際に終了したこと (exitCode / signalCode) だけを skip 条件にする。
+            if (!proc || proc.exitCode !== null || proc.signalCode !== null) {
                 continue;
             }
             try { proc.kill('SIGTERM'); } catch (e) {
