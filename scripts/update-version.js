@@ -6,7 +6,8 @@ const { execSync } = require('child_process');
 
 // パッケージ.json とバージョン.json のパス
 const packageJsonPath = path.join(__dirname, '..', 'package.json');
-const versionJsonPath = path.join(__dirname, '..', 'src', 'version.json');
+// .vscodeignore が src/** を除外するため、パッケージに同梱される resources/ に置く
+const versionJsonPath = path.join(__dirname, '..', 'resources', 'version.json');
 
 // package.json を読み取り
 const packageJson = JSON.parse(fs.readFileSync(packageJsonPath, 'utf8'));

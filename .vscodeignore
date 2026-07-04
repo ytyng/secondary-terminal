@@ -29,6 +29,20 @@ vsc-extension-quickstart.md
 *.code-workspace
 *.vsix
 
+# Python bytecode cache (vsce は .vscodeignore があると .gitignore を参照しない)
+**/__pycache__/**
+**/*.pyc
+
 # tooling-only deps that leak into the package (vsce/cheerio transitive)
 node_modules/css-select/**
 node_modules/nth-check/**
+
+# ace-builds は実際に読み込む 4 ファイルだけを同梱する
+# (全量だと 2000+ ファイル / 数十 MB がパッケージに入る)
+node_modules/ace-builds/**
+!node_modules/ace-builds/package.json
+!node_modules/ace-builds/LICENSE
+!node_modules/ace-builds/src-min-noconflict/ace.js
+!node_modules/ace-builds/src-min-noconflict/mode-javascript.js
+!node_modules/ace-builds/src-min-noconflict/mode-markdown.js
+!node_modules/ace-builds/src-min-noconflict/keybinding-vscode.js

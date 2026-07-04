@@ -133,7 +133,8 @@ export class TerminalProvider implements vscode.WebviewViewProvider {
 
     private getVersionInfo(): { version: string; buildDate: string } {
         try {
-            const versionPath = path.join(this._extensionContext.extensionPath, 'src', 'version.json');
+            // src/ は .vscodeignore で除外されるため、パッケージにも含まれる resources/ から読む
+            const versionPath = path.join(this._extensionContext.extensionPath, 'resources', 'version.json');
             const versionData = JSON.parse(fs.readFileSync(versionPath, 'utf8'));
             return {
                 version: versionData.version || '0.1.0',
@@ -534,12 +535,17 @@ export class TerminalProvider implements vscode.WebviewViewProvider {
 
     public clearTerminal() {
         this.appendLog('Clear terminal requested');
+        // 実プロセス・セッションは compositeKey (workspaceKey:tabId) で管理されているため、
+        // アクティブタブのキーを解決する。レガシーキーのままだと no-op になり、
+        // WebView 再接続時にクリアしたはずのスクロールバックが復活してしまう。
+        const activeTabId = this._tabState.activeTabId;
+        const key = activeTabId ? this.getCompositeKey(activeTabId) : this._workspaceKey;
         // セッションバッファをクリア
-        this._sessionManager.clearBuffer(this._workspaceKey);
+        this._sessionManager.clearBuffer(key);
         // WebView をクリア
-        this._view?.webview.postMessage({ type: 'clear' });
+        this._view?.webview.postMessage({ type: 'clear', tabId: activeTabId ?? undefined });
         // プロセスに clear コマンドを送信
-        this._processManager.sendToProcess(this._workspaceKey, '\x0C'); // Form Feed (Ctrl+L)
+        this._processManager.sendToProcess(key, '\x0C'); // Form Feed (Ctrl+L)
     }
 
     // glyph atlas 破損による表示崩れを VSCode 再起動なしで復旧する。
@@ -647,6 +653,24 @@ export class TerminalProvider implements vscode.WebviewViewProvider {
     }
 
     /**
+     * /tmp は全ユーザー共有のため、履歴ファイルが「自分所有の通常ファイル」で
+     * あることを確認する。シンボリックリンク (リンク先への書き込み誘導) や
+     * 他ユーザーが先回りで作成したファイルへの書き込みを防ぐ。
+     * @returns 書き込みしてよい場合 true
+     */
+    private isPromptHistoryPathSafe(historyPath: string): boolean {
+        try {
+            const stat = fs.lstatSync(historyPath);
+            const uid = typeof process.getuid === 'function' ? process.getuid() : undefined;
+            return stat.isFile() && !stat.isSymbolicLink()
+                && (uid === undefined || stat.uid === uid);
+        } catch {
+            // 存在しない場合はこれから自分で作るので安全
+            return true;
+        }
+    }
+
+    /**
      * プロンプト履歴をファイルに追記する
      */
     private appendPromptHistory(content: string): void {
@@ -656,7 +680,29 @@ export class TerminalProvider implements vscode.WebviewViewProvider {
         const entry = `${separator}\n[${timestamp}] ${this._cwd}\n${content}\n\n`;
 
         try {
-            fs.appendFileSync(historyPath, entry, 'utf8');
+            // O_NOFOLLOW により、パスが symlink なら open 自体が ELOOP で失敗する。
+            // 事前チェック方式 (lstat → 書き込み) と違い、チェックと書き込みの間に
+            // symlink を差し込まれる競合窓 (TOCTOU) が無い。
+            const fd = fs.openSync(
+                historyPath,
+                fs.constants.O_WRONLY | fs.constants.O_CREAT | fs.constants.O_APPEND | fs.constants.O_NOFOLLOW,
+                0o600
+            );
+            try {
+                // open した実体を検証し、他ユーザーが先回りで作成したファイルには書かない
+                const stat = fs.fstatSync(fd);
+                const uid = typeof process.getuid === 'function' ? process.getuid() : undefined;
+                if (!stat.isFile() || (uid !== undefined && stat.uid !== uid)) {
+                    this.appendLog(`Skip prompt history: unsafe file ${historyPath}`);
+                    return;
+                }
+                // コマンド履歴 (機密を含みうる) なので他ユーザーから読めないようにする
+                // (open の mode は新規作成時のみ有効なため、既存ファイルには fchmod で適用)
+                fs.fchmodSync(fd, 0o600);
+                fs.writeSync(fd, entry);
+            } finally {
+                fs.closeSync(fd);
+            }
             this.appendLog(`Prompt history saved to ${historyPath}`);
         } catch (error) {
             console.error('Failed to save prompt history:', error);
@@ -670,9 +716,15 @@ export class TerminalProvider implements vscode.WebviewViewProvider {
     private handleOpenPromptHistory(): void {
         const historyPath = '/tmp/secondary-terminal-prompt-history.txt';
 
+        // symlink 等で意図しないファイルを開いて上書きしてしまうのを防ぐ
+        if (!this.isPromptHistoryPathSafe(historyPath)) {
+            vscode.window.showErrorMessage(`Prompt history file is unsafe (symlink or not owned by you): ${historyPath}`);
+            return;
+        }
+
         // ファイルが存在しない場合は作成
         if (!fs.existsSync(historyPath)) {
-            fs.writeFileSync(historyPath, '', 'utf8');
+            fs.writeFileSync(historyPath, '', { encoding: 'utf8', mode: 0o600 });
         }
 
         const uri = vscode.Uri.file(historyPath);
@@ -788,15 +840,19 @@ export class TerminalProvider implements vscode.WebviewViewProvider {
         // 1. 全タブのプロセスとセッションを後始末する。
         //    レガシーキーだけを対象にすると、compositeKey で管理されている実プロセスが
         //    リセットのたびに孤立して蓄積するため、全タブを明示的に終了する。
+        //    直列 await だとタブ数 × 最大1.5秒かかるため並行実行する
         const tabs = [...this._tabState.tabs];
-        for (const tab of tabs) {
+        await Promise.allSettled(tabs.map(async (tab) => {
             const compositeKey = this.getCompositeKey(tab.id);
             this._processManager.unregisterExitCallback(compositeKey);
             await this._processManager.terminateProcessAsync(compositeKey);
             this._sessionManager.removeSession(compositeKey);
-        }
+        }));
         this._tabState.tabs = [];
         this._tabState.activeTabId = null;
+
+        // リセット後の新しいシェルでは startup commands を再実行させる
+        this._processManager.clearStartupExecuted(this._workspaceKey);
 
         // 2. 後方互換性: レガシーキーのプロセス・セッションも後始末する
         await this._processManager.terminateProcessAsync(this._workspaceKey);

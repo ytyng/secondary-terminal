@@ -70,6 +70,12 @@ export class ShellProcessManager {
             || !this.isProcessStdinWritable(processInfo.process);
 
         if (shouldCreate) {
+            // stdin 破損などで「生きているが使えない」旧プロセスが残っている場合、
+            // Map を上書きするだけだと誰にも kill されず孤立プロセスとして蓄積するため、
+            // 先に明示的に終了させる
+            if (processInfo && !processInfo.process.killed && processInfo.process.exitCode === null) {
+                this.terminateProcess(workspaceKey);
+            }
             processInfo = this.createNewProcess(workspaceKey, extensionPath, cwd, cols, rows, startupScopeKey ?? workspaceKey);
         }
 
@@ -184,6 +190,12 @@ export class ShellProcessManager {
         }
 
         shellProcess.on('exit', () => {
+            // 世代交代後 (このプロセスが新しいプロセスに置き換えられた後) に
+            // 旧プロセスが遅れて exit した場合、現行プロセスのエントリや
+            // コールバックを誤って消さないよう、Map 上の同一性を確認する
+            if (this.processes.get(workspaceKey) !== processInfo) {
+                return;
+            }
             this.processes.delete(workspaceKey);
             // 登録されているコールバックを呼び出す
             const exitCallback = this.exitCallbacks.get(workspaceKey);
@@ -299,6 +311,15 @@ export class ShellProcessManager {
         if (processInfo) {
             processInfo.isActive = false;
         }
+    }
+
+    /**
+     * startup commands の実行済みフラグをクリアする。
+     * Terminal Reset などで「まっさらな状態」に戻す際、
+     * 次のシェル起動時に startup commands を再実行させるために使う。
+     */
+    public clearStartupExecuted(startupScopeKey: string): void {
+        this.startupExecuted.delete(startupScopeKey);
     }
 
     /**
@@ -566,6 +587,32 @@ export class ShellProcessManager {
         this.terminateAllProcessesAsync().catch((error) => {
             console.error('Error during synchronous process termination:', error);
         });
+    }
+
+    /**
+     * 全プロセスを完全同期で強制終了する。
+     * process.on('exit') ハンドラー内など、以降イベントループが一切回らず
+     * setTimeout ベースの SIGKILL フォールバックが実行されない状況専用。
+     * pty-shell.py が SIGKILL されても、pty master が閉じることで
+     * 配下のシェルには SIGHUP が届いて終了する。
+     */
+    public killAllProcessesSync(): void {
+        for (const [workspaceKey, processInfo] of this.processes) {
+            const proc = processInfo?.process;
+            // killed は「シグナル送信に成功した」ことを示すだけで終了の証明にはならない
+            // (dispose 経由の SIGTERM 送信済みでもまだ生きていることがある)。
+            // 実際に終了したこと (exitCode / signalCode) だけを skip 条件にする。
+            if (!proc || proc.exitCode !== null || proc.signalCode !== null) {
+                continue;
+            }
+            try { proc.kill('SIGTERM'); } catch (e) {
+                console.warn(`Error sending SIGTERM to ${workspaceKey}:`, e);
+            }
+            try { proc.kill('SIGKILL'); } catch (e) {
+                console.warn(`Error sending SIGKILL to ${workspaceKey}:`, e);
+            }
+        }
+        this.processes.clear();
     }
 
 }

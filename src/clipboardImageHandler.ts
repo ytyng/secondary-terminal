@@ -7,6 +7,31 @@ const execFileAsync = promisify(execFile);
 
 const ATTACHMENT_DIR = '/tmp/secondary-terminal/attachments';
 
+/**
+ * /tmp は全ユーザー共有のため、添付ディレクトリのパス上に
+ * シンボリックリンクや他ユーザー所有のディレクトリが存在しないことを確認する。
+ * 他ユーザーが先回りしてシンボリックリンクを作り、画像の書き込み先を
+ * 自分の読めるディレクトリに誘導する攻撃 (symlink attack) を防ぐ。
+ * @throws 安全でないパスコンポーネントが見つかった場合
+ */
+function ensureAttachmentDirSafe(): void {
+    const uid = typeof process.getuid === 'function' ? process.getuid() : undefined;
+    // /tmp 直下から順に各コンポーネントを検証する
+    for (const dir of [path.dirname(ATTACHMENT_DIR), ATTACHMENT_DIR]) {
+        let stat: fs.Stats;
+        try {
+            stat = fs.lstatSync(dir);
+        } catch {
+            // 存在しなければこれから自分で作るので安全
+            continue;
+        }
+        if (stat.isSymbolicLink() || !stat.isDirectory()
+            || (uid !== undefined && stat.uid !== uid)) {
+            throw new Error(`Unsafe attachment directory component: ${dir}`);
+        }
+    }
+}
+
 // 保存した画像を自動削除するまでの期間 (ミリ秒)。/tmp への無制限な蓄積を防ぐ。
 const ATTACHMENT_MAX_AGE_MS = 24 * 60 * 60 * 1000;
 
@@ -55,6 +80,9 @@ export async function getImageFromClipboard(): Promise<string | null> {
     }
 
     try {
+        // シンボリックリンク攻撃・他ユーザー所有ディレクトリでないことを確認
+        ensureAttachmentDirSafe();
+
         // ディレクトリが存在しない場合は作成
         // /tmp 配下に置くため、他ユーザーから読めないようパーミッションを絞る
         if (!fs.existsSync(ATTACHMENT_DIR)) {

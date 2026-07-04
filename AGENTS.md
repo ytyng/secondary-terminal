@@ -82,12 +82,12 @@ secondary-terminal/
 │   ├── dropZoneProvider.ts         # ファイル Drag & Drop ゾーン
 │   ├── terminalSessionManager.ts   # ターミナルセッション永続化
 │   ├── shellProcessManager.ts      # シェルプロセスライフサイクル管理
-│   ├── utils.ts                    # ユーティリティ関数
-│   └── version.json                # バージョン + ビルド日時
+│   └── utils.ts                    # ユーティリティ関数
 ├── resources/
 │   ├── terminal.html        # メイン UI（xterm.js、ACE エディタ、タブバー）
 │   ├── xterm.css            # xterm.js スタイルシート
-│   └── xterm.js             # xterm.js ライブラリ
+│   ├── xterm.js             # xterm.js ライブラリ
+│   └── version.json         # バージョン + ビルド日時 (src/ は .vscodeignore で除外されるためここに置く)
 ├── scripts/
 │   └── update-version.js    # バージョン情報更新スクリプト
 ├── out/                     # コンパイル済み JavaScript
@@ -217,7 +217,7 @@ Developer: Install Extension from Location...
 
 #### バージョン番号管理
 - **現在のバージョン**: `package.json` の `version` フィールドで管理
-- **ビルド情報**: `src/version.json` でバージョン番号とビルド日時を記録
+- **ビルド情報**: `resources/version.json` でバージョン番号とビルド日時を記録 (src/ は .vscodeignore でパッケージから除外されるため resources/ に置く)
 - **自動更新**: ビルド時に自動的にビルド日時が更新される
 
 #### バージョンアップ手順
@@ -226,7 +226,7 @@ Developer: Install Extension from Location...
    npm run increment-version
    ```
    - package.json のバージョンを自動で 0.0.1 増加
-   - src/version.json のバージョンとビルド日時を自動更新
+   - resources/version.json のバージョンとビルド日時を自動更新
    - **注意**: 内部の `npm version patch` は working tree がクリーンでないと失敗する。
      未コミットの変更がある状態 (コミット直前の通常フロー) では、代わりに以下を実行する:
      ```bash
@@ -262,7 +262,7 @@ Developer: Install Extension from Location...
 ```
 secondary-terminal/
 ├── package.json              # メインバージョン番号
-├── src/version.json          # バージョン + ビルド日時
+├── resources/version.json    # バージョン + ビルド日時
 ├── scripts/update-version.js # バージョン情報更新スクリプト
 └── out/                      # コンパイル済み（バージョン情報含む）
 ```
