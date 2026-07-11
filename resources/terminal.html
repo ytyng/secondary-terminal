@@ -18,9 +18,16 @@
             box-sizing: border-box;
         }
 
+        /* overflow: clip について
+           IME の未確定文字列 (日本語入力) が長くなると、xterm.js / ACE がカーソル位置に
+           置く隠し textarea が右端をはみ出し、ブラウザがキャレットを可視化しようとして
+           祖先スクロールコンテナの scrollLeft を勝手に動かす (webview 全体が横スクロール
+           して確定後も戻らない)。overflow: hidden はスクロールバーを消すだけで
+           「プログラム的スクロール・scroll-into-view」は防げないため、スクロール
+           コンテナ自体にならない overflow: clip を使う。 */
         html {
             height: 100%;
-            overflow: hidden;
+            overflow: clip;
             padding: 0;
             margin: 0;
         }
@@ -33,7 +40,7 @@
             background-color: var(--vscode-sideBar-background);
             color: var(--vscode-editor-foreground);
             font-family: "RobotoMono Nerd Font Mono", "Roboto Mono", Consolas, "Courier New", monospace;
-            overflow: hidden;
+            overflow: clip;
             display: flex;
             flex-direction: column;
         }
@@ -47,7 +54,7 @@
             min-height: 0; /* 重要：flexboxで子要素が縮むのを許可 */
             display: flex;
             flex-direction: column;
-            overflow: hidden;
+            overflow: clip; /* hidden だと IME 変換中に scrollLeft がずれて固着する (html のコメント参照) */
             background-color: var(--vscode-sideBar-background);
         }
 
@@ -78,7 +85,7 @@
             border-bottom: 1px solid var(--vscode-tab-border, #3c3c3c);
             height: 30px;
             flex-shrink: 0;
-            overflow: hidden;
+            overflow: clip; /* hidden だと IME 変換中に scrollLeft がずれて固着する (html のコメント参照) */
 
             .tab-list {
                 display: flex;
@@ -304,7 +311,7 @@
                     border-top: 1px solid var(--vscode-panel-border, #3c3c3c);
                     border-bottom: 1px solid var(--vscode-panel-border, #3c3c3c);
                     height: var(--editor-height, 200px);
-                    overflow: hidden;
+                    overflow: clip; /* hidden だと IME 変換中に scrollLeft がずれて固着する (html のコメント参照) */
 
                     .ace-editor-instance {
                         width: 100%;
@@ -433,6 +440,16 @@
            ACE Editor
            ======================================== */
         /* editor-container は .terminal-pane 内に移動済み */
+
+        /* ACE 内蔵 CSS は .ace_editor / .ace_scroller に overflow: hidden を指定するが、
+           hidden はスクロールコンテナのままなので IME 変換中のキャレット scroll-into-view で
+           scrollLeft がずれて固着する (html のコメント参照)。ACE はスクロールを仮想実装
+           (translate + 別要素のスクロールバー) しておりネイティブ scrollLeft には依存しない
+           ため、clip に上書きしても安全 */
+        .ace_editor,
+        .ace_editor .ace_scroller {
+            overflow: clip !important;
+        }
 
         /* ACE Theme - VSCode Dark */
         .ace-vscode-dark {
@@ -741,6 +758,28 @@
                     record();
                 }
             }, true);
+        })();
+
+        // 横スクロール禁止ガード (CSS の overflow: clip の保険)。
+        // IME の未確定文字列が長くなると、ブラウザのキャレット scroll-into-view が
+        // 祖先スクロールコンテナの scrollLeft を勝手に動かし、webview 全体が横に
+        // ずれたまま固着する。主要コンテナは overflow: clip で対策済みだが、
+        // ライブラリ更新等で新たなスクロールコンテナが現れても自己修復できるよう、
+        // 意図的な横スクロール要素以外の scrollLeft を常に 0 へ戻す。
+        (function setupHorizontalScrollGuard() {
+            // 横スクロールが正当な要素: テキスト入力 (キャレット追従)、タブ一覧、
+            // ACE の水平スクロールバー
+            const ALLOW_H_SCROLL = 'input, textarea, .tab-list, .ace_scrollbar-h';
+            document.addEventListener('scroll', (event) => {
+                const el = event.target === document
+                    ? document.documentElement
+                    : event.target;
+                if (!(el instanceof Element)) { return; }
+                if (el.matches(ALLOW_H_SCROLL)) { return; }
+                if (el.scrollLeft !== 0) {
+                    el.scrollLeft = 0;
+                }
+            }, { capture: true, passive: true });
         })();
 
         // 新しいタブ用のデフォルト terminalState を生成
