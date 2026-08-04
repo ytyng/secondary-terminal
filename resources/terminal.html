@@ -1341,9 +1341,22 @@
             // フォールバック、xterm 内部の丸め、letterSpacing の扱いの差)。見積もりが
             // 1px でも小さいと cols × 実セル幅 がペイン幅を超え、**長い行を表示した時
             // だけ**右にはみ出して横スクロールが発生し、戻せなくなる。
+            //
+            // widthAdjustment (ユーザー設定) は実測値にもそのまま掛ける。「小さくすると
+            // 列数が増える」という設定の意味を保つため。ただし**実測セル幅で実際に収まる
+            // 列数を上限にクランプする**: 既定値 0.88 は「見積もりが実測より広く出る」
+            // ぶんを埋めるための係数なので、実測値に掛けるとその 12% ぶん列が増えて
+            // 今回直したはみ出しがそのまま復活する。クランプがあれば、既定のまま使う人は
+            // ちょうど収まる列数になり、意図的に大きくして列を減らす使い方も残る。
             const measuredCellWidth = measureActualCellWidth(state.term);
-            const cellWidth = measuredCellWidth || adjustedCharWidth;
-            const cols = Math.floor(availableWidth / cellWidth);
+            const cellWidth = measuredCellWidth
+                ? measuredCellWidth * widthAdjustment
+                : adjustedCharWidth;
+            const cols = measuredCellWidth
+                ? Math.min(
+                    Math.floor(availableWidth / cellWidth),
+                    Math.floor(availableWidth / measuredCellWidth))
+                : Math.floor(availableWidth / cellWidth);
             const rows = Math.floor(availableHeight / adjustedLineHeight);
 
             // 最小サイズを保証

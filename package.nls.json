@@ -8,6 +8,6 @@
   "configuration.lineHeight.description": "Terminal line height as a multiple of the font size",
   "configuration.letterSpacing.description": "Terminal letter spacing in px",
   "configuration.editorHeight.description": "Height in px of the ACE command editor (input editor) below the terminal",
-  "configuration.layout.widthAdjustment.description": "Correction factor for character width used when calculating the number of columns. Actual glyph width and xterm's rendered width differ between fonts, so adjust this when changing fonts. Smaller values produce more columns",
+  "configuration.layout.widthAdjustment.description": "Correction factor for character width used when calculating the number of columns. Smaller values produce more columns, but the count never exceeds what actually fits (measured from the rendered terminal), so lowering it cannot make long lines overflow",
   "configuration.layout.heightAdjustment.description": "Correction factor for line height used when calculating the number of rows. Adjust when changing fonts. Smaller values produce more rows"
 }
