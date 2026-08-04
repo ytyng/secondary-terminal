@@ -73,6 +73,21 @@
             .xterm-selection {
                 overflow: hidden; /* スクロール時に選択ハイライトが残る問題を修正 */
             }
+
+            /* xterm.css の .xterm-viewport は overflow-y: scroll だけを指定する。
+               CSS の規則で「片方が scroll なら、もう片方の visible は auto になる」ため、
+               overflow-x が実質 auto = 横スクロールコンテナになっている。
+               セル幅の測定誤差で cols × 実セル幅 がペイン幅を数 px 超えると、長い行を
+               表示した時に横スクロールバーが出て右へスクロールでき、そのまま戻せなく
+               なる。はみ出し自体は setTerminalSize() が measureActualCellWidth() で
+               実セル幅を測って cols を合わせることで潰しているが、
+               ここでも横スクロールを禁止して二重に防ぐ。
+               (clip は overflow-y: scroll と併用できず hidden 相当になるため hidden と書く。
+                hidden でもプログラム的スクロールは起きうるので、JS の
+                setupHorizontalScrollGuard が最後の砦になる) */
+            .xterm-viewport {
+                overflow-x: hidden !important;
+            }
         }
 
         /* ========================================
@@ -234,8 +249,13 @@
                 .terminal-area {
                     flex: 1;
                     min-height: 0;
+                    min-width: 0; /* flex アイテムが中身の幅で押し広げられるのを防ぐ */
                     padding: 0 0 0 5px;
                     position: relative;
+                    /* ターミナルの中身が万一ペインより widen しても外へ出さない。
+                       clip はスクロールコンテナにならないので、はみ出しを
+                       横スクロールに化けさせない (html のコメント参照) */
+                    overflow: clip;
                 }
 
                 .terminal-search-bar {
@@ -760,12 +780,17 @@
             }, true);
         })();
 
-        // 横スクロール禁止ガード (CSS の overflow: clip の保険)。
-        // IME の未確定文字列が長くなると、ブラウザのキャレット scroll-into-view が
-        // 祖先スクロールコンテナの scrollLeft を勝手に動かし、webview 全体が横に
-        // ずれたまま固着する。主要コンテナは overflow: clip で対策済みだが、
-        // ライブラリ更新等で新たなスクロールコンテナが現れても自己修復できるよう、
-        // 意図的な横スクロール要素以外の scrollLeft を常に 0 へ戻す。
+        // 横スクロール禁止ガード (CSS の overflow: clip / hidden の保険)。
+        // 横ずれの原因は 2 つあり、どちらも「一度ずれると戻せない」形で現れる:
+        //   1. IME の未確定文字列が長くなると、ブラウザのキャレット scroll-into-view が
+        //      祖先スクロールコンテナの scrollLeft を勝手に動かす。
+        //   2. 長い行の表示でターミナルの中身がペイン幅を超えると、.xterm-viewport が
+        //      横スクロールコンテナになる (overflow-y: scroll の副作用)。
+        // 1 はコンテナの overflow: clip、2 は cols の実測合わせ
+        // (measureActualCellWidth) と .xterm-viewport の overflow-x: hidden で塞いで
+        // あるが、overflow: hidden はプログラム的スクロールを止められないうえ、
+        // ライブラリ更新等で新たなスクロールコンテナが現れることもある。
+        // 自己修復できるよう、意図的な横スクロール要素以外の scrollLeft を常に 0 へ戻す。
         (function setupHorizontalScrollGuard() {
             // 横スクロールが正当な要素: テキスト入力 (キャレット追従)、タブ一覧、
             // ACE の水平スクロールバー
@@ -793,6 +818,8 @@
                 },
                 eventListeners: [],
                 isInitialized: false,
+                /// 実セル幅を測れるまでのリサイズ再試行回数 (setTerminalSize が使う)
+                cellWidthRetries: 0,
                 writeBufferData: '',
                 writeBufferPending: false,
                 currentContainerBackgroundColor: null,
@@ -1253,6 +1280,9 @@
             return pane;
         }
 
+        /// 実セル幅を測れるようになるまでリサイズを再試行する上限 (フレーム数)。
+        const MAX_CELL_WIDTH_RETRIES = 30;
+
         /**
          * ターミナルサイズを動的に設定（タブ対応）
          */
@@ -1304,8 +1334,16 @@
             const adjustedCharWidth = rawCharWidth * widthAdjustment + fontSettings.letterSpacing;
             const adjustedLineHeight = rawLineHeight * heightAdjustment;
 
-            // 列数と行数を計算
-            const cols = Math.floor(availableWidth / adjustedCharWidth);
+            // 列数と行数を計算。
+            //
+            // 幅は**描画済みなら実測値を使う**。上の adjustedCharWidth は測定用 div から
+            // の見積もりで、xterm が実際に使うセル幅と一致するとは限らない (フォントの
+            // フォールバック、xterm 内部の丸め、letterSpacing の扱いの差)。見積もりが
+            // 1px でも小さいと cols × 実セル幅 がペイン幅を超え、**長い行を表示した時
+            // だけ**右にはみ出して横スクロールが発生し、戻せなくなる。
+            const measuredCellWidth = measureActualCellWidth(state.term);
+            const cellWidth = measuredCellWidth || adjustedCharWidth;
+            const cols = Math.floor(availableWidth / cellWidth);
             const rows = Math.floor(availableHeight / adjustedLineHeight);
 
             // 最小サイズを保証
@@ -1324,6 +1362,38 @@
                     rows: finalRows
                 });
             }
+
+            // 実セル幅がまだ測れない (初回描画前) 間は見積もりで暫定サイズを入れている。
+            // 描画されたら測り直す。コンテナのサイズが変わらなければ ResizeObserver は
+            // 発火しないので、これが無いと見積もりのままの cols が次のリサイズまで残り、
+            // 初回表示でこの不具合が出たままになる。
+            // 描画されないまま (タブを閉じた等) 回り続けないよう回数で打ち切る。
+            if (!measuredCellWidth && state.cellWidthRetries < MAX_CELL_WIDTH_RETRIES) {
+                state.cellWidthRetries++;
+                requestAnimationFrame(() => setTerminalSize(tabId));
+            } else if (measuredCellWidth) {
+                state.cellWidthRetries = 0;
+            }
+        }
+
+
+        /**
+         * 描画済みの .xterm-screen の実寸から xterm の実セル幅を逆算する。
+         * まだ描画されていない (初回) 等で測れない場合は null を返す。
+         *
+         * .xterm-screen の幅は xterm が cols × セル幅 で決めるので、
+         * セル幅 = screen.width / term.cols で求まる。セル幅は cols に依存しないため、
+         * この値から出した cols は次回の計算でも同じ値になり、リサイズが往復しない。
+         */
+        function measureActualCellWidth(term) {
+            const screen = term && term.element
+                ? term.element.querySelector('.xterm-screen')
+                : null;
+            if (!screen || !term.cols) {
+                return null;
+            }
+            const cellWidth = screen.getBoundingClientRect().width / term.cols;
+            return cellWidth > 0 ? cellWidth : null;
         }
 
         /**
