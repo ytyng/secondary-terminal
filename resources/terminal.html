@@ -1376,7 +1376,8 @@
             const finalRows = Math.max(rows, 5);
 
             // ターミナルサイズを設定
-            if (state.term.cols !== finalCols || state.term.rows !== finalRows) {
+            const resized = state.term.cols !== finalCols || state.term.rows !== finalRows;
+            if (resized) {
                 state.term.resize(finalCols, finalRows);
 
                 // サイズ変更を VSCode に通知（tabId を含める）
@@ -1388,15 +1389,24 @@
                 });
             }
 
-            // 実セル幅がまだ測れない (初回描画前) 間は見積もりで暫定サイズを入れている。
-            // 描画されたら測り直す。コンテナのサイズが変わらなければ ResizeObserver は
-            // 発火しないので、これが無いと見積もりのままの cols が次のリサイズまで残り、
-            // 初回表示でこの不具合が出たままになる。
-            // 描画されないまま (タブを閉じた等) 回り続けないよう回数で打ち切る。
-            if (!measuredCellWidth && state.cellWidthRetries < MAX_CELL_WIDTH_RETRIES) {
+            // 次のフレームで測り直す条件は 2 つ。どちらも「今回の計算の土台が古い」ケース。
+            //
+            // 1. 実セル幅をまだ測れない (初回描画前)。見積もりで暫定サイズを入れているので、
+            //    描画され次第やり直す。コンテナのサイズが変わらなければ ResizeObserver は
+            //    発火しないため、これが無いと初回表示だけ見積もりのままになる。
+            // 2. 列数・行数を変えた。実測セル幅 (= screen.width / cols) にはキャンバス幅の
+            //    丸めによる 1 セルあたり最大 0.5/cols px の誤差が乗る。ペインが大きく広がって
+            //    列数が増えると、この誤差が新しい列数ぶん積み上がって 1px のスラックを
+            //    超えうる。リサイズ後の (列数が増えたぶん精度の上がった) 実測値で
+            //    もう一度計算すれば、正しい土台に載り直せる。
+            //
+            // 変化が無くなった時点で止まり、そこで再試行の予算も戻す。振動する条件を
+            // 引いても回り続けないよう、回数で打ち切る。
+            if ((!measuredCellWidth || resized)
+                && state.cellWidthRetries < MAX_CELL_WIDTH_RETRIES) {
                 state.cellWidthRetries++;
                 requestAnimationFrame(() => setTerminalSize(tabId));
-            } else if (measuredCellWidth) {
+            } else if (!resized) {
                 state.cellWidthRetries = 0;
             }
         }
