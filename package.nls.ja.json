@@ -8,6 +8,6 @@
   "configuration.lineHeight.description": "ターミナルの行の高さ (フォントサイズに対する倍率)",
   "configuration.letterSpacing.description": "ターミナルの文字間隔 (px)",
   "configuration.editorHeight.description": "ターミナル下部の ACE エディタ (コマンド入力エディタ) の高さ (px)",
-  "configuration.layout.widthAdjustment.description": "列数計算時の文字幅補正係数。フォントによって実測幅と xterm の描画幅がずれるため、フォント変更時に調整する。値を小さくすると列数が増える",
+  "configuration.layout.widthAdjustment.description": "列数計算時の文字幅補正係数。値を小さくすると列数が増えるが、実際に収まる列数 (描画結果から実測) を超えることはないため、小さくしても長い行がはみ出すことはない",
   "configuration.layout.heightAdjustment.description": "行数計算時の行高補正係数。フォント変更時に調整する。値を小さくすると行数が増える"
 }

@@ -134,7 +134,7 @@ The following settings are available in VSCode Settings (search for "Secondary T
 | `secondaryTerminal.lineHeight` | number | `1.2` | Terminal line height as a multiple of the font size (1–2) |
 | `secondaryTerminal.letterSpacing` | number | `0` | Terminal letter spacing in px |
 | `secondaryTerminal.editorHeight` | number | `200` | Height in px of the ACE command editor below the terminal (40–1000) |
-| `secondaryTerminal.layout.widthAdjustment` | number | `0.88` | Correction factor for character width used when calculating the number of columns. Actual glyph width and xterm's rendered width differ between fonts, so adjust this when changing fonts. Smaller values produce more columns (0.5–1.5) |
+| `secondaryTerminal.layout.widthAdjustment` | number | `0.88` | Correction factor for character width used when calculating the number of columns. Smaller values produce more columns, but the count never exceeds what actually fits (measured from the rendered terminal), so lowering it cannot make long lines overflow (0.5–1.5) |
 | `secondaryTerminal.layout.heightAdjustment` | number | `1.34` | Correction factor for line height used when calculating the number of rows. Adjust when changing fonts. Smaller values produce more rows (0.5–2) |
 | `secondaryTerminal.startupCommands` | array | `[]` | Commands automatically executed when the terminal starts |
 | `secondaryTerminal.maxHistoryLines` | number | `1000` | Maximum number of history lines kept (applied to xterm scrollback and the session-restore buffer, minimum 50) |
