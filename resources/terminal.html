@@ -1283,6 +1283,11 @@
         /// 実セル幅を測れるようになるまでリサイズを再試行する上限 (フレーム数)。
         const MAX_CELL_WIDTH_RETRIES = 30;
 
+        /// 実測セル幅から列数を出す時に余らせる幅 (px)。
+        /// xterm のキャンバス幅のデバイスピクセル丸めによる誤差を吸収する
+        /// (setTerminalSize のコメント参照)。
+        const CELL_FIT_SLACK_PX = 1;
+
         /**
          * ターミナルサイズを動的に設定（タブ対応）
          */
@@ -1348,14 +1353,21 @@
             // ぶんを埋めるための係数なので、実測値に掛けるとその 12% ぶん列が増えて
             // 今回直したはみ出しがそのまま復活する。クランプがあれば、既定のまま使う人は
             // ちょうど収まる列数になり、意図的に大きくして列を減らす使い方も残る。
+            //
+            // 実測から列数を出す時は CELL_FIT_SLACK_PX だけ余らせる。xterm はキャンバス
+            // 幅をデバイスピクセル単位に丸めてから .xterm-screen の CSS 幅にするため、
+            // 実測セル幅 = screen.width / cols には 1px 未満の丸め誤差が乗る。
+            // ぴったり割り切れる幅では、その誤差で列数が 1 多く出る → 次の計算で 1 少なく
+            // 出る、という往復 (PTY のサイズが交互に変わる) や、最後の 1 列が欠ける状態が
+            // 起きうる。1px 余らせれば丸め誤差を吸収できる。損をするのは「ちょうど
+            // 収まる」時に 1 列減る場合だけで、列が欠けたりサイズが振動するより良い。
             const measuredCellWidth = measureActualCellWidth(state.term);
             const cellWidth = measuredCellWidth
                 ? measuredCellWidth * widthAdjustment
                 : adjustedCharWidth;
+            const fitCols = (w) => Math.floor((availableWidth - CELL_FIT_SLACK_PX) / w);
             const cols = measuredCellWidth
-                ? Math.min(
-                    Math.floor(availableWidth / cellWidth),
-                    Math.floor(availableWidth / measuredCellWidth))
+                ? Math.min(fitCols(cellWidth), fitCols(measuredCellWidth))
                 : Math.floor(availableWidth / cellWidth);
             const rows = Math.floor(availableHeight / adjustedLineHeight);
 
