@@ -3120,6 +3120,54 @@
                 // handleStatusMessage を state に保存（output 処理で使用）
                 state.handleStatusMessage = handleStatusMessage;
 
+                // IME 変換中かどうかを自前で追跡する (下の Command キーガードで使う)。
+                //
+                // xterm.js の CompositionHelper.keydown() は「変換中に修飾キー以外の
+                // キーが来たら変換は終わった」と判断して _finalizeComposition(false) を
+                // 呼ぶが、除外しているのは Shift(16)/Ctrl(17)/Alt(18) だけで
+                // Meta(91/93 = Command) が漏れている。macOS では変換中に Command を
+                // 押しても OS 側の変換は継続しているため、xterm だけが
+                // _isComposing = false の状態になる。
+                // こうなると以降のキー入力 (keyCode 229) は _handleAnyTextareaChanges()
+                // に落ちる。これは textarea の値を 1 tick 前と比べて
+                //   長くなった   → 増えた分 (newValue.replace(oldValue, '')) を送る
+                //   短くなった   → DEL を送る
+                //   長さが同じで中身が違う → textarea の値を丸ごと送る
+                // という素朴な処理。IME は未確定文字列を追記ではなく書き換えるため、
+                // この「増えた分 = newValue.replace(oldValue, '')」という前提が壊れる:
+                //   - 長さが変わらない書き換え (「かn」→「かな」等) は 3 番目の分岐で
+                //     無条件に textarea 全体が送られる
+                //   - 長さが増える書き換え (「あt」→「あっt」等) でも oldValue が
+                //     newValue の部分文字列でないと replace が一致せず、
+                //     「増えた分」として結局 textarea 全体が送られる
+                // xterm は日本語入力中 textarea をクリアしない (クリアするのは
+                // Enter / Ctrl+C 送信時、ペースト時、blur 時) ので、textarea には
+                // それまで打った日本語が全部溜まっており、それが丸ごと再送される
+                // = 「同じ日本語が複数回大量に入力される」。
+                // Karabiner で Command 単体押しを「かな」にしていると変換中に Command を
+                // 押す機会が非常に多くなるため頻発する。
+                state.imeComposing = false;
+                const termTextarea = state.term.textarea;
+                if (termTextarea) {
+                    // compositionupdate でも true にする (compositionstart を
+                    // 取りこぼしても復帰できるように)
+                    addManagedEventListener(termTextarea, 'compositionstart', () => {
+                        state.imeComposing = true;
+                    }, state);
+                    addManagedEventListener(termTextarea, 'compositionupdate', () => {
+                        state.imeComposing = true;
+                    }, state);
+                    addManagedEventListener(termTextarea, 'compositionend', () => {
+                        state.imeComposing = false;
+                    }, state);
+                    // フラグが true に張り付くと Command 系の keydown を握り潰し続けて
+                    // しまうため、フォーカスが外れたら必ず false に倒す
+                    // (迷ったら無効側に倒す)
+                    addManagedEventListener(termTextarea, 'blur', () => {
+                        state.imeComposing = false;
+                    }, state);
+                }
+
                 // Shift + Enter を Alt + Enter に変換するキーハンドラー
                 try {
                     if (typeof state.term.attachCustomKeyEventHandler === 'function') {
@@ -3136,6 +3184,22 @@
                                 if (state.openTerminalSearch) {
                                     state.openTerminalSearch();
                                 }
+                                return false;
+                            }
+
+                            // IME 変換中の Command 系 keydown は xterm に渡さない。
+                            // (詳細は上の state.imeComposing のコメント参照)
+                            // xterm の _keyDown() は customKeyEventHandler を
+                            // CompositionHelper.keydown() より先に呼ぶので、ここで
+                            // false を返せば変換状態が壊れるのを防げる。
+                            // preventDefault も stopPropagation もしない (xterm は
+                            // custom handler が false を返すと cancel() に到達せず
+                            // 即 return する) ので、ブラウザ既定の Cmd+C コピーも、
+                            // document レベルの Meta キー監視 (Cmd+ホバーの URL 下線)
+                            // もそのまま動く。
+                            if (event.type === 'keydown' &&
+                                state.imeComposing &&
+                                (event.metaKey || event.key === 'Meta')) {
                                 return false;
                             }
 
