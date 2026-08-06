@@ -1,6 +1,7 @@
 {
   "configuration.startupCommands.description": "Commands automatically executed when the terminal starts",
   "configuration.maxHistoryLines.description": "Maximum number of history lines kept (applied to xterm scrollback and the session-restore buffer)",
+  "configuration.restorePreviousAgentSession.description": "When a terminal opens, ask whether to resume the CLI agent session (Claude Code / Codex) last used in this workspace",
   "configuration.notifications.enabled.description": "Detect OSC notification sequences (OSC 9 / 777 / 99) in terminal output and show VSCode notifications",
   "configuration.notifications.flashBackground.description": "Flash the terminal (webview) background briefly when an OSC notification is shown",
   "configuration.fontFamily.description": "Font family for the terminal and the ACE editor (CSS font-family format)",

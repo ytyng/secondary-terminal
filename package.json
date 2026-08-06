@@ -2,7 +2,7 @@
   "name": "secondary-terminal",
   "displayName": "Secondary Sidebar Terminal",
   "description": "A full-featured PTY terminal in the VSCode sidebar, with multi-tab support and a built-in command editor.",
-  "version": "0.18.333",
+  "version": "0.18.337",
   "publisher": "ytyng",
   "icon": "icon.png",
   "license": "MIT",
@@ -203,6 +203,11 @@
           "default": 1000,
           "minimum": 50,
           "description": "%configuration.maxHistoryLines.description%"
+        },
+        "secondaryTerminal.restorePreviousAgentSession": {
+          "type": "boolean",
+          "default": true,
+          "description": "%configuration.restorePreviousAgentSession.description%"
         },
         "secondaryTerminal.notifications.enabled": {
           "type": "boolean",

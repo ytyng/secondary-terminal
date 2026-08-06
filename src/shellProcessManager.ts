@@ -24,6 +24,8 @@ export class ShellProcessManager {
     private startupExecuted: Set<string> = new Set();
     // プロセス終了時のコールバック
     private exitCallbacks: Map<string, () => void> = new Map();
+    // 出力を覗きたい側 (pty-shell.py が出す OSC ステータス等) のオブザーバー
+    private outputObservers: Array<(workspaceKey: string, output: string) => void> = [];
 
     private constructor() {}
 
@@ -46,6 +48,31 @@ export class ShellProcessManager {
      */
     public unregisterExitCallback(workspaceKey: string): void {
         this.exitCallbacks.delete(workspaceKey);
+    }
+
+    /**
+     * シェルの出力を覗くオブザーバーを登録する (解除用の関数を返す)。
+     * 表示は従来どおりセッションマネージャーが行い、こちらは副次的な監視専用。
+     * 例外を投げても出力の流れを止めないよう、呼び出し側で握り潰す。
+     */
+    public addOutputObserver(observer: (workspaceKey: string, output: string) => void): () => void {
+        this.outputObservers.push(observer);
+        return () => {
+            const index = this.outputObservers.indexOf(observer);
+            if (index !== -1) {
+                this.outputObservers.splice(index, 1);
+            }
+        };
+    }
+
+    private notifyOutputObservers(workspaceKey: string, output: string): void {
+        for (const observer of this.outputObservers) {
+            try {
+                observer(workspaceKey, output);
+            } catch (error) {
+                console.warn('Output observer failed:', error);
+            }
+        }
     }
 
     /**
@@ -175,6 +202,7 @@ export class ShellProcessManager {
                 const output = stdoutDecoder.write(data);
                 if (output) {
                     this.sessionManager.addOutput(workspaceKey, output);
+                    this.notifyOutputObservers(workspaceKey, output);
                 }
             });
         }
@@ -217,17 +245,20 @@ export class ShellProcessManager {
 
     /**
      * プロセスにデータを送信
+     * @returns 実際に書き込めたら true。プロセスが既に無い / stdin が閉じている場合は
+     *   例外ではなく false を返す (送れたかどうかで挙動を変えたい呼び出し元のため)
      */
-    public sendToProcess(workspaceKey: string, data: string): void {
+    public sendToProcess(workspaceKey: string, data: string): boolean {
         const processInfo = this.processes.get(workspaceKey);
-        if (!processInfo || !processInfo.process || !processInfo.process.stdin) return;
+        if (!processInfo || !processInfo.process || !processInfo.process.stdin) return false;
         const stdinAny: any = processInfo.process.stdin as any;
         // リセット直後など、stdin が閉じている場合は書き込まない
         if (!this.isProcessStdinWritable(processInfo.process)) {
             console.warn(`Skip write: stdin closed (destroyed=${stdinAny.destroyed}, writable=${stdinAny.writable}, ended=${stdinAny.writableEnded}, finished=${stdinAny.writableFinished}) for ${workspaceKey}`);
-            return;
+            return false;
         }
         processInfo.process.stdin.write(data, 'utf8');
+        return true;
     }
 
     /**
@@ -320,6 +351,23 @@ export class ShellProcessManager {
      */
     public clearStartupExecuted(startupScopeKey: string): void {
         this.startupExecuted.delete(startupScopeKey);
+    }
+
+    /**
+     * 次にこのスコープでシェルを起動したとき、startup commands が注入されるか。
+     * pty-shell.py はシェル起動の 1 秒後にコマンドを流し込むため、その間に別の入力を
+     * 送ると混ざる。呼び出し側は「getOrCreateProcess を呼ぶ前」に確認すること
+     * (呼んだ時点で実行済みフラグが立つ)。
+     */
+    public willRunStartupCommands(startupScopeKey: string): boolean {
+        if (this.startupExecuted.has(startupScopeKey)) {
+            return false;
+        }
+        // 未信頼ワークスペースでは startup commands 自体を実行しない (createNewProcess と同じ判定)
+        const configuredStartup: string[] = vscode.workspace.isTrusted
+            ? vscode.workspace.getConfiguration('secondaryTerminal').get('startupCommands', [])
+            : [];
+        return configuredStartup.length > 0;
     }
 
     /**

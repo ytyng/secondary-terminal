@@ -4,6 +4,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { ShellProcessManager } from './shellProcessManager';
 import { TerminalSessionManager } from './terminalSessionManager';
+import { AgentSessionRestore, AgentKind } from './agentSessionRestore';
 import { createContextTextForSelectedText } from './utils';
 
 // タブ情報の型定義
@@ -82,10 +83,30 @@ export class TerminalProvider implements vscode.WebviewViewProvider {
     // ログ管理
     private _logs: string[] = [];
 
+    // 前回使っていた CLI エージェントのセッション復元
+    private _agentSessionRestore: AgentSessionRestore;
+    // 復元候補は「このウィンドウを開いた時点」の記録で固定する。後から読み直すと、
+    // このウィンドウで今さっき起動したエージェントを「前回のセッション」として
+    // 提案してしまい、別タブで動いているセッションに二重接続しかねない
+    private _restoreCandidate: AgentKind | undefined;
+    // 復元の確認は 1 ウィンドウにつき 1 回だけ (タブごとに聞かない)
+    private _restorePromptShown = false;
+    // 一度でも入力が送られたタブ (復元コマンドを打ちかけの行に連結しないための判定)
+    private _tabsWithInput: Set<string> = new Set();
+
     constructor(private readonly _extensionContext: vscode.ExtensionContext) {
         this._cwd = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath || os.homedir();
         // ワークスペースキーはワークスペースフォルダのパスまたはホームディレクトリを使用
         this._workspaceKey = this._cwd;
+        this._agentSessionRestore = new AgentSessionRestore(_extensionContext);
+        this._restoreCandidate = this._agentSessionRestore.getRestoreCandidate(this._workspaceKey);
+
+        // シェル出力に混ざる pty-shell.py のステータス (OSC 777) を覗いて、
+        // CLI エージェントが動いていることを記録する
+        const disposeObserver = this._processManager.addOutputObserver((_key, output) => {
+            this._agentSessionRestore.observeOutput(_key, this._workspaceKey, output);
+        });
+        this._extensionContext.subscriptions.push({ dispose: disposeObserver });
 
         // フォント・レイアウト設定の変更を webview に即時反映する
         vscode.workspace.onDidChangeConfiguration((event) => {
@@ -196,6 +217,9 @@ export class TerminalProvider implements vscode.WebviewViewProvider {
         // clearBuffer ではなく removeSession で Map からエントリごと削除する。
         // タブ ID は毎回ユニークなので、削除しないとタブ開閉のたびにセッションが蓄積する。
         this._sessionManager.removeSession(compositeKey);
+        // 入力途中の行も同じ理由で捨てる (タブ ID ごとに 1 エントリ増えるため)
+        this._agentSessionRestore.forgetTab(compositeKey);
+        this._tabsWithInput.delete(compositeKey);
 
         // タブリストから削除
         this._tabState.tabs.splice(tabIndex, 1);
@@ -240,7 +264,14 @@ export class TerminalProvider implements vscode.WebviewViewProvider {
             }
             // セッションを Map から完全に削除する (clearBuffer だとエントリが残留する)
             this._sessionManager.removeSession(compositeKey);
+            this._agentSessionRestore.forgetTab(compositeKey);
+            this._tabsWithInput.delete(compositeKey);
         });
+
+        // startup commands はシェル起動の 1 秒後に pty-shell.py が流し込む。その間に
+        // 復元コマンドを送ると入力が混ざるので、注入されるタブでは復元を提案しない
+        // (getOrCreateProcess を呼ぶと実行済みになるため、呼ぶ前に確認する)
+        const startupCommandsPending = this._processManager.willRunStartupCommands(this._workspaceKey);
 
         // プロセスマネージャーからプロセスを取得または作成
         // startup commands の「一度だけ実行」判定はタブ ID を含まないワークスペースキーで行う
@@ -264,8 +295,77 @@ export class TerminalProvider implements vscode.WebviewViewProvider {
             const welcomeMessage = `Welcome to Secondary Terminal v${versionInfo.version} (${versionInfo.buildDate}).\r\n`;
             this._sessionManager.addOutput(compositeKey, welcomeMessage);
             this.appendLog(`Shell started for tab: ${tabId}`);
+            // 新しく立ち上がったシェルにだけ復元を提案する。再接続 (バッファがある =
+            // ウィンドウを閉じずにタブが生きていた) 側で聞くと、既に動いている
+            // エージェントの上にもう 1 つ起動しかねない
+            if (startupCommandsPending) {
+                this.appendLog(`Skipped offering session restore on tab ${tabId}: startup commands will run here`);
+            } else {
+                void this.offerAgentSessionRestore(tabId);
+            }
         } else {
             this.appendLog(`Reconnecting to existing session for tab: ${tabId}`);
+        }
+    }
+
+    /**
+     * 前回このワークスペースで使っていた CLI エージェントがあれば、そのセッションを
+     * 復元するかダイアログで確認し、Yes ならレジューム用コマンドをターミナルへ送る。
+     * 確認は 1 ウィンドウにつき 1 回だけ (タブを開くたびに聞かない)。
+     */
+    private async offerAgentSessionRestore(tabId: string): Promise<void> {
+        if (this._restorePromptShown) {
+            return;
+        }
+        const config = vscode.workspace.getConfiguration('secondaryTerminal');
+        if (!config.get<boolean>('restorePreviousAgentSession', true)) {
+            return;
+        }
+        const agent = this._restoreCandidate;
+        if (!agent) {
+            return;
+        }
+        // 待っている間に別のタブから聞かれないよう、await の前に立てる
+        this._restorePromptShown = true;
+
+        const label = AgentSessionRestore.label(agent);
+        const restore = 'Restore';
+        const answer = await vscode.window.showInformationMessage(
+            `Restore the previous ${label} session?`,
+            restore,
+            'Not now'
+        );
+        if (answer !== restore) {
+            return;
+        }
+        this.runAgentResume(tabId, agent);
+    }
+
+    /** レジュームコマンドを、そのタブのシェルに 1 行として送る */
+    private runAgentResume(tabId: string, agent: AgentKind): void {
+        const compositeKey = this.getCompositeKey(tabId);
+        // ダイアログに答えるまでの間にユーザーが打ち始めていることがある。
+        // そこへ送ると打ちかけの行に連結され、まったく別のコマンドになって実行される
+        if (this._tabsWithInput.has(compositeKey)) {
+            this.appendLog(`Skipped restoring ${agent} session: the terminal already has input`);
+            return;
+        }
+        const command = AgentSessionRestore.resumeCommand(agent);
+        try {
+            // ダイアログを開いている間にタブが閉じられていると、送信は例外ではなく
+            // false で返る。送れていないのに記録を更新しない
+            if (!this._processManager.sendToProcess(compositeKey, `${command}\r`)) {
+                this.appendLog(`Skipped restoring ${agent} session: the terminal is gone`);
+                return;
+            }
+            // 復元して使い続けているのに、最初に起動した日から 14 日で候補が
+            // 失効しないよう、送った時点で記録を更新する
+            this._agentSessionRestore.recordAgentUse(this._workspaceKey, agent);
+            this.appendLog(`Restoring previous ${agent} session: ${command}`);
+        } catch (error) {
+            // タブが閉じられている等で送れないことがある。復元は補助機能なので、
+            // ログに残すだけで通常の起動を妨げない
+            this.appendLog(`Failed to restore ${agent} session: ${error}`);
         }
     }
 
@@ -504,6 +604,9 @@ export class TerminalProvider implements vscode.WebviewViewProvider {
 
         // タブIDがない場合は後方互換性のため旧形式を使用
         const compositeKey = tabId ? this.getCompositeKey(tabId) : this._workspaceKey;
+
+        // 復元コマンドを打ちかけの行に連結しないよう、入力があったことを覚えておく
+        this._tabsWithInput.add(compositeKey);
 
         try {
             // プロセスマネージャー経由でデータを送信
@@ -847,6 +950,8 @@ export class TerminalProvider implements vscode.WebviewViewProvider {
             this._processManager.unregisterExitCallback(compositeKey);
             await this._processManager.terminateProcessAsync(compositeKey);
             this._sessionManager.removeSession(compositeKey);
+            this._agentSessionRestore.forgetTab(compositeKey);
+            this._tabsWithInput.delete(compositeKey);
         }));
         this._tabState.tabs = [];
         this._tabState.activeTabId = null;
@@ -1040,6 +1145,10 @@ export class TerminalProvider implements vscode.WebviewViewProvider {
         }
 
         console.log('[CHUNKED INPUT] Begin session', message.id, 'total bytes:', message.totalBytes);
+
+        // チャンク入力は handleInputForTab を通らないので、ここで「入力があった」と印を付ける。
+        // 付けないと、ペースト直後に復元コマンドを送ってペースト内容と連結しかねない
+        this._tabsWithInput.add(this.getChunkProcessKey(message.tabId));
 
         // セッション情報を保存
         this._chunkSessions.set(message.id, {
