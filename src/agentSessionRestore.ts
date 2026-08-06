@@ -181,20 +181,32 @@ export class AgentSessionRestore {
     /**
      * 失効した記録をストレージから消す。ワークスペースごとにキーを分けたぶん、
      * 消さないと使わなくなったディレクトリの分だけキーが増え続ける。
-     * 失効したものしか消さないので、他のウィンドウが今書いた記録とは競合しない。
+     *
+     * 消す直前に読み直すのは、別ウィンドウがそのキーを書き直していた場合に
+     * 消さないため。拡張ホストはウィンドウごとに別プロセスなので、これは
+     * アトミックな保証にはならない (Memento に compare-and-delete が無い) が、
+     * 競合する窓を実質ゼロに縮められる。**残る競合の影響は「次回の復元提案が
+     * 1 回出ない」だけ**で、ユーザーのデータは失われない。
      */
     private pruneStaleRecords(): void {
-        const now = Date.now();
-        for (const key of this.context.globalState.keys()) {
+        const staleKeys = this.context.globalState.keys().filter((key) => {
             if (!key.startsWith(STATE_KEY_PREFIX)) {
-                continue;
+                return false;
             }
-            const stored = this.context.globalState.get<LaunchRecord>(key);
-            const at = stored && typeof stored.at === 'number' ? stored.at : undefined;
-            if (at === undefined || now - at > MAX_AGE_MS) {
+            return this.isStale(key);
+        });
+        for (const key of staleKeys) {
+            // keys() の走査中に別ウィンドウが書き直しているかもしれないので読み直す
+            if (this.isStale(key)) {
                 void this.context.globalState.update(key, undefined);
             }
         }
+    }
+
+    private isStale(key: string): boolean {
+        const stored = this.context.globalState.get<LaunchRecord>(key);
+        const at = stored && typeof stored.at === 'number' ? stored.at : undefined;
+        return at === undefined || Date.now() - at > MAX_AGE_MS;
     }
 }
 
