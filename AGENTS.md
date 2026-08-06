@@ -103,6 +103,7 @@ secondary-terminal/
 │   ├── clipboardImageHandler.ts    # macOS クリップボード画像抽出
 │   ├── dropZoneProvider.ts         # ファイル Drag & Drop ゾーン
 │   ├── terminalSessionManager.ts   # ターミナルセッション永続化
+│   ├── agentSessionRestore.ts      # 前回使った CLI エージェント (Claude Code / Codex) の記録と復元提案
 │   ├── shellProcessManager.ts      # シェルプロセスライフサイクル管理
 │   └── utils.ts                    # ユーティリティ関数
 ├── resources/
@@ -127,6 +128,31 @@ secondary-terminal/
 - 入出力データの変換・転送
 - ターミナルサイズの動的調整
 - マルチタブ管理（タブごとに独立したシェルプロセスと ACE エディタ）
+
+### CLI エージェントのセッション復元 (`agentSessionRestore.ts`)
+- pty-shell.py が既に出している CLI エージェントの稼働状態 (OSC 777 の `cli_agent_status`。
+  シェルの子孫プロセスを見て判定している) を**拡張ホスト側でも拾い**、
+  「このワークスペースで使っていたエージェント」として `globalState` に記録する
+  (キーは cwd、14 日で失効)。出力の覗き見は `ShellProcessManager.addOutputObserver` 経由
+- **入力行からコマンド名を拾う方式にしないこと**: 履歴 (↑ キー) から呼び出した場合や補完で
+  確定した場合、コマンド文字列は拡張を通らずシェル内で確定するため、最も普通の起動方法を
+  取りこぼす。稼働プロセスを見ている PTY 側の判定の方が正確
+- 空のターミナルが立ち上がったとき、記録があれば
+  `Restore the previous <Claude Code|Codex> session?` を確認し、Yes なら
+  `claude --continue` / `codex resume --last` をそのタブへ送る
+- **セッション ID を拡張側で管理しない**のが要点。`~/.claude/projects/` や `~/.codex/sessions/`
+  の場所・命名規則は CLI の内部実装なので、追随すると壊れる。「直前のセッションを継続する」
+  コマンドはどちらの CLI も持っているので、その解決は CLI に任せる
+- **復元候補はウィンドウ起動時の 1 回だけ読む** (`_restoreCandidate`)。提案する直前に読み直すと、
+  同じウィンドウで今さっき起動したエージェントを「前回のセッション」として提案し、
+  別タブで動いているセッションへ二重に接続しかねない
+- 確認は 1 ウィンドウにつき 1 回、かつ**バッファが空の (新規に立ち上がった) タブだけ**。
+  再接続時にも聞くと、既に動いているエージェントの上にもう 1 つ起動しかねない
+- `globalState` の read-modify-write は Promise チェーンで直列化する。複数タブでほぼ同時に
+  エージェントが立つと、古いスナップショットを書き戻して他ワークスペースの記録を落とす
+- 設定 `secondaryTerminal.restorePreviousAgentSession` (既定 true) で無効化できる
+- pty-shell.py は gemini / copilot も検出するが、「直前のセッションを継続する」コマンドを
+  持つ claude / codex だけを対象にしている
 
 ### クリップボード画像ハンドラー (`clipboardImageHandler.ts`)
 - macOS の NSPasteboard から PNG/TIFF 画像を抽出（AppleScript 経由）

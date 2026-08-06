@@ -1,6 +1,7 @@
 {
   "configuration.startupCommands.description": "ターミナル起動時に自動実行するコマンド一覧",
   "configuration.maxHistoryLines.description": "ターミナルの履歴として保持する最大行数 (xterm の scrollback とセッション復元バッファに適用)",
+  "configuration.restorePreviousAgentSession.description": "ターミナルを開いたとき、このワークスペースで最後に使っていた CLI エージェント (Claude Code / Codex) のセッションを復元するか確認する",
   "configuration.notifications.enabled.description": "ターミナル出力の OSC 通知シーケンス (OSC 9 / 777 / 99) を検知して VSCode 通知を表示する",
   "configuration.notifications.flashBackground.description": "OSC 通知を表示するとき、ターミナル領域 (webview) の背景を一瞬フラッシュさせる",
   "configuration.fontFamily.description": "ターミナルと ACE エディタのフォントファミリー (CSS font-family 形式)",

@@ -16,6 +16,7 @@ A full-featured terminal extension that runs in the VSCode sidebar. With complet
 - **ACE Editor Integration**: Built-in code editor (ACE) per tab for composing commands and text
 - **Clipboard Image Paste**: Paste images from clipboard and insert file path reference (macOS only)
 - **Drop Zone**: Drag & drop files from the explorer to insert file path references into the editor
+- **Agent Session Restore**: Offers to resume the CLI agent session (Claude Code / Codex) you last used in the workspace when a terminal opens
 
 ## Requirements
 
@@ -138,6 +139,7 @@ The following settings are available in VSCode Settings (search for "Secondary T
 | `secondaryTerminal.layout.heightAdjustment` | number | `1.34` | Correction factor for line height used when calculating the number of rows. Adjust when changing fonts. Smaller values produce more rows (0.5–2) |
 | `secondaryTerminal.startupCommands` | array | `[]` | Commands automatically executed when the terminal starts |
 | `secondaryTerminal.maxHistoryLines` | number | `1000` | Maximum number of history lines kept (applied to xterm scrollback and the session-restore buffer, minimum 50) |
+| `secondaryTerminal.restorePreviousAgentSession` | boolean | `true` | When a terminal opens, ask whether to resume the CLI agent session (Claude Code / Codex) last used in this workspace |
 | `secondaryTerminal.notifications.enabled` | boolean | `true` | Detect OSC notification sequences (OSC 9 / 777 / 99) in terminal output and show VSCode notifications |
 | `secondaryTerminal.notifications.flashBackground` | boolean | `true` | Flash the terminal (webview) background briefly when an OSC notification is shown |
 

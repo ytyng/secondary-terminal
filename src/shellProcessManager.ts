@@ -24,6 +24,8 @@ export class ShellProcessManager {
     private startupExecuted: Set<string> = new Set();
     // プロセス終了時のコールバック
     private exitCallbacks: Map<string, () => void> = new Map();
+    // 出力を覗きたい側 (pty-shell.py が出す OSC ステータス等) のオブザーバー
+    private outputObservers: Array<(workspaceKey: string, output: string) => void> = [];
 
     private constructor() {}
 
@@ -46,6 +48,31 @@ export class ShellProcessManager {
      */
     public unregisterExitCallback(workspaceKey: string): void {
         this.exitCallbacks.delete(workspaceKey);
+    }
+
+    /**
+     * シェルの出力を覗くオブザーバーを登録する (解除用の関数を返す)。
+     * 表示は従来どおりセッションマネージャーが行い、こちらは副次的な監視専用。
+     * 例外を投げても出力の流れを止めないよう、呼び出し側で握り潰す。
+     */
+    public addOutputObserver(observer: (workspaceKey: string, output: string) => void): () => void {
+        this.outputObservers.push(observer);
+        return () => {
+            const index = this.outputObservers.indexOf(observer);
+            if (index !== -1) {
+                this.outputObservers.splice(index, 1);
+            }
+        };
+    }
+
+    private notifyOutputObservers(workspaceKey: string, output: string): void {
+        for (const observer of this.outputObservers) {
+            try {
+                observer(workspaceKey, output);
+            } catch (error) {
+                console.warn('Output observer failed:', error);
+            }
+        }
     }
 
     /**
@@ -175,6 +202,7 @@ export class ShellProcessManager {
                 const output = stdoutDecoder.write(data);
                 if (output) {
                     this.sessionManager.addOutput(workspaceKey, output);
+                    this.notifyOutputObservers(workspaceKey, output);
                 }
             });
         }
