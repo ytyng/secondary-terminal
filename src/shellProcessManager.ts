@@ -245,17 +245,20 @@ export class ShellProcessManager {
 
     /**
      * プロセスにデータを送信
+     * @returns 実際に書き込めたら true。プロセスが既に無い / stdin が閉じている場合は
+     *   例外ではなく false を返す (送れたかどうかで挙動を変えたい呼び出し元のため)
      */
-    public sendToProcess(workspaceKey: string, data: string): void {
+    public sendToProcess(workspaceKey: string, data: string): boolean {
         const processInfo = this.processes.get(workspaceKey);
-        if (!processInfo || !processInfo.process || !processInfo.process.stdin) return;
+        if (!processInfo || !processInfo.process || !processInfo.process.stdin) return false;
         const stdinAny: any = processInfo.process.stdin as any;
         // リセット直後など、stdin が閉じている場合は書き込まない
         if (!this.isProcessStdinWritable(processInfo.process)) {
             console.warn(`Skip write: stdin closed (destroyed=${stdinAny.destroyed}, writable=${stdinAny.writable}, ended=${stdinAny.writableEnded}, finished=${stdinAny.writableFinished}) for ${workspaceKey}`);
-            return;
+            return false;
         }
         processInfo.process.stdin.write(data, 'utf8');
+        return true;
     }
 
     /**
@@ -348,6 +351,23 @@ export class ShellProcessManager {
      */
     public clearStartupExecuted(startupScopeKey: string): void {
         this.startupExecuted.delete(startupScopeKey);
+    }
+
+    /**
+     * 次にこのスコープでシェルを起動したとき、startup commands が注入されるか。
+     * pty-shell.py はシェル起動の 1 秒後にコマンドを流し込むため、その間に別の入力を
+     * 送ると混ざる。呼び出し側は「getOrCreateProcess を呼ぶ前」に確認すること
+     * (呼んだ時点で実行済みフラグが立つ)。
+     */
+    public willRunStartupCommands(startupScopeKey: string): boolean {
+        if (this.startupExecuted.has(startupScopeKey)) {
+            return false;
+        }
+        // 未信頼ワークスペースでは startup commands 自体を実行しない (createNewProcess と同じ判定)
+        const configuredStartup: string[] = vscode.workspace.isTrusted
+            ? vscode.workspace.getConfiguration('secondaryTerminal').get('startupCommands', [])
+            : [];
+        return configuredStartup.length > 0;
     }
 
     /**

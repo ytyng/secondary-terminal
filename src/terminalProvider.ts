@@ -268,6 +268,11 @@ export class TerminalProvider implements vscode.WebviewViewProvider {
             this._tabsWithInput.delete(compositeKey);
         });
 
+        // startup commands はシェル起動の 1 秒後に pty-shell.py が流し込む。その間に
+        // 復元コマンドを送ると入力が混ざるので、注入されるタブでは復元を提案しない
+        // (getOrCreateProcess を呼ぶと実行済みになるため、呼ぶ前に確認する)
+        const startupCommandsPending = this._processManager.willRunStartupCommands(this._workspaceKey);
+
         // プロセスマネージャーからプロセスを取得または作成
         // startup commands の「一度だけ実行」判定はタブ ID を含まないワークスペースキーで行う
         this._processManager.getOrCreateProcess(
@@ -293,7 +298,11 @@ export class TerminalProvider implements vscode.WebviewViewProvider {
             // 新しく立ち上がったシェルにだけ復元を提案する。再接続 (バッファがある =
             // ウィンドウを閉じずにタブが生きていた) 側で聞くと、既に動いている
             // エージェントの上にもう 1 つ起動しかねない
-            void this.offerAgentSessionRestore(tabId);
+            if (startupCommandsPending) {
+                this.appendLog(`Skipped offering session restore on tab ${tabId}: startup commands will run here`);
+            } else {
+                void this.offerAgentSessionRestore(tabId);
+            }
         } else {
             this.appendLog(`Reconnecting to existing session for tab: ${tabId}`);
         }
@@ -343,7 +352,12 @@ export class TerminalProvider implements vscode.WebviewViewProvider {
         }
         const command = AgentSessionRestore.resumeCommand(agent);
         try {
-            this._processManager.sendToProcess(compositeKey, `${command}\r`);
+            // ダイアログを開いている間にタブが閉じられていると、送信は例外ではなく
+            // false で返る。送れていないのに記録を更新しない
+            if (!this._processManager.sendToProcess(compositeKey, `${command}\r`)) {
+                this.appendLog(`Skipped restoring ${agent} session: the terminal is gone`);
+                return;
+            }
             // 復元して使い続けているのに、最初に起動した日から 14 日で候補が
             // 失効しないよう、送った時点で記録を更新する
             this._agentSessionRestore.recordAgentUse(this._workspaceKey, agent);
@@ -1131,6 +1145,10 @@ export class TerminalProvider implements vscode.WebviewViewProvider {
         }
 
         console.log('[CHUNKED INPUT] Begin session', message.id, 'total bytes:', message.totalBytes);
+
+        // チャンク入力は handleInputForTab を通らないので、ここで「入力があった」と印を付ける。
+        // 付けないと、ペースト直後に復元コマンドを送ってペースト内容と連結しかねない
+        this._tabsWithInput.add(this.getChunkProcessKey(message.tabId));
 
         // セッション情報を保存
         this._chunkSessions.set(message.id, {
