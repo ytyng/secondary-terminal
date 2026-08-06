@@ -30,7 +30,13 @@ interface LaunchRecord {
     at: number;
 }
 
-const STATE_KEY = 'secondaryTerminal.lastAgentLaunch';
+/**
+ * 記録は**ワークスペースごとに独立したキー**へ書く。1 つのオブジェクトにまとめると、
+ * 同じプロファイルで開いた別ウィンドウが同じスナップショットを読んで丸ごと書き戻し、
+ * 相手のワークスペースの記録を消してしまう (拡張ホストはウィンドウごとに別プロセスなので、
+ * こちら側の直列化では防げない)。
+ */
+const STATE_KEY_PREFIX = 'secondaryTerminal.lastAgentLaunch:';
 
 /** これより古い記録は「前回のセッション」とみなさない */
 const MAX_AGE_MS = 14 * 24 * 60 * 60 * 1000;
@@ -63,10 +69,10 @@ interface CliAgentStatus {
 export class AgentSessionRestore {
     /** OSC シーケンスがチャンク境界で分断された場合の持ち越し (タブごと) */
     private readonly pendingOutputs: Map<string, string> = new Map();
-    /** globalState の read-modify-write を直列化するためのチェーン */
-    private writeChain: Thenable<unknown> = Promise.resolve();
 
-    constructor(private readonly context: vscode.ExtensionContext) {}
+    constructor(private readonly context: vscode.ExtensionContext) {
+        this.pruneStaleRecords();
+    }
 
     /**
      * シェルの出力を覗いて、CLI エージェントが動き出したことを記録する。
@@ -118,22 +124,10 @@ export class AgentSessionRestore {
      * 起動から 14 日で候補が失効してしまうのを防ぐ)。
      */
     public recordAgentUse(workspaceKey: string, agent: AgentKind): void {
-        // read-modify-write を直列化する。await せずに書くと、ほぼ同時に確定した
-        // 2 タブが同じスナップショットを読んで、片方の記録を上書きしてしまう。
-        // 直前の失敗は先に握り潰してから連結する (then の第 2 引数で受けると、
-        // 失敗した次の書き込みが「回復するだけ」で実行されない)
-        this.writeChain = this.writeChain.then(undefined, () => undefined).then(() => {
-            const records = this.readRecords();
-            const now = Date.now();
-            records[workspaceKey] = { agent, at: now };
-            // 古いワークスペースの記録が無限に溜まらないよう、書き込みのたびに掃除する
-            for (const [key, value] of Object.entries(records)) {
-                if (now - value.at > MAX_AGE_MS) {
-                    delete records[key];
-                }
-            }
-            return this.context.globalState.update(STATE_KEY, records);
-        });
+        // 自分のワークスペースのキーだけを丸ごと置き換える。read-modify-write が
+        // 無いので、同時に書いても他のワークスペースの記録は巻き込まれない
+        const record: LaunchRecord = { agent, at: Date.now() };
+        void this.context.globalState.update(stateKeyFor(workspaceKey), record);
     }
 
     /**
@@ -144,7 +138,7 @@ export class AgentSessionRestore {
      * 別タブで動いているセッションに二重に接続しかねない。
      */
     public getRestoreCandidate(workspaceKey: string, now: number = Date.now()): AgentKind | undefined {
-        const record = this.readRecords()[workspaceKey];
+        const record = this.readRecord(workspaceKey);
         if (!record) {
             return undefined;
         }
@@ -172,20 +166,41 @@ export class AgentSessionRestore {
         }
     }
 
-    private readRecords(): Record<string, LaunchRecord> {
-        const stored = this.context.globalState.get<Record<string, LaunchRecord>>(STATE_KEY);
+    private readRecord(workspaceKey: string): LaunchRecord | undefined {
+        const stored = this.context.globalState.get<LaunchRecord>(stateKeyFor(workspaceKey));
         // 壊れた値が入っていても落ちないようにする (旧バージョンの形式など)
         if (!stored || typeof stored !== 'object' || Array.isArray(stored)) {
-            return {};
+            return undefined;
         }
-        const records: Record<string, LaunchRecord> = {};
-        for (const [key, value] of Object.entries(stored)) {
-            if (value && typeof value.at === 'number' && typeof value.agent === 'string' && value.agent in AGENTS) {
-                records[key] = { agent: value.agent as AgentKind, at: value.at };
+        if (typeof stored.at !== 'number' || typeof stored.agent !== 'string' || !(stored.agent in AGENTS)) {
+            return undefined;
+        }
+        return { agent: stored.agent as AgentKind, at: stored.at };
+    }
+
+    /**
+     * 失効した記録をストレージから消す。ワークスペースごとにキーを分けたぶん、
+     * 消さないと使わなくなったディレクトリの分だけキーが増え続ける。
+     * 失効したものしか消さないので、他のウィンドウが今書いた記録とは競合しない。
+     */
+    private pruneStaleRecords(): void {
+        const now = Date.now();
+        for (const key of this.context.globalState.keys()) {
+            if (!key.startsWith(STATE_KEY_PREFIX)) {
+                continue;
+            }
+            const stored = this.context.globalState.get<LaunchRecord>(key);
+            const at = stored && typeof stored.at === 'number' ? stored.at : undefined;
+            if (at === undefined || now - at > MAX_AGE_MS) {
+                void this.context.globalState.update(key, undefined);
             }
         }
-        return records;
     }
+}
+
+/** ワークスペース 1 つ分の記録を置く globalState のキー */
+function stateKeyFor(workspaceKey: string): string {
+    return `${STATE_KEY_PREFIX}${workspaceKey}`;
 }
 
 /**
