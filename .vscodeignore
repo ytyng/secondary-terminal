@@ -13,7 +13,6 @@ out/test/**
 # internal / dev-only files
 .claude/**
 _issues/**
-.current-issue.json
 documents/**
 scripts/**
 .pnpm-store/**
