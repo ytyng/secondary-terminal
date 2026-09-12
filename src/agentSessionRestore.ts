@@ -54,6 +54,16 @@ interface CliAgentStatus {
 }
 
 /**
+ * OSC 777 の `cli_agent_status` 1 件の解釈結果。
+ * `active` なのに `agent` が無いのは、復元コマンドを持たないエージェント
+ * (gemini / copilot) が動いている場合。
+ */
+export interface AgentStatus {
+    active: boolean;
+    agent?: AgentKind;
+}
+
+/**
  * 「前回このワークスペースで使っていた CLI エージェント」を覚えておき、
  * 次に空のターミナルが立ち上がったときにセッションの復元を提案する。
  *
@@ -69,6 +79,12 @@ interface CliAgentStatus {
 export class AgentSessionRestore {
     /** OSC シーケンスがチャンク境界で分断された場合の持ち越し (タブごと) */
     private readonly pendingOutputs: Map<string, string> = new Map();
+
+    /**
+     * 今そのタブで動いている復元対象エージェント (タブごと)。
+     * プロセスが死んだときに「何が動いたまま死んだか」を知るために持つ。
+     */
+    private readonly activeAgents: Map<string, AgentKind> = new Map();
 
     constructor(private readonly context: vscode.ExtensionContext) {
         this.pruneStaleRecords();
@@ -90,7 +106,7 @@ export class AgentSessionRestore {
         let consumedUntil = 0;
         while ((match = STATUS_SEQUENCE.exec(combined)) !== null) {
             consumedUntil = match.index + match[0].length;
-            this.handleStatusPayload(workspaceKey, match[1] ?? '');
+            this.handleStatusPayload(tabKey, workspaceKey, match[1] ?? '');
         }
 
         // 終端 (BEL) が来ていないシーケンスの途中だけを次回に持ち越す。
@@ -113,9 +129,29 @@ export class AgentSessionRestore {
         }
     }
 
-    /** タブを閉じたときに持ち越しを捨てる */
+    /** タブを閉じたときに持ち越しと稼働状態を捨てる */
     public forgetTab(tabKey: string): void {
         this.pendingOutputs.delete(tabKey);
+        this.activeAgents.delete(tabKey);
+    }
+
+    /** そのタブで今動いている復元対象エージェント (無ければ undefined) */
+    public getActiveAgent(tabKey: string): AgentKind | undefined {
+        return this.activeAgents.get(tabKey);
+    }
+
+    /**
+     * どこかのタブでそのエージェントが動いているか。
+     * 死んだタブのぶんを復元提案するとき、同じエージェントが別タブで生きていないかの
+     * 確認に使う (生きているセッションへ二重に接続しないため)。
+     */
+    public hasActiveAgent(agent: AgentKind): boolean {
+        for (const active of this.activeAgents.values()) {
+            if (active === agent) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /**
@@ -159,11 +195,20 @@ export class AgentSessionRestore {
         return AGENTS[agent].resumeCommand;
     }
 
-    private handleStatusPayload(workspaceKey: string, payload: string): void {
-        const agent = parseActiveAgent(payload);
-        if (agent) {
-            this.recordAgentUse(workspaceKey, agent);
+    private handleStatusPayload(tabKey: string, workspaceKey: string, payload: string): void {
+        const status = parseAgentStatus(payload);
+        if (!status) {
+            return;
         }
+        // 復元対象でないエージェント (gemini 等) や停止の通知では、そのタブの
+        // 稼働状態を消す。消さないと、既に終わったエージェントを「動いたまま死んだ」
+        // と誤認して復元を提案してしまう
+        if (!status.active || !status.agent) {
+            this.activeAgents.delete(tabKey);
+            return;
+        }
+        this.activeAgents.set(tabKey, status.agent);
+        this.recordAgentUse(workspaceKey, status.agent);
     }
 
     private readRecord(workspaceKey: string): LaunchRecord | undefined {
@@ -230,7 +275,7 @@ function isStatusSequenceStart(text: string): boolean {
 }
 
 /**
- * pty-shell.py の OSC 777 ペイロードから、稼働中の復元対象エージェントを取り出す。
+ * pty-shell.py の OSC 777 ペイロードから、CLI エージェントの稼働状態を取り出す。
  *
  * 同じ OSC 777 はアプリからの通知 (`notify;<title>;<body>`) やフォアグラウンド
  * プロセス名の通知にも使われるので、JSON として読めないものと種別違いは黙って捨てる。
@@ -240,7 +285,7 @@ function isStatusSequenceStart(text: string): boolean {
  * (記録できるのは「claude / codex を使っていた」という事実だけで、そこから実行される
  * コマンドは固定文字列、しかも実行前にユーザーの確認が入る) ので、そのまま扱う。
  */
-export function parseActiveAgent(payload: string): AgentKind | undefined {
+export function parseAgentStatus(payload: string): AgentStatus | undefined {
     if (!payload.startsWith('{')) {
         return undefined;
     }
@@ -250,13 +295,16 @@ export function parseActiveAgent(payload: string): AgentKind | undefined {
     } catch {
         return undefined;
     }
-    if (message?.type !== 'cli_agent_status' || !message.data?.active) {
+    if (message?.type !== 'cli_agent_status') {
         return undefined;
+    }
+    if (!message.data?.active) {
+        return { active: false };
     }
     const agentType = message.data.agent_type;
     // gemini / copilot も検出されるが、復元コマンドを持つものだけを対象にする
     if (agentType === 'claude' || agentType === 'codex') {
-        return agentType;
+        return { active: true, agent: agentType };
     }
-    return undefined;
+    return { active: true };
 }

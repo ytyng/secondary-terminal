@@ -51,6 +51,14 @@ interface WebViewMessage {
     body?: string;
 }
 
+/**
+ * 1 回の武装で復元の確認を出せる上限。基本は 1 回で打ち止めだが、通知を
+ * 答えずに閉じた場合だけ次の新規タブでもう一度聞くため、その再試行ぶんの余地。
+ * ウィンドウ全体の上限ではない: プロセスが死ぬたびに武装し直す
+ * (`armRestoreAfterProcessDeath`) ので、クラッシュを繰り返せばこれを超えて出る。
+ */
+const MAX_RESTORE_PROMPTS = 3;
+
 export class TerminalProvider implements vscode.WebviewViewProvider {
     private _view?: vscode.WebviewView;
     private _cwd: string;
@@ -89,8 +97,13 @@ export class TerminalProvider implements vscode.WebviewViewProvider {
     // このウィンドウで今さっき起動したエージェントを「前回のセッション」として
     // 提案してしまい、別タブで動いているセッションに二重接続しかねない
     private _restoreCandidate: AgentKind | undefined;
-    // 復元の確認は 1 ウィンドウにつき 1 回だけ (タブごとに聞かない)
-    private _restorePromptShown = false;
+    // 復元の確認を出せる残り回数 (タブごとには聞かない)。
+    // 答えずに閉じられた時だけ次の新規タブで聞き直すので、ブール値ではなく回数で持つ
+    private _restorePromptsLeft = MAX_RESTORE_PROMPTS;
+    // 回答待ちの確認が出ているか。残り回数とは別に持つ必要がある: 回数を減らすだけでは
+    // 回答待ちの間に開いたタブが 2 本目を出せてしまい、両方に Restore と答えると
+    // 同じセッションへ resume が複数回飛ぶ
+    private _restorePromptInFlight = false;
     // 一度でも入力が送られたタブ (復元コマンドを打ちかけの行に連結しないための判定)
     private _tabsWithInput: Set<string> = new Set();
 
@@ -248,6 +261,8 @@ export class TerminalProvider implements vscode.WebviewViewProvider {
         // プロセス終了時のコールバックを登録（タブを閉じる）
         this._processManager.registerExitCallback(compositeKey, () => {
             this.appendLog(`Process exited for tab: ${tabId}`);
+            // 「何が動いたまま死んだか」は忘れる前に拾う (forgetTab で消える)
+            const agentAtDeath = this._agentSessionRestore.getActiveAgent(compositeKey);
             // フロントエンドにタブを閉じるように通知
             this._view?.webview.postMessage({
                 type: 'tabProcessExited',
@@ -266,6 +281,9 @@ export class TerminalProvider implements vscode.WebviewViewProvider {
             this._sessionManager.removeSession(compositeKey);
             this._agentSessionRestore.forgetTab(compositeKey);
             this._tabsWithInput.delete(compositeKey);
+            if (agentAtDeath) {
+                this.armRestoreAfterProcessDeath(agentAtDeath);
+            }
         });
 
         // startup commands はシェル起動の 1 秒後に pty-shell.py が流し込む。その間に
@@ -309,46 +327,114 @@ export class TerminalProvider implements vscode.WebviewViewProvider {
     }
 
     /**
+     * CLI エージェントが動いたままタブのプロセスが死んだとき、次に立ち上がる
+     * 空のタブで復元を提案し直せるようにする。
+     *
+     * ウィンドウ起動時に固定した `_restoreCandidate` をここで差し替えるのは、
+     * 「このウィンドウで動いていたものが死んだ」という**観測した事実**に基づくため。
+     * globalState を読み直す (記録は生きている別タブのものかもしれない) のとは違い、
+     * 生きているセッションへ二重接続する経路にはならない。それでも、同じ種類の
+     * エージェントが別タブで動いている場合は提案しない (そちらのセッションを
+     * 横取りしうるため)。
+     */
+    private armRestoreAfterProcessDeath(agent: AgentKind): void {
+        if (this._agentSessionRestore.hasActiveAgent(agent)) {
+            this.appendLog(`Not offering to restore ${agent}: another tab is still running it`);
+            return;
+        }
+        this._restoreCandidate = agent;
+        // 起動直後の提案を既に消費していても、これは別の出来事なので聞き直す
+        this._restorePromptsLeft = Math.max(this._restorePromptsLeft, 1);
+        this.appendLog(`${agent} was running when the process died; will offer to restore it on the next new tab`);
+    }
+
+    /**
      * 前回このワークスペースで使っていた CLI エージェントがあれば、そのセッションを
      * 復元するかダイアログで確認し、Yes ならレジューム用コマンドをターミナルへ送る。
-     * 確認は 1 ウィンドウにつき 1 回だけ (タブを開くたびに聞かない)。
+     *
+     * 同時に出す確認は常に 1 本、1 回の武装につき最大 `MAX_RESTORE_PROMPTS` 回
+     * (聞き直すのは答えずに閉じられた時だけ)。プロセスが死んだ時は別の出来事として
+     * 武装し直す (`armRestoreAfterProcessDeath`)。
      */
     private async offerAgentSessionRestore(tabId: string): Promise<void> {
-        if (this._restorePromptShown) {
+        if (this._restorePromptInFlight) {
+            this.appendLog(`Skipped offering session restore on tab ${tabId}: another prompt is waiting for an answer`);
+            return;
+        }
+        if (this._restorePromptsLeft <= 0) {
+            this.appendLog(`Skipped offering session restore on tab ${tabId}: no prompts left in this window`);
             return;
         }
         const config = vscode.workspace.getConfiguration('secondaryTerminal');
         if (!config.get<boolean>('restorePreviousAgentSession', true)) {
+            this.appendLog(`Skipped offering session restore on tab ${tabId}: disabled by settings`);
             return;
         }
         const agent = this._restoreCandidate;
         if (!agent) {
+            this.appendLog(`Skipped offering session restore on tab ${tabId}: no agent recorded for ${this._workspaceKey}`);
             return;
         }
-        // 待っている間に別のタブから聞かれないよう、await の前に立てる
-        this._restorePromptShown = true;
+        // 死んだ時点で他のタブに居なくても、聞くまでの間に立て直されていることがある
+        // (提案が出るのは次に空のタブが立ち上がった時で、そこまでの間隔に上限が無い)。
+        // 生きているセッションを横取りしないよう、ここでも確認する。
+        // 残り回数は減らさない: 本当に死んだ時に聞けなくなる
+        if (this._agentSessionRestore.hasActiveAgent(agent)) {
+            this.appendLog(`Skipped offering session restore on tab ${tabId}: ${agent} is running in another tab`);
+            return;
+        }
+        this._restorePromptsLeft -= 1;
+        this._restorePromptInFlight = true;
 
         const label = AgentSessionRestore.label(agent);
         const restore = 'Restore';
-        const answer = await vscode.window.showInformationMessage(
-            `Restore the previous ${label} session?`,
-            restore,
-            'Not now'
-        );
-        if (answer !== restore) {
+        this.appendLog(`Asking whether to restore the previous ${agent} session on tab ${tabId}`);
+        let answer: string | undefined;
+        try {
+            answer = await vscode.window.showInformationMessage(
+                `Restore the previous ${label} session?`,
+                restore,
+                'Not now'
+            );
+        } finally {
+            this._restorePromptInFlight = false;
+        }
+        if (answer === undefined) {
+            // 通知を答えずに閉じられた (見落とし・通知の自動消去を含む)。
+            // 明示的な拒否ではないので、次に空のタブが立ち上がったら聞き直す
+            this.appendLog(`Session restore prompt was dismissed without an answer (${this._restorePromptsLeft} prompts left)`);
             return;
         }
-        this.runAgentResume(tabId, agent);
+        if (answer !== restore) {
+            // 明示的に断られたので、このウィンドウではもう聞かない
+            this._restorePromptsLeft = 0;
+            this.appendLog(`Declined restoring the previous ${agent} session`);
+            return;
+        }
+        // 打ち止めにするのは実際に送れた時だけ。送らずに見送った (別タブで動いていた、
+        // タブが閉じられていた等) 場合に 0 にすると、次の機会に聞けなくなる
+        if (this.runAgentResume(tabId, agent)) {
+            this._restorePromptsLeft = 0;
+        }
     }
 
-    /** レジュームコマンドを、そのタブのシェルに 1 行として送る */
-    private runAgentResume(tabId: string, agent: AgentKind): void {
+    /**
+     * レジュームコマンドを、そのタブのシェルに 1 行として送る。
+     * 送れた時だけ true (見送った場合は呼び出し側が次の機会を残せるようにする)。
+     */
+    private runAgentResume(tabId: string, agent: AgentKind): boolean {
         const compositeKey = this.getCompositeKey(tabId);
         // ダイアログに答えるまでの間にユーザーが打ち始めていることがある。
         // そこへ送ると打ちかけの行に連結され、まったく別のコマンドになって実行される
         if (this._tabsWithInput.has(compositeKey)) {
             this.appendLog(`Skipped restoring ${agent} session: the terminal already has input`);
-            return;
+            return false;
+        }
+        // 通知を開いている間に、別タブでそのエージェントが立て直されていることがある。
+        // そこへ resume を送ると生きているセッションに二重接続する
+        if (this._agentSessionRestore.hasActiveAgent(agent)) {
+            this.appendLog(`Skipped restoring ${agent} session: it is running in another tab`);
+            return false;
         }
         const command = AgentSessionRestore.resumeCommand(agent);
         try {
@@ -356,17 +442,19 @@ export class TerminalProvider implements vscode.WebviewViewProvider {
             // false で返る。送れていないのに記録を更新しない
             if (!this._processManager.sendToProcess(compositeKey, `${command}\r`)) {
                 this.appendLog(`Skipped restoring ${agent} session: the terminal is gone`);
-                return;
+                return false;
             }
             // 復元して使い続けているのに、最初に起動した日から 14 日で候補が
             // 失効しないよう、送った時点で記録を更新する
             this._agentSessionRestore.recordAgentUse(this._workspaceKey, agent);
             this.appendLog(`Restoring previous ${agent} session: ${command}`);
+            return true;
         } catch (error) {
             // タブが閉じられている等で送れないことがある。復元は補助機能なので、
             // ログに残すだけで通常の起動を妨げない
             this.appendLog(`Failed to restore ${agent} session: ${error}`);
         }
+        return false;
     }
 
     public resolveWebviewView(
