@@ -11,6 +11,8 @@ import { createContextTextForSelectedText } from './utils';
 interface TabInfo {
     id: string;
     title: string;
+    // ユーザーが改名したタブ。フォアグラウンドプロセス名による自動更新で上書きしない
+    customTitle?: boolean;
 }
 
 // タブ状態管理の型定義
@@ -22,7 +24,7 @@ interface TabState {
 
 // WebView メッセージの型定義
 interface WebViewMessage {
-    type: 'terminalInput' | 'terminalReady' | 'tabReady' | 'resize' | 'error' | 'buttonSendSelection' | 'buttonCopySelection' | 'refreshCliAgentStatus' | 'bufferCleanupRequest' | 'terminalInputBegin' | 'terminalInputChunk' | 'terminalInputEnd' | 'editorSendContent' | 'log' | 'extractToTodos' | 'openPromptHistory' | 'createTab' | 'switchTab' | 'closeTab' | 'pasteImage' | 'openDropZone' | 'openLink' | 'oscNotification';
+    type: 'terminalInput' | 'terminalReady' | 'tabReady' | 'resize' | 'error' | 'buttonSendSelection' | 'buttonCopySelection' | 'refreshCliAgentStatus' | 'bufferCleanupRequest' | 'terminalInputBegin' | 'terminalInputChunk' | 'terminalInputEnd' | 'editorSendContent' | 'log' | 'extractToTodos' | 'openPromptHistory' | 'createTab' | 'switchTab' | 'closeTab' | 'renameTab' | 'pasteImage' | 'openDropZone' | 'openLink' | 'oscNotification';
     data?: string;
     cols?: number;
     rows?: number;
@@ -79,6 +81,8 @@ export class TerminalProvider implements vscode.WebviewViewProvider {
 
     // チャンクセッションの無通信タイムアウト (ミリ秒)
     private static readonly CHUNK_SESSION_TIMEOUT_MS = 30000;
+    // タブ名の上限。タブの見た目は CSS の ellipsis で切れるが、状態に巨大な文字列を持たせない
+    private static readonly MAX_TAB_TITLE_LENGTH = 100;
 
     // ログ管理
     private _logs: string[] = [];
@@ -195,6 +199,46 @@ export class TerminalProvider implements vscode.WebviewViewProvider {
             this._tabState.activeTabId = tabId;
             this.appendLog(`Switched to tab: ${tab.title} (${tabId})`);
         }
+    }
+
+    // タブを改名する。webview では window.prompt が使えないため VSCode の入力ボックスで聞く。
+    // currentTitle は webview が表示中のタイトル (フォアグラウンドプロセス名に
+    // 自動更新されていてバックエンドの title とは一致しないことがある) で、初期値にだけ使う
+    private async handleRenameTab(tabId: string, currentTitle: string | undefined): Promise<void> {
+        const initial = typeof currentTitle === 'string'
+            ? currentTitle
+            : this._tabState.tabs.find(t => t.id === tabId)?.title ?? '';
+        const input = await vscode.window.showInputBox({
+            title: 'Rename Tab',
+            prompt: 'Enter a new name for this tab',
+            value: initial,
+            validateInput: (value) => {
+                const trimmed = value.trim();
+                if (!trimmed) {
+                    return 'Tab name cannot be empty';
+                }
+                if (trimmed.length > TerminalProvider.MAX_TAB_TITLE_LENGTH) {
+                    return `Tab name must be ${TerminalProvider.MAX_TAB_TITLE_LENGTH} characters or less`;
+                }
+                return undefined;
+            }
+        });
+        if (input === undefined) {
+            return; // キャンセル
+        }
+        const title = input.trim();
+        if (!title || title.length > TerminalProvider.MAX_TAB_TITLE_LENGTH) {
+            return;
+        }
+        // 入力中にタブが閉じられていることがある
+        const tab = this._tabState.tabs.find(t => t.id === tabId);
+        if (!tab) {
+            return;
+        }
+        tab.title = title;
+        tab.customTitle = true;
+        this.appendLog(`Renamed tab: ${title} (${tabId})`);
+        this._view?.webview.postMessage({ type: 'tabRenamed', tabId, title });
     }
 
     // タブを閉じる
@@ -471,6 +515,12 @@ export class TerminalProvider implements vscode.WebviewViewProvider {
                         // タブを閉じる（最後の1つも閉じれる）
                         if (message.tabId) {
                             this.handleCloseTab(message.tabId);
+                        }
+                        break;
+                    case 'renameTab':
+                        // タブのダブルクリックで改名ダイアログを出す
+                        if (message.tabId) {
+                            void this.handleRenameTab(message.tabId, message.title);
                         }
                         break;
                     case 'error':
