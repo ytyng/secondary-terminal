@@ -12,7 +12,7 @@ A full-featured terminal extension that runs in the VSCode sidebar. With complet
 - **Dynamic Resizing**: Automatically adjusts terminal size according to sidebar dimensions
 - **UTF-8 Support**: Correctly displays multibyte characters including Japanese
 - **Custom Font**: RobotoMono Nerd Font support
-- **Multi-Tab Support**: Multiple independent terminal tabs, each with its own shell process and editor
+- **Multi-Tab Support**: Multiple independent terminal tabs, each with its own shell process and editor. Double-click a tab to rename it
 - **ACE Editor Integration**: Built-in code editor (ACE) per tab for composing commands and text
 - **Clipboard Image Paste**: Paste images from clipboard and insert file path reference (macOS only)
 - **Drop Zone**: Drag & drop files from the explorer to insert file path references into the editor
