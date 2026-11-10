@@ -3081,6 +3081,9 @@
                             } else if (state.cliAgentState.agent_type === 'codex') {
                                 indicator.textContent = 'Codex';
                                 indicator.title = 'Codex is active - Shift+Enter sends Ctrl+J';
+                            } else if (state.cliAgentState.agent_type === 'opencode') {
+                                indicator.textContent = 'OpenCode';
+                                indicator.title = 'OpenCode is active - Shift+Enter inputs a newline';
                             } else if (state.cliAgentState.agent_type === 'copilot') {
                                 indicator.textContent = 'Copilot';
                                 indicator.title = 'Copilot is active - Shift+Enter inputs a newline';

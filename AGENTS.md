@@ -103,7 +103,7 @@ secondary-terminal/
 │   ├── clipboardImageHandler.ts    # macOS クリップボード画像抽出
 │   ├── dropZoneProvider.ts         # ファイル Drag & Drop ゾーン
 │   ├── terminalSessionManager.ts   # ターミナルセッション永続化
-│   ├── agentSessionRestore.ts      # 前回使った CLI エージェント (Claude Code / Codex) の記録と復元提案
+│   ├── agentSessionRestore.ts      # 前回使った CLI エージェント (Claude Code / Codex / OpenCode) の記録と自動継続
 │   ├── shellProcessManager.ts      # シェルプロセスライフサイクル管理
 │   └── utils.ts                    # ユーティリティ関数
 ├── resources/
@@ -132,29 +132,33 @@ secondary-terminal/
 ### CLI エージェントのセッション復元 (`agentSessionRestore.ts`)
 - pty-shell.py が既に出している CLI エージェントの稼働状態 (OSC 777 の `cli_agent_status`。
   シェルの子孫プロセスを見て判定している) を**拡張ホスト側でも拾い**、
-  「このワークスペースで使っていたエージェント」として `globalState` に記録する
-  (キーは cwd、14 日で失効)。出力の覗き見は `ShellProcessManager.addOutputObserver` 経由
+  「このワークスペースで使っていたエージェント」と、そのプロセスの作業ディレクトリを
+  `globalState` に記録する (キーはワークスペースの cwd、14 日で失効)。
+  出力の監視は `ShellProcessManager.addOutputObserver` 経由。稼働中は 60 秒ごとに記録を更新する
 - **入力行からコマンド名を拾う方式にしないこと**: 履歴 (↑ キー) から呼び出した場合や補完で
   確定した場合、コマンド文字列は拡張を通らずシェル内で確定するため、最も普通の起動方法を
   取りこぼす。稼働プロセスを見ている PTY 側の判定の方が正確
-- 空のターミナルが立ち上がったとき、記録があれば
-  `Restore the previous <Claude Code|Codex> session?` を確認し、Yes なら
-  `claude --continue` / `codex resume --last` をそのタブへ送る
+- 再起動後の最初の空のターミナルで、記録した作業ディレクトリから
+  `claude --continue` / `codex resume --last` / `opencode --continue` を自動実行する。
+  固定コマンドを PTY の起動引数で渡し、起動から 1 秒後に投入する。先に手入力があれば中止する。
+  未信頼ワークスペース、作業ディレクトリが無い場合、startup commands がある場合は復元しない。
+  抑止した候補を後で開いた別タブに持ち越さない
 - **セッション ID を拡張側で管理しない**のが要点。`~/.claude/projects/` や `~/.codex/sessions/`
   の場所・命名規則は CLI の内部実装なので、追随すると壊れる。「直前のセッションを継続する」
-  コマンドはどちらの CLI も持っているので、その解決は CLI に任せる
+  コマンドを各 CLI が持っているので、その解決は CLI に任せる。別の場所で同じディレクトリの
+  新しい会話を開始した場合は、その会話が選ばれ得る (特定 ID への固定復元ではない)
 - **復元候補はウィンドウ起動時の 1 回だけ読む** (`_restoreCandidate`)。提案する直前に読み直すと、
   同じウィンドウで今さっき起動したエージェントを「前回のセッション」として提案し、
   別タブで動いているセッションへ二重に接続しかねない
-- 確認は 1 ウィンドウにつき 1 回、かつ**バッファが空の (新規に立ち上がった) タブだけ**。
-  再接続時にも聞くと、既に動いているエージェントの上にもう 1 つ起動しかねない
+- 自動継続は 1 ウィンドウにつき 1 回、かつ**バッファが空の (新規に立ち上がった) タブだけ**。
+  再接続時にも実行すると、既に動いているエージェントの上にもう 1 つ起動しかねない
 - **記録はワークスペースごとに独立した `globalState` のキーへ書く** (`...lastAgentLaunch:<cwd>`)。
   1 つのオブジェクトにまとめると、同じプロファイルで開いた別ウィンドウが同じスナップショットを
   読んで丸ごと書き戻し、相手のワークスペースの記録を消す。拡張ホストはウィンドウごとに別プロセスなので
   こちら側の直列化では防げない。キーが増え続けないよう、起動時に失効分だけを掃除する
 - 設定 `secondaryTerminal.restorePreviousAgentSession` (既定 true) で無効化できる
 - pty-shell.py は gemini / copilot も検出するが、「直前のセッションを継続する」コマンドを
-  持つ claude / codex だけを対象にしている
+  持つ claude / codex / opencode だけを対象にしている
 
 ### クリップボード画像ハンドラー (`clipboardImageHandler.ts`)
 - macOS の NSPasteboard から PNG/TIFF 画像を抽出（AppleScript 経由）

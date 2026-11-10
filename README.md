@@ -16,7 +16,7 @@ A full-featured terminal extension that runs in the VSCode sidebar. With complet
 - **ACE Editor Integration**: Built-in code editor (ACE) per tab for composing commands and text
 - **Clipboard Image Paste**: Paste images from clipboard and insert file path reference (macOS only)
 - **Drop Zone**: Drag & drop files from the explorer to insert file path references into the editor
-- **Agent Session Restore**: Offers to resume the CLI agent session (Claude Code / Codex) you last used in the workspace when a terminal opens
+- **Agent Session Restore**: Automatically resumes the last-used AI agent (Claude Code / Codex / OpenCode) in its working directory when the first terminal opens after restarting VSCode
 
 ## Requirements
 
@@ -139,11 +139,17 @@ The following settings are available in VSCode Settings (search for "Secondary T
 | `secondaryTerminal.layout.heightAdjustment` | number | `1.34` | Correction factor for line height used when calculating the number of rows. Adjust when changing fonts. Smaller values produce more rows (0.5–2) |
 | `secondaryTerminal.startupCommands` | array | `[]` | Commands automatically executed when the terminal starts |
 | `secondaryTerminal.maxHistoryLines` | number | `1000` | Maximum number of history lines kept (applied to xterm scrollback and the session-restore buffer, minimum 50) |
-| `secondaryTerminal.restorePreviousAgentSession` | boolean | `true` | When a terminal opens, ask whether to resume the CLI agent session (Claude Code / Codex) last used in this workspace |
+| `secondaryTerminal.restorePreviousAgentSession` | boolean | `true` | Automatically resume the last-used AI agent (Claude Code / Codex / OpenCode) after restarting VSCode; startup commands take priority |
 | `secondaryTerminal.notifications.enabled` | boolean | `true` | Detect OSC notification sequences (OSC 9 / 777 / 99) in terminal output and show VSCode notifications |
 | `secondaryTerminal.notifications.flashBackground` | boolean | `true` | Flash the terminal (webview) background briefly when an OSC notification is shown |
 
 Font and layout settings are applied to all open terminal tabs immediately when changed. `maxHistoryLines` requires a webview reload (e.g. reopening the sidebar or `Developer: Reload Window`).
+
+### AI agent session continuation
+
+The extension remembers the last detected supported agent and its working directory for each workspace. After a restart or window reload, opening Secondary Terminal automatically runs `claude --continue`, `codex resume --last`, or `opencode --continue` once. These commands select the agent's most recent saved conversation in that directory; the extension does not pin a session ID. If another conversation was started there in the meantime, the CLI may select that newer conversation. Only one agent is resumed per workspace, not every previous tab.
+
+The record expires after 14 days without use. Automatic continuation requires a trusted workspace and an existing working directory. Configured `startupCommands` take priority, and typing during the startup delay cancels continuation. Disable `secondaryTerminal.restorePreviousAgentSession` to open a plain shell. Terminal screen contents and shell state are not saved across VSCode restarts.
 
 ## Technical Specifications
 
