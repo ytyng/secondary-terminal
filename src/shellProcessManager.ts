@@ -87,7 +87,8 @@ export class ShellProcessManager {
         cwd: string,
         cols: number,
         rows: number,
-        startupScopeKey?: string
+        startupScopeKey?: string,
+        resumeCommand?: string
     ): childProcess.ChildProcess {
         let processInfo = this.processes.get(workspaceKey);
 
@@ -103,7 +104,7 @@ export class ShellProcessManager {
             if (processInfo && !processInfo.process.killed && processInfo.process.exitCode === null) {
                 this.terminateProcess(workspaceKey);
             }
-            processInfo = this.createNewProcess(workspaceKey, extensionPath, cwd, cols, rows, startupScopeKey ?? workspaceKey);
+            processInfo = this.createNewProcess(workspaceKey, extensionPath, cwd, cols, rows, startupScopeKey ?? workspaceKey, resumeCommand);
         }
 
         if (!processInfo) {
@@ -128,7 +129,8 @@ export class ShellProcessManager {
         cwd: string,
         cols: number,
         rows: number,
-        startupScopeKey: string
+        startupScopeKey: string,
+        resumeCommand?: string
     ): ShellProcessInfo {
         // Creating new shell process
 
@@ -155,6 +157,10 @@ export class ShellProcessManager {
             args.push('--startup-commands', JSON.stringify(configuredStartup));
         }
         
+        if (resumeCommand && vscode.workspace.isTrusted && !shouldIncludeStartup) {
+            args.push('--resume-command', resumeCommand);
+        }
+
         // Python実行パスを動的に決定
         const pythonCommand = this.findPythonCommand();
 

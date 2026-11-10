@@ -1,14 +1,7 @@
-import * as vscode from 'vscode';
+import type * as vscode from 'vscode';
+import * as path from 'path';
 
-/**
- * 復元に対応する CLI エージェント。
- * `resumeCommand` はそのエージェント自身の「直前のセッションを継続する」コマンドで、
- * セッション ID の管理はエージェント側に任せる (拡張側でセッションファイルの
- * 場所や命名規則に依存しないため、CLI の内部構造が変わっても壊れない)。
- *
- * pty-shell.py は gemini / copilot も検出するが、こちらから復元できるのは
- * 「直前のセッションを継続する」コマンドを持つこの 2 つだけ。
- */
+/** 復元コマンドは固定し、直前のセッションの解決は各 CLI に任せる。 */
 const AGENTS = {
     claude: {
         label: 'Claude Code',
@@ -20,12 +13,20 @@ const AGENTS = {
         // 「最後に記録されたセッションを継続する」(引数なしだとピッカーが出る)
         resumeCommand: 'codex resume --last',
     },
+    opencode: {
+        label: 'OpenCode',
+        resumeCommand: 'opencode --continue',
+    },
 } as const;
 
 export type AgentKind = keyof typeof AGENTS;
 
-interface LaunchRecord {
+export interface AgentRestoreCandidate {
     agent: AgentKind;
+    cwd: string;
+}
+
+interface LaunchRecord extends AgentRestoreCandidate {
     /** そのエージェントを最後に使っていた時刻 (epoch ms) */
     at: number;
 }
@@ -51,11 +52,13 @@ const STATUS_PREFIX = '\x1b]777;';
 interface CliAgentStatus {
     active?: boolean;
     agent_type?: string | null;
+    cwd?: string | null;
+    pid?: number;
 }
 
 /**
  * 「前回このワークスペースで使っていた CLI エージェント」を覚えておき、
- * 次に空のターミナルが立ち上がったときにセッションの復元を提案する。
+ * 次に空のターミナルが立ち上がったときにセッションを自動的に継続する。
  *
  * 検知には pty-shell.py が既に出している CLI エージェントの稼働状態
  * (OSC 777 の `cli_agent_status`。シェルの子孫プロセスを見て判定している) を使う。
@@ -69,6 +72,8 @@ interface CliAgentStatus {
 export class AgentSessionRestore {
     /** OSC シーケンスがチャンク境界で分断された場合の持ち越し (タブごと) */
     private readonly pendingOutputs: Map<string, string> = new Map();
+    private readonly observedAgents: Map<string, string> = new Map();
+    private lastRecordedTab: string | undefined;
 
     constructor(private readonly context: vscode.ExtensionContext) {
         this.pruneStaleRecords();
@@ -90,7 +95,7 @@ export class AgentSessionRestore {
         let consumedUntil = 0;
         while ((match = STATUS_SEQUENCE.exec(combined)) !== null) {
             consumedUntil = match.index + match[0].length;
-            this.handleStatusPayload(workspaceKey, match[1] ?? '');
+            this.handleStatusPayload(tabKey, workspaceKey, match[1] ?? '');
         }
 
         // 終端 (BEL) が来ていないシーケンスの途中だけを次回に持ち越す。
@@ -116,28 +121,28 @@ export class AgentSessionRestore {
     /** タブを閉じたときに持ち越しを捨てる */
     public forgetTab(tabKey: string): void {
         this.pendingOutputs.delete(tabKey);
+        this.observedAgents.delete(tabKey);
     }
 
     /**
      * そのエージェントを「今このワークスペースで使っている」と記録する。
-     * 復元コマンドを送った直後にも呼ぶ (復元して使い続けているのに、最初の
-     * 起動から 14 日で候補が失効してしまうのを防ぐ)。
+     * PTY の定期通知で更新し、長時間使い続けているセッションの失効を防ぐ。
      */
-    public recordAgentUse(workspaceKey: string, agent: AgentKind): void {
+    public recordAgentUse(workspaceKey: string, agent: AgentKind, cwd: string = workspaceKey): void {
         // 自分のワークスペースのキーだけを丸ごと置き換える。read-modify-write が
         // 無いので、同時に書いても他のワークスペースの記録は巻き込まれない
-        const record: LaunchRecord = { agent, at: Date.now() };
+        const record: LaunchRecord = { agent, cwd, at: Date.now() };
         void this.context.globalState.update(stateKeyFor(workspaceKey), record);
     }
 
     /**
-     * 復元を提案する対象。記録が無い / 古すぎる場合は undefined。
+     * 自動復元する対象。記録が無い / 古すぎる場合は undefined。
      *
      * ウィンドウ起動時に 1 度だけ読むこと。後から読み直すと、同じウィンドウで
      * さっき起動したばかりのエージェントを「前回のセッション」として提案し、
      * 別タブで動いているセッションに二重に接続しかねない。
      */
-    public getRestoreCandidate(workspaceKey: string, now: number = Date.now()): AgentKind | undefined {
+    public getRestoreCandidate(workspaceKey: string, now: number = Date.now()): AgentRestoreCandidate | undefined {
         const record = this.readRecord(workspaceKey);
         if (!record) {
             return undefined;
@@ -147,7 +152,7 @@ export class AgentSessionRestore {
         if (age < 0 || age > MAX_AGE_MS) {
             return undefined;
         }
-        return record.agent;
+        return { agent: record.agent, cwd: record.cwd };
     }
 
     public static label(agent: AgentKind): string {
@@ -159,10 +164,27 @@ export class AgentSessionRestore {
         return AGENTS[agent].resumeCommand;
     }
 
-    private handleStatusPayload(workspaceKey: string, payload: string): void {
+    private handleStatusPayload(tabKey: string, workspaceKey: string, payload: string): void {
         const agent = parseActiveAgent(payload);
         if (agent) {
-            this.recordAgentUse(workspaceKey, agent);
+            const status = JSON.parse(payload).data as CliAgentStatus;
+            if (status.cwd !== undefined &&
+                (typeof status.cwd !== 'string' || !path.isAbsolute(status.cwd) || status.cwd.includes('\0'))) {
+                // cwd の取得に失敗した時は、別のディレクトリの会話を復元する記録を作らない。
+                return;
+            }
+            const cwd = typeof status.cwd === 'string' && path.isAbsolute(status.cwd) && !status.cwd.includes('\0')
+                ? status.cwd : workspaceKey;
+            const identity = JSON.stringify([agent, cwd, status.pid]);
+            const previous = this.observedAgents.get(tabKey);
+            this.observedAgents.set(tabKey, identity);
+            // 定期通知は現在の復元対象の有効期限だけを延ばす。別タブの古い
+            // エージェントからの通知で、最後に起動したエージェントを上書きしない。
+            if (previous === identity && this.lastRecordedTab !== tabKey) {
+                return;
+            }
+            this.lastRecordedTab = tabKey;
+            this.recordAgentUse(workspaceKey, agent, cwd);
         }
     }
 
@@ -172,10 +194,13 @@ export class AgentSessionRestore {
         if (!stored || typeof stored !== 'object' || Array.isArray(stored)) {
             return undefined;
         }
-        if (typeof stored.at !== 'number' || typeof stored.agent !== 'string' || !(stored.agent in AGENTS)) {
+        if (!Number.isFinite(stored.at) || typeof stored.agent !== 'string' || !Object.hasOwn(AGENTS, stored.agent)) {
             return undefined;
         }
-        return { agent: stored.agent as AgentKind, at: stored.at };
+        // 旧バージョンの記録には cwd が無いため、ワークスペースのルートを使う。
+        const cwd = typeof stored.cwd === 'string' && path.isAbsolute(stored.cwd) && !stored.cwd.includes('\0')
+            ? stored.cwd : workspaceKey;
+        return { agent: stored.agent as AgentKind, cwd, at: stored.at };
     }
 
     /**
@@ -237,8 +262,8 @@ function isStatusSequenceStart(text: string): boolean {
  *
  * **信頼境界**: ターミナル内で動く任意のプロセスも同じ OSC を出力できるため、
  * これが pty-shell.py 由来かどうかは区別できない。偽装されて困る情報ではない
- * (記録できるのは「claude / codex を使っていた」という事実だけで、そこから実行される
- * コマンドは固定文字列、しかも実行前にユーザーの確認が入る) ので、そのまま扱う。
+ * (実行するコマンドは固定文字列、cwd はシェル文字列に展開しない)。
+ * 自動実行は信頼済みワークスペースに限る。
  */
 export function parseActiveAgent(payload: string): AgentKind | undefined {
     if (!payload.startsWith('{')) {
@@ -255,7 +280,7 @@ export function parseActiveAgent(payload: string): AgentKind | undefined {
     }
     const agentType = message.data.agent_type;
     // gemini / copilot も検出されるが、復元コマンドを持つものだけを対象にする
-    if (agentType === 'claude' || agentType === 'codex') {
+    if (agentType === 'claude' || agentType === 'codex' || agentType === 'opencode') {
         return agentType;
     }
     return undefined;

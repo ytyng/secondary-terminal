@@ -19,6 +19,42 @@ import traceback
 IO_BUFFER_SIZE = 1024
 
 
+class PendingAgentResume:
+    """端末の自動応答を通し、実際の入力だけで自動継続を中止する。"""
+
+    # xterm が生成する DA/DSR/モード・サイズ・色・設定の問い合わせ応答。
+    # NULL は拡張側のステータス更新要求。
+    response = re.compile(
+        rb'\x00|\x1b\[(?:[?>]?[0-9;]+[cnRt]|\??[0-9;]+\$y|[IO])'
+        rb'|\x1b\](?:4;[0-9]+|1[012]);rgb:[0-9a-fA-F/]+(?:\x07|\x1b\\)'
+        rb'|\x1bP[01]\$r[^\x1b]*\x1b\\'
+    )
+
+    def __init__(self, command):
+        self.command = command
+        self.pending = b''
+
+    def observe_input(self, data):
+        if not self.command:
+            return
+        self.pending += data
+        while self.pending:
+            match = self.response.match(self.pending)
+            if match:
+                self.pending = self.pending[match.end():]
+                continue
+            # パイプ境界で分断されたエスケープシーケンスは、終端まで判断を待つ。
+            if len(self.pending) < 4096 and (
+                self.pending == b'\x1b'
+                or re.fullmatch(rb'\x1b\[[0-?]*[ -/]*', self.pending)
+                or (self.pending.startswith((b'\x1b]', b'\x1bP'))
+                    and b'\x07' not in self.pending and b'\x1b\\' not in self.pending)
+            ):
+                return
+            self.command = None
+            self.pending = b''
+
+
 def set_winsize(fd, rows, cols):
     """ターミナルサイズを設定"""
     try:
@@ -107,8 +143,34 @@ def get_foreground_process_name(shell_pid, table):
     return process_name
 
 
-def check_cli_agent_active(shell_pid, table):
-    """シェルプロセス配下で CLI エージェント（Claude, Gemini, Codex, Copilot）の稼働有無を軽量に判定する。
+def get_process_cwd(pid):
+    """エージェントの作業ディレクトリを取得する。会話ファイルは読まない。"""
+    try:
+        if sys.platform == 'darwin':
+            result = subprocess.run(
+                ['/usr/sbin/lsof', '-a', '-p', str(pid), '-d', 'cwd', '-Fn'],
+                capture_output=True, text=True, timeout=1,
+            )
+            if result.returncode == 0:
+                for line in result.stdout.splitlines():
+                    if line.startswith('n/'):
+                        return line[1:]
+            return None
+        return os.readlink(f'/proc/{pid}/cwd')
+    except (OSError, subprocess.SubprocessError):
+        return None
+
+
+def agent_process_status(agent, pid, previous):
+    # 稼働中の同じプロセスについて lsof を毎回起動しない。
+    cwd = previous.get('cwd') if previous.get('pid') == pid else None
+    if not cwd:
+        cwd = get_process_cwd(pid)
+    return {'active': True, 'agent_type': agent, 'pid': pid, 'cwd': cwd}
+
+
+def check_cli_agent_active(shell_pid, table, previous=None):
+    """シェルプロセス配下で CLI エージェント (Claude, Gemini, Codex, Copilot, OpenCode) の稼働有無を軽量に判定する。
 
     プロセステーブルのスナップショット (get_process_snapshot) から子孫 PID を求め、
     その PID 群に限定した ps 呼び出し (50 件ずつ) で args を取得して判定する。
@@ -140,7 +202,7 @@ def check_cli_agent_active(shell_pid, table):
                     [
                         'ps',
                         '-o',
-                        'comm=,args=',
+                        'pid=,comm=,args=',
                         '-p',
                         ','.join(str(x) for x in chunk),
                     ],
@@ -155,37 +217,41 @@ def check_cli_agent_active(shell_pid, table):
                 for line in r.stdout.splitlines():
                     if not line.strip():
                         continue
-                    # comm と args はスペース区切りだが、args はスペースを含む。
-                    # 'comm=,args=' により先頭フィールドはコマンド名のみ、それ以降を args として扱える。
-                    # 先頭のコマンド名と残りを args として分離
-                    parts = line.strip().split(None, 1)
-                    comm = parts[0].lower() if parts else ''
-                    args = parts[1].lower() if len(parts) > 1 else ''
+                    parts = line.strip().split(None, 2)
+                    if len(parts) < 3 or not parts[0].isdigit():
+                        continue
+                    pid = int(parts[0])
+                    comm = parts[1].lower()
+                    args = parts[2].lower()
 
                     # Claude 検出
-                    if 'claude' in comm or ' claude ' in args:
-                        return {'active': True, 'agent_type': 'claude'}
+                    if ('claude' in comm or ' claude ' in args or re.match(
+                        r'(?:\S*/)?(?:node|bun)\s+\S*/@anthropic-ai/claude-code/cli\.js(?:\s|$)', args
+                    )):
+                        return agent_process_status('claude', pid, previous or {})
                     # Gemini 検出
                     if (
                         '/bin/gemini' in args
                         or ' gemini ' in args
                         or comm == 'gemini'
                     ):
-                        return {'active': True, 'agent_type': 'gemini'}
+                        return agent_process_status('gemini', pid, previous or {})
                     # Codex 検出
                     if (
                         'codex' in comm
                         or ' codex ' in args
                         or '/bin/codex' in args
                     ):
-                        return {'active': True, 'agent_type': 'codex'}
+                        return agent_process_status('codex', pid, previous or {})
+                    if 'opencode' in comm or '/bin/opencode' in args or ' opencode ' in args:
+                        return agent_process_status('opencode', pid, previous or {})
                     # Copilot 検出
                     if (
                         'copilot' in comm
                         or ' copilot ' in args
                         or '/bin/copilot' in args
                     ):
-                        return {'active': True, 'agent_type': 'copilot'}
+                        return agent_process_status('copilot', pid, previous or {})
             except (
                 subprocess.TimeoutExpired,
                 subprocess.SubprocessError,
@@ -251,6 +317,13 @@ def main():
         except (IndexError, json.JSONDecodeError) as e:
             log(f"Warning: Failed to parse startup commands: {e}")
             startup_commands = []
+
+    # 自動復元は固定コマンドだけを受け付ける。startup commands と同時には使わない。
+    resume_command = None
+    if len(sys.argv) > 5 and sys.argv[4] == '--resume-command':
+        if sys.argv[5] in ('claude --continue', 'codex resume --last', 'opencode --continue'):
+            resume_command = sys.argv[5]
+    pending_resume = PendingAgentResume(resume_command)
 
     # グローバル変数でプロセス参照を保持
     global current_shell_process, current_master
@@ -371,6 +444,7 @@ def main():
 
         # CLI エージェント監視のための変数
         last_agent_check = 0
+        last_agent_status_sent = 0
         # NULL での強制チェックにレート制限を導入（過剰な発火での高負荷を防止）
         last_forced_check = 0.0
         forced_check_cooldown = 1.5  # 秒
@@ -412,6 +486,13 @@ def main():
                             )
                             time.sleep(0.1)  # コマンド間に少し間隔を空ける
 
+                if (pending_resume.command and not pending_resume.pending and
+                        current_time >= startup_delay_time and
+                        not select.select([sys.stdin] if stdin_open else [], [], [], 0)[0]):
+                    # パイプに到着済みの手入力は先に処理し、復元を中止できるようにする。
+                    os.write(master, (pending_resume.command + '\n').encode('utf-8'))
+                    pending_resume.command = None
+
                 # プロセス監視 (エージェント検出とフォアグラウンドプロセス名) は
                 # 同じ ps スナップショットを共有し、プロセス起動回数を抑える
                 need_agent_check = (
@@ -428,16 +509,20 @@ def main():
                 if need_agent_check:
                     # Claude や Gemini の検出を実行（負荷軽減のため3秒間隔）
                     new_agent_state = check_cli_agent_active(
-                        p.pid, process_table
+                        p.pid, process_table, current_agent_state
                     )
                     if (
                         new_agent_state
-                        and new_agent_state != current_agent_state
+                        and (new_agent_state != current_agent_state or
+                             (new_agent_state.get('active') and
+                              current_time - last_agent_status_sent >= 60))
                     ):
                         current_agent_state = new_agent_state
                         send_status_message(
                             'cli_agent_status', current_agent_state
                         )
+
+                        last_agent_status_sent = current_time
 
                     last_agent_check = current_time
 
@@ -469,6 +554,7 @@ def main():
                                 # EOF（パイプが閉じられた）。以後 stdin を監視しない。
                                 stdin_open = False
                             else:
+                                pending_resume.observe_input(data)
                                 # 前回の未完成バイト列と結合
                                 input_buffer += data
 
@@ -538,6 +624,7 @@ def main():
                                                 check_cli_agent_active(
                                                     p.pid,
                                                     get_process_snapshot(),
+                                                    current_agent_state,
                                                 )
                                             )
                                             if new_agent_state:
