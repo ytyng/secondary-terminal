@@ -2769,6 +2769,12 @@
                     convertEol: true,
                     allowProposedApi: true,
                     allowTransparency: false,
+                    // OSC 8 リンクは WebView 内で開かず、拡張側の openExternal に渡す。
+                    linkHandler: {
+                        activate(event, uri) {
+                            vscode.postMessage({ type: 'openLink', data: uri });
+                        }
+                    },
                     minimumContrastRatio: 1,
                     // ペーストをアプリに「まとまり」として伝える
                     bracketedPasteMode: true,
