@@ -8,6 +8,10 @@
   "configuration.fontSize.description": "ターミナルと ACE エディタのフォントサイズ (px)",
   "configuration.lineHeight.description": "ターミナルの行の高さ (フォントサイズに対する倍率)",
   "configuration.letterSpacing.description": "ターミナルの文字間隔 (px)",
+  "configuration.gpuAcceleration.description": "ターミナルの描画に GPU (WebGL レンダラー) を使うかどうか",
+  "configuration.gpuAcceleration.auto.description": "高解像度ディスプレイ (devicePixelRatio 2 以上) では WebGL、それ以外では DOM レンダラーを使う。非 Retina ディスプレイでは WebGL のセル幅の丸めで文字が崩れるため",
+  "configuration.gpuAcceleration.on.description": "常に WebGL レンダラーを使う",
+  "configuration.gpuAcceleration.off.description": "常に DOM レンダラーを使う (大量出力時は遅くなる)",
   "configuration.editorHeight.description": "ターミナル下部の ACE エディタ (コマンド入力エディタ) の高さ (px)",
   "configuration.layout.widthAdjustment.description": "列数計算時の文字幅補正係数。値を小さくすると列数が増えるが、実際に収まる列数 (描画結果から実測) を超えることはないため、小さくしても長い行がはみ出すことはない",
   "configuration.layout.heightAdjustment.description": "行数計算時の行高補正係数。フォント変更時に調整する。値を小さくすると行数が増える"

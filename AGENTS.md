@@ -93,6 +93,16 @@ VSCode のサイドバーで動作する高機能ターミナル拡張機能の�
 列数を上限にクランプする** (既定値 0.88 は見積もりのズレを埋める係数なので、
 そのまま掛けるとはみ出しが復活する)。
 
+### 5. 非 Retina ディスプレイでの WebGL レンダラーの文字崩れ
+**課題**: xterm 5.5 + addon-webgl 0.18 はセル幅をデバイスピクセルの整数に切り捨てる。
+DPR 1 では実際の文字幅 7.8px のセルが 7px になり、グリフが崩れて Nerd Font のアイコンが □ になる。
+フォントは WebView から見えており (canvas の measureText で確認できる)、glyph atlas を作り直しても直らない。
+**解決**: 設定 `secondaryTerminal.gpuAcceleration` (`auto` / `on` / `off`)。`auto` は DPR 2 以上でだけ WebGL を使い、
+それ以外は DOM レンダラーにする (`shouldUseWebgl` / `applyRendererMode`)。ディスプレイ間の移動による DPR 変化も
+`matchMedia('(resolution: …dppx)')` で拾って切り替える。WebGL を載せる経路 (初期化・context lost からの復旧・
+Refresh Renderer) はすべて `shouldUseWebgl()` を通すこと。どれか 1 つでも素通りすると DOM を選んでいても WebGL に戻る。
+xterm 6 系で整数切り捨てが解消していれば `auto` の判定は見直せる。
+
 ## ファイル構成
 
 ```
