@@ -371,6 +371,21 @@ npm run compile
 - UTF-8 エンコーディングの確認
 - Python スクリプトの非ブロッキング I/O 設定確認
 
+#### 描画の崩れ (フォント・字間・アイコンが □)
+WebView の DevTools (`Help > Toggle Developer Tools`) の Console で、実行コンテキストを
+Secondary Terminal の `active-frame` に切り替えて調べる (リロード後は `top` に戻る)。
+`tabState` / `fontSettings` はトップレベルの変数なので Console から触れる。
+
+- フォントが WebView から見えているか: `document.fonts.check()` は `@font-face` で登録していない
+  ローカルフォントには存在しなくても `true` を返すので使えない。canvas の `measureText` で、
+  対象フォントと存在しないフォント名の幅を比べる
+- xterm が使っているセル寸法: `tabState.terminals.get(tabState.activeTabId)._core._renderService.dimensions`
+- レンダラーの切り分け: `tabState.terminalStates.get(tabState.activeTabId).webgl.dispose()` で DOM レンダラーに
+  落として表示が変わるか見る
+
+パネル上部のアイコンは、パレット (`$(symbol-color)`) が Refresh Renderer、丸い矢印 (`$(refresh)`) が
+Restart Terminal (シェルを再起動する)。
+
 ## 関連技術・参考資料
 
 - [VSCode Extension API](https://code.visualstudio.com/api)
