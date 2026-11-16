@@ -117,6 +117,7 @@ export class TerminalProvider implements vscode.WebviewViewProvider {
                 event.affectsConfiguration('secondaryTerminal.lineHeight') ||
                 event.affectsConfiguration('secondaryTerminal.letterSpacing') ||
                 event.affectsConfiguration('secondaryTerminal.editorHeight') ||
+                event.affectsConfiguration('secondaryTerminal.gpuAcceleration') ||
                 event.affectsConfiguration('secondaryTerminal.layout')) {
                 this._view?.webview.postMessage({
                     type: 'updateFontSettings',
@@ -135,6 +136,7 @@ export class TerminalProvider implements vscode.WebviewViewProvider {
         editorHeight: number;
         widthAdjustment: number;
         heightAdjustment: number;
+        gpuAcceleration: 'auto' | 'on' | 'off';
     } {
         const config = vscode.workspace.getConfiguration('secondaryTerminal');
         // package.json の minimum/maximum は設定 UI でしか強制されないため、
@@ -143,6 +145,7 @@ export class TerminalProvider implements vscode.WebviewViewProvider {
             typeof value === 'number' && Number.isFinite(value)
                 ? Math.min(max, Math.max(min, value))
                 : defaultValue;
+        const gpuAcceleration = config.get<string>('gpuAcceleration');
         return {
             fontFamily: config.get<string>('fontFamily', '"RobotoMono Nerd Font Mono", "RobotoMono Nerd Font", "Roboto Mono", Consolas, "Courier New", monospace'),
             fontSize: clamp(config.get('fontSize'), 6, 32, 13),
@@ -150,7 +153,8 @@ export class TerminalProvider implements vscode.WebviewViewProvider {
             letterSpacing: clamp(config.get('letterSpacing'), -2, 10, 0),
             editorHeight: clamp(config.get('editorHeight'), 40, 1000, 200),
             widthAdjustment: clamp(config.get('layout.widthAdjustment'), 0.5, 1.5, 0.88),
-            heightAdjustment: clamp(config.get('layout.heightAdjustment'), 0.5, 2, 1.34)
+            heightAdjustment: clamp(config.get('layout.heightAdjustment'), 0.5, 2, 1.34),
+            gpuAcceleration: gpuAcceleration === 'on' || gpuAcceleration === 'off' ? gpuAcceleration : 'auto'
         };
     }
 

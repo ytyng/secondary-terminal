@@ -893,6 +893,14 @@
         function _doRecoverRenderer(state) {
             _disposeCurrentWebgl(state);
 
+            // DOM レンダラーを選んでいる間は、復旧のつもりで WebGL を載せ直さない
+            if (!shouldUseWebgl()) {
+                if (state.term) {
+                    state.term.refresh(0, state.term.rows - 1);
+                }
+                return true;
+            }
+
             // 新規にロードし直す。失敗した場合は WebGL なしでデフォルトレンダラに任せる。
             try {
                 loadWebglAddon(state);
@@ -954,6 +962,76 @@
             recoverRenderer(state);
             return false;
         }
+
+        // xterm 5.5 の WebGL レンダラーはセル幅をデバイスピクセルの整数に切り捨てる。
+        // DPR 1 では 7.8px → 7px のように 1 セルあたり 1 割近く失い、グリフが崩れて
+        // Nerd Font のアイコンも □ になる (DPR 2 なら 15.6 → 15 で目立たない)。
+        // DOM レンダラーは小数のセル幅をそのまま使えるので、低 DPR ではそちらに逃がす。
+        const WEBGL_MIN_DEVICE_PIXEL_RATIO = 2;
+
+        function shouldUseWebgl() {
+            const mode = fontSettings.gpuAcceleration || 'auto';
+            if (mode === 'off') return false;
+            if (mode === 'on') return true;
+            return (window.devicePixelRatio || 1) >= WEBGL_MIN_DEVICE_PIXEL_RATIO;
+        }
+
+        // 設定と現在の DPR に合わせて、タブのレンダラーを WebGL / DOM に揃える。
+        // 戻り値: レンダラーを切り替えたら true (セル寸法が変わるので呼び出し側で列数を測り直す)
+        function applyRendererMode(state) {
+            if (!state || !state.term) {
+                return false;
+            }
+            const want = shouldUseWebgl();
+            if (want === !!state.webgl) {
+                return false;
+            }
+            if (state.recoverDebounceTimer) {
+                try { clearTimeout(state.recoverDebounceTimer); } catch (e) { }
+                state.recoverDebounceTimer = null;
+            }
+            state.recoverAttempts = 0;
+            if (want) {
+                try {
+                    loadWebglAddon(state);
+                } catch (e) {
+                    log('[RENDERER] Failed to load WebGL addon, staying on DOM renderer:', e);
+                }
+            } else {
+                _disposeCurrentWebgl(state);
+            }
+            state.term.refresh(0, state.term.rows - 1);
+            log('[RENDERER] Renderer switched to', state.webgl ? 'WebGL' : 'DOM',
+                '(mode=' + (fontSettings.gpuAcceleration || 'auto') + ', dpr=' + window.devicePixelRatio + ')');
+            return true;
+        }
+
+        function applyRendererModeToAllTabs() {
+            tabState.terminalStates.forEach((s, id) => {
+                if (applyRendererMode(s)) {
+                    setTerminalSize(id);
+                }
+            });
+        }
+
+        // ウィンドウを Retina と非 Retina のディスプレイ間で動かすと DPR が変わる。
+        // resolution の media query は「今の値と一致するか」しか表せないので、
+        // 変化するたびに新しい値で張り直す。
+        function watchDevicePixelRatio() {
+            if (!window.matchMedia) {
+                return;
+            }
+            try {
+                const mq = window.matchMedia('(resolution: ' + window.devicePixelRatio + 'dppx)');
+                mq.addEventListener('change', () => {
+                    applyRendererModeToAllTabs();
+                    watchDevicePixelRatio();
+                }, { once: true });
+            } catch (e) {
+                log('[RENDERER] Failed to watch devicePixelRatio:', e);
+            }
+        }
+        watchDevicePixelRatio();
 
         // 後方互換性のため、現在のアクティブタブの terminalState を返すゲッター
         function getActiveTerminalState() {
@@ -2279,6 +2357,7 @@
                                         s.editor.resize();
                                     }
                                 });
+                                tabState.terminalStates.forEach((s) => applyRendererMode(s));
                                 // フォントメトリクスが変わったので行数・列数を再計算
                                 for (const id of tabState.terminals.keys()) {
                                     setTerminalSize(id);
@@ -2838,10 +2917,14 @@
                 // WebGL アドオンをロード (loadWebglAddon ヘルパーで再構築可能にしてある)。
                 // ロード失敗時は throw せず、xterm.js の既定 DOM レンダラで初期化を続行する。
                 // (URL リンクプロバイダー等の後続セットアップを止めないため)
-                try {
-                    loadWebglAddon(state);
-                } catch (error) {
-                    log('[RENDERER] Failed to load WebGL addon, continuing with default renderer:', error);
+                if (shouldUseWebgl()) {
+                    try {
+                        loadWebglAddon(state);
+                    } catch (error) {
+                        log('[RENDERER] Failed to load WebGL addon, continuing with default renderer:', error);
+                    }
+                } else {
+                    log('[RENDERER] Using DOM renderer (mode=' + (fontSettings.gpuAcceleration || 'auto') + ', dpr=' + window.devicePixelRatio + ')');
                 }
 
                 // Search アドオンをロード (Cmd+F 用)
