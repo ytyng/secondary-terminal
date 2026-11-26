@@ -1,452 +1,453 @@
-# Secondary Terminal - VSCode 拡張機能
+# Secondary Terminal - VSCode Extension
 
-VSCode のサイドバーで動作する高機能ターミナル拡張機能の開発プロジェクトです。
+Development project for a full-featured terminal extension that runs in the VSCode sidebar.
 
-## プロジェクト概要
+## Project Overview
 
-この拡張機能は、VSCode のサイドバーに完全機能のターミナルを提供します。Python の PTY モジュールを使用した本格的な疑似ターミナル実装により、vim や less などのインタラクティブアプリケーションも正常に動作します。
+This extension provides a fully functional terminal in the VSCode sidebar. Thanks to a real pseudo-terminal implementation built on Python's PTY module, interactive applications such as vim and less work correctly.
 
-## 技術的特徴
+## Technical Features
 
-### アーキテクチャ
+### Architecture
 
-- **フロントエンド**: xterm.js による高性能ターミナルエミュレーター
-- **ミドルウェア**: Node.js child_process による VSCode と Python 間の通信
-- **バックエンド**: Python の pty モジュールによる疑似ターミナル実装
+- **Frontend**: High-performance terminal emulator using xterm.js
+- **Middleware**: Communication between VSCode and Python via Node.js child_process
+- **Backend**: Pseudo-terminal implementation using Python's pty module
 
-### 実装のポイント
+### Implementation Highlights
 
-1. **PTY エミュレーション**
-   - Python の `pty.openpty()` を使用した本格的な疑似ターミナル作成
-   - `fcntl` による非ブロッキング I/O の実装
-   - `select.select()` を使用した効率的な入出力多重化
+1. **PTY emulation**
+   - Real pseudo-terminal creation with Python's `pty.openpty()`
+   - Non-blocking I/O implemented with `fcntl`
+   - Efficient I/O multiplexing with `select.select()`
 
-2. **動的サイズ調整**
-   - ResizeObserver による HTML エレメントサイズ監視
-   - フォントメトリクスの正確な測定
-   - PTY ウィンドウサイズの自動調整（TIOCSWINSZ ioctl）
+2. **Dynamic resizing**
+   - Monitoring HTML element size with ResizeObserver
+   - Accurate measurement of font metrics
+   - Automatic adjustment of the PTY window size (TIOCSWINSZ ioctl)
 
-3. **文字エンコーディング**
-   - UTF-8 完全対応
-   - マルチバイト文字の正しい表示
-   - エンコーディングエラー時のフォールバック処理
+3. **Character encoding**
+   - Full UTF-8 support
+   - Correct display of multibyte characters
+   - Fallback handling on encoding errors
 
-4. **インタラクティブアプリサポート**
-   - vim の hjkl カーソル移動対応
-   - less のページング機能
-   - Control-C、Control-Z の適切な処理
-   - SIGWINCH シグナルによるターミナルサイズ変更通知
+4. **Interactive app support**
+   - vim hjkl cursor movement
+   - less paging
+   - Proper handling of Control-C and Control-Z
+   - Terminal resize notification via the SIGWINCH signal
 
-## 開発経緯
+## Development History
 
-### 初期実装
-- 基本的な WebView ベースのターミナル表示
-- xterm.js の統合
-- 単純なコマンド実行機能
+### Initial implementation
+- Basic WebView-based terminal display
+- xterm.js integration
+- Simple command execution
 
-### 中間段階
-- node-pty の導入試行（VSCode Electron 環境での互換性問題により断念）
-- Python を使用した PTY エミュレーションへの切り替え
+### Intermediate stage
+- Attempted to adopt node-pty (abandoned due to compatibility problems in VSCode's Electron environment)
+- Switched to PTY emulation using Python
 
-### 最終実装
-- 完全な PTY サポートの実現
-- インタラクティブアプリケーションの完全対応
-- 動的サイズ調整機能の実装
+### Final implementation
+- Full PTY support
+- Full support for interactive applications
+- Dynamic resizing
 
-## 技術的課題と解決策
+## Technical Challenges and Solutions
 
-### 1. VSCode 環境での node-pty 問題
-**課題**: VSCode の Electron 環境で node-pty のネイティブモジュールが正しくビルドできない
-**解決**: Python の pty モジュールを使用したカスタム PTY エミュレーション
+### 1. node-pty problems in the VSCode environment
+**Challenge**: node-pty's native module cannot be built correctly for VSCode's Electron environment
+**Solution**: Custom PTY emulation using Python's pty module
 
-### 2. 非ブロッキング I/O
-**課題**: VSCode 環境での stdin 読み取りのブロッキング問題
-**解決**: `fcntl` による非ブロッキング設定と `select` による多重化
+### 2. Non-blocking I/O
+**Challenge**: Blocking when reading stdin in the VSCode environment
+**Solution**: Non-blocking mode set with `fcntl` and multiplexing with `select`
 
-### 3. 文字エンコーディング
-**課題**: マルチバイト文字の文字化け
-**解決**: UTF-8 統一処理とエラー時のフォールバック機能
+### 3. Character encoding
+**Challenge**: Garbled multibyte characters
+**Solution**: Unified UTF-8 handling and a fallback on errors
 
-### 4. ターミナルサイズ調整
-**課題**: サイドバーサイズに応じた適切なターミナルサイズ設定
-**解決**: HTML エレメントサイズからの正確な計算とリアルタイム調整
+### 4. Terminal resizing
+**Challenge**: Setting an appropriate terminal size for the sidebar size
+**Solution**: Accurate calculation from the HTML element size and real-time adjustment
 
-**cols は「見積もり」ではなく実測セル幅で決める** (`setTerminalSize` / `measureActualCellWidth`):
-測定用 div の文字幅 × 補正係数から出した見積もりは、xterm が実際に使うセル幅と
-一致するとは限らない (フォントのフォールバック、xterm 内部の丸め、letterSpacing の
-扱いの差)。見積もりが 1px でも小さいと `cols × 実セル幅` がペイン幅を超え、
-**長い行を表示した時だけ**右にはみ出して横スクロールが発生し、戻せなくなる
-(`.xterm-viewport` は xterm.css が `overflow-y: scroll` だけを指定するため、CSS の
-規則で overflow-x が実質 auto = 横スクロールコンテナになっている)。
-描画済みの `.xterm-screen` の幅は `cols × セル幅` なので、`screen.width / term.cols`
-で実セル幅が正確に逆算できる。この値は cols に依存しないので、そこから出した cols は
-次回の計算でも同じ値になりリサイズが往復しない。初回描画前は測れないため見積もりで
-暫定サイズを入れ、`requestAnimationFrame` で測れるまで再試行する (上限あり)。
-列数を出す時は 1px 余らせる (`CELL_FIT_SLACK_PX`): xterm はキャンバス幅をデバイス
-ピクセル単位に丸めてから CSS 幅にするため実測セル幅に丸め誤差が乗り、ぴったり
-割り切れる幅では列数が 1 多く出る → 次の計算で 1 少なく出る、という往復が起きうる。
-さらに**列数・行数を変えたら次のフレームで測り直す**: 実測セル幅の誤差は 1 セルあたり
-最大 `0.5 / cols` px なので、ペインが大きく広がって列数が増えると誤差が積み上がって
-1px のスラックを超えうる。リサイズ後の (列数が増えたぶん精度の上がった) 実測値で
-計算し直せば正しい土台に載り直せる。変化が無くなった時点で止まる。
-ユーザー設定 `widthAdjustment` は実測値にも掛けるが、**実測セル幅で実際に収まる
-列数を上限にクランプする** (既定値 0.88 は見積もりのズレを埋める係数なので、
-そのまま掛けるとはみ出しが復活する)。
+**Decide cols from the measured cell width, not an "estimate"** (`setTerminalSize` / `measureActualCellWidth`):
+An estimate derived from the character width of a measurement div × a correction factor does not
+necessarily match the cell width xterm actually uses (font fallback, rounding inside xterm,
+differences in how letterSpacing is handled). If the estimate is even 1px too small, `cols × actual cell width`
+exceeds the pane width, and **only when a long line is displayed** the content overflows to the right,
+horizontal scrolling kicks in, and it cannot be scrolled back
+(xterm.css specifies only `overflow-y: scroll` for `.xterm-viewport`, so by CSS rules
+overflow-x is effectively auto = it becomes a horizontal scroll container).
+The width of the rendered `.xterm-screen` is `cols × cell width`, so `screen.width / term.cols`
+gives the actual cell width exactly. This value does not depend on cols, so the cols derived from it
+are the same on the next calculation and the resize does not oscillate. Before the first render it cannot be measured, so
+a provisional size is set from the estimate, and measurement is retried via `requestAnimationFrame` until it succeeds (with a limit).
+When computing the column count, leave 1px of slack (`CELL_FIT_SLACK_PX`): xterm rounds the canvas width to device
+pixels before converting it to the CSS width, so the measured cell width carries rounding error; for a width that divides
+exactly, the column count can come out 1 too high → 1 too low on the next calculation, and so on back and forth.
+Furthermore, **after changing the column or row count, measure again on the next frame**: the error in the measured cell width is
+at most `0.5 / cols` px per cell, so when the pane widens a lot and the column count increases, the error accumulates and
+can exceed the 1px slack. Recalculating with the post-resize measurement (more precise because there are more columns)
+puts it back on a correct footing. It stops once nothing changes.
+The user setting `widthAdjustment` is also applied to the measured value, but **it is clamped to the number of columns that actually fit
+with the measured cell width** (the default 0.88 is a factor that compensates for estimation error, so
+applying it as-is would bring the overflow back).
 
-### 5. 非 Retina ディスプレイでの WebGL レンダラーの文字崩れ
-**課題**: xterm 5.5 + addon-webgl 0.18 はセル幅をデバイスピクセルの整数に切り捨てる。
-DPR 1 では実際の文字幅 7.8px のセルが 7px になり、グリフが崩れて Nerd Font のアイコンが □ になる。
-フォントは WebView から見えており (canvas の measureText で確認できる)、glyph atlas を作り直しても直らない。
-**解決**: 設定 `secondaryTerminal.gpuAcceleration` (`auto` / `on` / `off`)。`auto` は DPR 2 以上でだけ WebGL を使い、
-それ以外は DOM レンダラーにする (`shouldUseWebgl` / `applyRendererMode`)。ディスプレイ間の移動による DPR 変化も
-`matchMedia('(resolution: …dppx)')` で拾って切り替える。WebGL を載せる経路 (初期化・context lost からの復旧・
-Refresh Renderer) はすべて `shouldUseWebgl()` を通すこと。どれか 1 つでも素通りすると DOM を選んでいても WebGL に戻る。
-xterm 6 系で整数切り捨てが解消していれば `auto` の判定は見直せる。
+### 5. Garbled glyphs with the WebGL renderer on non-Retina displays
+**Challenge**: xterm 5.5 + addon-webgl 0.18 truncates the cell width to an integer number of device pixels.
+At DPR 1, a cell whose actual character width is 7.8px becomes 7px, glyphs break, and Nerd Font icons turn into □.
+The font is visible to the WebView (confirmed with canvas measureText), and rebuilding the glyph atlas does not fix it.
+**Solution**: The setting `secondaryTerminal.gpuAcceleration` (`auto` / `on` / `off`). `auto` uses WebGL only at DPR 2 or higher,
+and the DOM renderer otherwise (`shouldUseWebgl` / `applyRendererMode`). DPR changes caused by moving between displays are
+also picked up with `matchMedia('(resolution: …dppx)')` and switched accordingly. Every path that loads WebGL (initialization, recovery from context lost,
+Refresh Renderer) must go through `shouldUseWebgl()`. If even one bypasses it, it falls back to WebGL even when DOM is selected.
+If the integer truncation is fixed in xterm 6.x, the `auto` decision can be revisited.
 
-## ファイル構成
+## File Structure
 
 ```
 secondary-terminal/
 ├── src/
-│   ├── extension.ts                # 拡張機能エントリーポイント、コマンド登録
-│   ├── terminalProvider.ts         # ターミナルプロバイダー（タブ管理、ACE エディタ、PTY）
-│   ├── clipboardImageHandler.ts    # macOS クリップボード画像抽出
-│   ├── dropZoneProvider.ts         # ファイル Drag & Drop ゾーン
-│   ├── terminalSessionManager.ts   # ターミナルセッション永続化
-│   ├── agentSessionRestore.ts      # 前回使った CLI エージェント (Claude Code / Codex / OpenCode) の記録と自動継続
-│   ├── shellProcessManager.ts      # シェルプロセスライフサイクル管理
-│   └── utils.ts                    # ユーティリティ関数
+│   ├── extension.ts                # Extension entry point, command registration
+│   ├── terminalProvider.ts         # Terminal provider (tab management, ACE editor, PTY)
+│   ├── clipboardImageHandler.ts    # macOS clipboard image extraction
+│   ├── dropZoneProvider.ts         # File Drag & Drop zone
+│   ├── terminalSessionManager.ts   # Terminal session persistence
+│   ├── agentSessionRestore.ts      # Records the last used CLI agent (Claude Code / Codex / OpenCode) and auto-continues it
+│   ├── shellProcessManager.ts      # Shell process lifecycle management
+│   └── utils.ts                    # Utility functions
 ├── resources/
-│   ├── terminal.html        # メイン UI（xterm.js、ACE エディタ、タブバー）
-│   ├── xterm.css            # xterm.js スタイルシート
-│   ├── xterm.js             # xterm.js ライブラリ
-│   └── version.json         # バージョン + ビルド日時 (src/ は .vscodeignore で除外されるためここに置く)
+│   ├── terminal.html        # Main UI (xterm.js, ACE editor, tab bar)
+│   ├── xterm.css            # xterm.js stylesheet
+│   ├── xterm.js             # xterm.js library
+│   └── version.json         # Version + build date/time (placed here because src/ is excluded by .vscodeignore)
 ├── scripts/
-│   └── update-version.js    # バージョン情報更新スクリプト
-├── out/                     # コンパイル済み JavaScript
-├── package.json             # プロジェクト設定
-├── tsconfig.json            # TypeScript 設定
-├── README.md                # ユーザー向けドキュメント
-└── CLAUDE.md                # 開発者向けドキュメント（このファイル）
+│   └── update-version.js    # Script that updates version information
+├── out/                     # Compiled JavaScript
+├── package.json             # Project configuration
+├── tsconfig.json            # TypeScript configuration
+├── README.md                # User documentation
+└── CLAUDE.md                # Developer documentation (this file)
 ```
 
-## 主要機能実装詳細
+## Implementation Details of Main Features
 
-### TerminalProvider クラス (`terminalProvider.ts`)
-- WebView の HTML 生成と管理
-- Python PTY プロセスの起動・管理
-- 入出力データの変換・転送
-- ターミナルサイズの動的調整
-- マルチタブ管理（タブごとに独立したシェルプロセスと ACE エディタ）
+### TerminalProvider class (`terminalProvider.ts`)
+- Generates and manages the WebView HTML
+- Starts and manages the Python PTY process
+- Converts and forwards input/output data
+- Dynamically adjusts the terminal size
+- Multi-tab management (an independent shell process and ACE editor per tab)
 
-### CLI エージェントのセッション復元 (`agentSessionRestore.ts`)
-- pty-shell.py が既に出している CLI エージェントの稼働状態 (OSC 777 の `cli_agent_status`。
-  シェルの子孫プロセスを見て判定している) を**拡張ホスト側でも拾い**、
-  「このワークスペースで使っていたエージェント」と、そのプロセスの作業ディレクトリを
-  `globalState` に記録する (キーはワークスペースの cwd、14 日で失効)。
-  出力の監視は `ShellProcessManager.addOutputObserver` 経由。稼働中は 60 秒ごとに記録を更新する
-- **入力行からコマンド名を拾う方式にしないこと**: 履歴 (↑ キー) から呼び出した場合や補完で
-  確定した場合、コマンド文字列は拡張を通らずシェル内で確定するため、最も普通の起動方法を
-  取りこぼす。稼働プロセスを見ている PTY 側の判定の方が正確
-- 再起動後の最初の空のターミナルで、記録した作業ディレクトリから
-  `claude --continue` / `codex resume --last` / `opencode --continue` を自動実行する。
-  固定コマンドを PTY の起動引数で渡し、起動から 1 秒後に投入する。先に手入力があれば中止する。
-  未信頼ワークスペース、作業ディレクトリが無い場合、startup commands がある場合は復元しない。
-  抑止した候補を後で開いた別タブに持ち越さない
-- **セッション ID を拡張側で管理しない**のが要点。`~/.claude/projects/` や `~/.codex/sessions/`
-  の場所・命名規則は CLI の内部実装なので、追随すると壊れる。「直前のセッションを継続する」
-  コマンドを各 CLI が持っているので、その解決は CLI に任せる。別の場所で同じディレクトリの
-  新しい会話を開始した場合は、その会話が選ばれ得る (特定 ID への固定復元ではない)
-- **復元候補はウィンドウ起動時の 1 回だけ読む** (`_restoreCandidate`)。提案する直前に読み直すと、
-  同じウィンドウで今さっき起動したエージェントを「前回のセッション」として提案し、
-  別タブで動いているセッションへ二重に接続しかねない
-- 自動継続は 1 ウィンドウにつき 1 回、かつ**バッファが空の (新規に立ち上がった) タブだけ**。
-  再接続時にも実行すると、既に動いているエージェントの上にもう 1 つ起動しかねない
-- **記録はワークスペースごとに独立した `globalState` のキーへ書く** (`...lastAgentLaunch:<cwd>`)。
-  1 つのオブジェクトにまとめると、同じプロファイルで開いた別ウィンドウが同じスナップショットを
-  読んで丸ごと書き戻し、相手のワークスペースの記録を消す。拡張ホストはウィンドウごとに別プロセスなので
-  こちら側の直列化では防げない。キーが増え続けないよう、起動時に失効分だけを掃除する
-- 設定 `secondaryTerminal.restorePreviousAgentSession` (既定 true) で無効化できる
-- pty-shell.py は gemini / copilot も検出するが、「直前のセッションを継続する」コマンドを
-  持つ claude / codex / opencode だけを対象にしている
+### CLI agent session restore (`agentSessionRestore.ts`)
+- **The extension host also picks up** the CLI agent running state that pty-shell.py already emits (OSC 777 `cli_agent_status`;
+  it is determined by looking at the shell's descendant processes),
+  and records "the agent that was used in this workspace" and that process's working directory
+  in `globalState` (keyed by the workspace cwd, expires after 14 days).
+  Output is monitored via `ShellProcessManager.addOutputObserver`. While running, the record is refreshed every 60 seconds
+- **Do not switch to picking up the command name from the input line**: when invoked from history (↑ key) or
+  confirmed by completion, the command string is finalized inside the shell without passing through the extension, so it would
+  miss the most common way of starting an agent. The PTY-side detection, which looks at running processes, is more accurate
+- In the first empty terminal after a restart, automatically run
+  `claude --continue` / `codex resume --last` / `opencode --continue` from the recorded working directory.
+  A fixed command is passed as a PTY startup argument and injected 1 second after startup. If the user has typed anything first, it is cancelled.
+  No restore happens for untrusted workspaces, when the working directory does not exist, or when there are startup commands.
+  A suppressed candidate is not carried over to another tab opened later
+- The key point is **not managing session IDs on the extension side**. The location and naming conventions of `~/.claude/projects/` and `~/.codex/sessions/`
+  are internal implementation details of the CLIs, so following them would break. Each CLI has a
+  "continue the previous session" command, so resolution is left to the CLI. If a new conversation in the same directory
+  was started elsewhere, that conversation may be chosen (this is not a pinned restore of a specific ID)
+- **The restore candidate is read only once, at window startup** (`_restoreCandidate`). Re-reading it right before suggesting
+  would suggest an agent just launched in the same window as "the previous session",
+  and could connect twice to a session running in another tab
+- Auto-continue happens once per window, and **only in a tab whose buffer is empty (newly started)**.
+  Running it on reconnect too could launch a second agent on top of one that is already running
+- **Records are written to a separate `globalState` key per workspace** (`...lastAgentLaunch:<cwd>`).
+  If they were combined into a single object, another window opened with the same profile would read the same snapshot and
+  write the whole thing back, erasing the other workspace's record. The extension host is a separate process per window, so
+  serialization on this side cannot prevent it. To keep the keys from growing forever, only the expired ones are cleaned up at startup
+- Can be disabled with the setting `secondaryTerminal.restorePreviousAgentSession` (default true)
+- pty-shell.py also detects gemini / copilot, but only claude / codex / opencode, which have a
+  "continue the previous session" command, are targeted
 
-### クリップボード画像ハンドラー (`clipboardImageHandler.ts`)
-- macOS の NSPasteboard から PNG/TIFF 画像を抽出（AppleScript 経由）
-- `/tmp/secondary-terminal/attachments/` に UUID7 ベースのファイル名で保存
-- ファイルパスを `[@<filepath>]` 形式でエディタに挿入
+### Clipboard image handler (`clipboardImageHandler.ts`)
+- Extracts PNG/TIFF images from the macOS NSPasteboard (via AppleScript)
+- Saves them under `/tmp/secondary-terminal/attachments/` with UUID7-based file names
+- Inserts the file path into the editor in the `[@<filepath>]` format
 
-### Drop Zone プロバイダー (`dropZoneProvider.ts`)
-- VSCode サイドバーの TreeView として実装
-- `text/uri-list` MIME タイプのファイルドロップを受け付け
-- ドロップされたファイルパスを `[@<path>]` 形式で ACE エディタに送信
+### Drop Zone provider (`dropZoneProvider.ts`)
+- Implemented as a TreeView in the VSCode sidebar
+- Accepts file drops of the `text/uri-list` MIME type
+- Sends dropped file paths to the ACE editor in the `[@<path>]` format
 
-### Python PTY スクリプト
-- 疑似ターミナル（PTY）の作成と管理
-- シェルプロセス（zsh/bash）の起動
-- 非ブロッキング I/O による入出力処理
-- ターミナルサイズ変更の処理
+### Python PTY script
+- Creates and manages the pseudo-terminal (PTY)
+- Starts the shell process (zsh/bash)
+- Handles input/output with non-blocking I/O
+- Handles terminal resizing
 
-### フロントエンド (`resources/terminal.html`)
-- xterm.js ターミナルの初期化
-- フォントメトリクスの測定
-- 動的サイズ調整ロジック
-- VSCode との通信インターフェース
-- タブごとに独立した ACE エディタインスタンス（ace-builds ライブラリ、VSCode キーバインド）
-- `Cmd+Enter` でエディタ内容をターミナルに送信
-- Trim Lines（各行の前後空白除去）機能
+### Frontend (`resources/terminal.html`)
+- Initializes the xterm.js terminal
+- Measures font metrics
+- Dynamic resizing logic
+- Communication interface with VSCode
+- An independent ACE editor instance per tab (ace-builds library, VSCode keybindings)
+- `Cmd+Enter` sends the editor contents to the terminal
+- Trim Lines (strip leading/trailing whitespace from each line)
 
-## 開発・テスト環境
+## Development and Test Environment
 
-- **OS**: macOS（開発・テスト対象）
+- **OS**: macOS (development and test target)
 - **Node.js**: 20.18.2
 - **Python**: 3.13.3
 - **VSCode**: 1.101.0+
 - **TypeScript**: 5.8.3
 
-## 既知の問題
+## Known Issues
 
-### 「使っていると次第に動作が遅くなる」問題 (2026-07-03 に原因候補を修正済み)
+### "Gets gradually slower with use" (likely causes fixed on 2026-07-03)
 
-長らく原因不明だったが、2026-07-03 の全体コードレビュー (PR #16) で以下の蓄積要因を特定し修正した。
+The cause was unknown for a long time, but the full code review on 2026-07-03 (PR #16) identified and fixed the following accumulating factors.
 
-- タブ開閉のたびに `TerminalSessionManager.sessions` Map が無限増加 (`removeSession` 未使用)
-- リセットのたびに pty-shell.py プロセスが孤立して蓄積 (`resetTerminal` のマルチタブ未対応)
-- pty-shell.py が子孫プロセス数に比例した回数の pgrep を 3 秒ごとに spawn
-- タブクローズ後も残る `waitForSize` の 10ms 無限ポーリング
-- `resolveWebviewView` 再解決時の WebviewView / リスナー残留
+- The `TerminalSessionManager.sessions` Map grew without bound every time a tab was opened/closed (`removeSession` was unused)
+- Orphaned pty-shell.py processes accumulated on every reset (`resetTerminal` did not support multiple tabs)
+- pty-shell.py spawned pgrep every 3 seconds, as many times as there were descendant processes
+- The 10ms infinite polling of `waitForSize` remained after a tab was closed
+- WebviewView / listeners lingered when `resolveWebviewView` was resolved again
 
-修正後も遅くなる場合は、`ps aux | grep pty-shell` でプロセス数、
-`getSessionInfo()` (デバッグ用) で Map サイズを確認すること。
+If it still slows down after the fixes, check the process count with `ps aux | grep pty-shell`
+and the Map size with `getSessionInfo()` (for debugging).
 
-### pty-shell.py の実動テストは Claude Code のサンドボックスでは不可
+### pty-shell.py cannot be exercised for real inside the Claude Code sandbox
 
-Claude Code の Bash ツールのサンドボックスは `/dev/ptmx` へのアクセスをブロックするため、
-`pty.openpty()` が `OSError: out of pty devices` で失敗する
-(`dangerouslyDisableSandbox` や `/sandbox` での無効化でも回避できない別レイヤー)。
-PTY を伴う動作確認は、ロジックの単体シミュレーション (デコード処理等) と、
-拡張のリロードによる実機確認で行うこと。
+The sandbox of Claude Code's Bash tool blocks access to `/dev/ptmx`, so
+`pty.openpty()` fails with `OSError: out of pty devices`
+(this is a separate layer that cannot be bypassed even with `dangerouslyDisableSandbox` or by disabling it via `/sandbox`).
+Verify anything involving a PTY with unit simulations of the logic (decoding, etc.) and
+by reloading the extension on a real machine.
 
 
-## インストール・開発手順
+## Installation and Development Steps
 
-### 初回セットアップ
+### Initial setup
 ```bash
-# リポジトリをクローン
+# Clone the repository
 git clone <repository-url>
 cd secondary-terminal
 
-# 依存関係インストール
+# Install dependencies
 npm install
 
-# TypeScript コンパイル
+# Compile TypeScript
 npm run compile
 ```
 
-### 開発環境での実行
+### Running in the development environment
 ```bash
-# VSCode でプロジェクトを開く
+# Open the project in VSCode
 code .
 
-# F5 キーでデバッグ実行
-# または「Run and Debug」パネルから「Run Extension」を実行
+# Press F5 to start debugging
+# or run "Run Extension" from the "Run and Debug" panel
 ```
 
-### ローカルインストール
-VSCode のコマンドパレットで：
+### Local installation
+In the VSCode command palette, run:
 ```
 Developer: Install Extension from Location...
 ```
-を実行し、プロジェクトディレクトリを指定。
+and select the project directory.
 
-### コード修正・更新ワークフロー
+### Code change and update workflow
 
-1. **コード修正**:
-   - `src/extension.ts` または `src/terminalProvider.ts` を編集
+1. **Edit code**:
+   - Edit `src/extension.ts` or `src/terminalProvider.ts`
 
-2. **コンパイル**:
+2. **Compile**:
    ```bash
    npm run compile
    ```
 
-3. **テスト方法**:
-   - **開発モード**: F5 でデバッグウィンドウを起動
-   - **インストール済み拡張**: `Developer: Reload Window` で再読み込み
+3. **How to test**:
+   - **Development mode**: Launch the debug window with F5
+   - **Installed extension**: Reload with `Developer: Reload Window`
 
-4. **デバッグ**:
-   - VSCode の開発者ツール: `Help > Toggle Developer Tools`
-   - コンソールログで動作確認
-   - `console.log()` をコードに追加してデバッグ
+4. **Debugging**:
+   - VSCode developer tools: `Help > Toggle Developer Tools`
+   - Check behavior in the console log
+   - Add `console.log()` to the code for debugging
 
-### バージョン管理とリリースワークフロー
+### Version management and release workflow
 
-#### バージョン番号管理
-- **現在のバージョン**: `package.json` の `version` フィールドで管理
-- **ビルド情報**: `resources/version.json` でバージョン番号とビルド日時を記録 (src/ は .vscodeignore でパッケージから除外されるため resources/ に置く)
-- **自動更新**: ビルド時に自動的にビルド日時が更新される
+#### Version number management
+- **Current version**: Managed in the `version` field of `package.json`
+- **Build information**: `resources/version.json` records the version number and build date/time (placed in resources/ because src/ is excluded from the package by .vscodeignore)
+- **Automatic update**: The build date/time is updated automatically at build time
 
-#### バージョンアップ手順
-1. **パッチバージョンアップ** (自動インクリメント):
+#### Version bump steps
+1. **Patch version bump** (automatic increment):
    ```bash
    npm run increment-version
    ```
-   - package.json のバージョンを自動で 0.0.1 増加
-   - resources/version.json のバージョンとビルド日時を自動更新
-   - **注意**: 内部の `npm version patch` は working tree がクリーンでないと失敗する。
-     未コミットの変更がある状態 (コミット直前の通常フロー) では、代わりに以下を実行する:
+   - Automatically increments the package.json version by 0.0.1
+   - Automatically updates the version and build date/time in resources/version.json
+   - **Note**: The internal `npm version patch` fails unless the working tree is clean.
+     When there are uncommitted changes (the normal flow right before committing), run the following instead:
      ```bash
      npm version patch --no-git-tag-version && npm run update-version
      ```
-   - **パッチ番号の実体**: `scripts/update-version.js` はパッチ番号を `git rev-list --count HEAD`
-     (コミット数) で上書きする。`npm version patch` の表示と最終バージョンがずれるのは正常。
-   - **package-lock.json の同期**: update-version.js は package.json を直接書き換えるため、
-     lockfile のバージョンが古いまま残る (PR #15 で Codex に指摘された)。バージョン更新後は
-     `npm install --package-lock-only` を実行して lockfile も同期し、一緒にコミットすること。
+   - **What the patch number really is**: `scripts/update-version.js` overwrites the patch number with `git rev-list --count HEAD`
+     (the commit count). It is normal for the final version to differ from what `npm version patch` shows.
+   - **Syncing package-lock.json**: update-version.js rewrites package.json directly, so
+     the version in the lockfile is left stale (pointed out by Codex in PR #15). After updating the version,
+     run `npm install --package-lock-only` to sync the lockfile too, and commit them together.
 
-2. **手動バージョン更新**:
+2. **Manual version update**:
    ```bash
-   # package.json のバージョンを手動変更後
+   # After manually changing the version in package.json
    npm run update-version
    ```
 
-3. **リリース準備**:
+3. **Release preparation**:
    ```bash
-   npm run increment-version  # バージョンアップ
-   npm run compile           # ビルド
+   npm run increment-version  # Bump the version
+   npm run compile           # Build
    git add .
-   git commit -m "バージョン X.X.X リリース"
+   git commit -m "Release version X.X.X"
    git push origin main
    ```
 
-#### バージョン管理ルール
-- **コミットごと**: 毎回のコミット前に `npm run increment-version` を実行
-- **ビルドごと**: `npm run compile` 実行時に自動でビルド日時が更新
-- **リリース**: 機能追加・修正完了時にバージョンアップしてコミット
+#### Version management rules
+- **Every commit**: Run `npm run increment-version` before each commit
+- **Every build**: The build date/time is updated automatically when `npm run compile` runs
+- **Release**: Bump the version and commit when a feature or fix is complete
 
-#### ファイル構成（バージョン管理関連）
+#### File structure (version management)
 ```
 secondary-terminal/
-├── package.json              # メインバージョン番号
-├── resources/version.json    # バージョン + ビルド日時
-├── scripts/update-version.js # バージョン情報更新スクリプト
-└── out/                      # コンパイル済み（バージョン情報含む）
+├── package.json              # Main version number
+├── resources/version.json    # Version + build date/time
+├── scripts/update-version.js # Script that updates version information
+└── out/                      # Compiled output (includes version information)
 ```
 
-### よくある開発作業
+### Common development tasks
 
-#### Python PTY スクリプトの修正
-- `terminalProvider.ts` 内の `pythonScript` 変数を編集
-- コンパイル後、拡張機能を再読み込み
+#### Modifying the Python PTY script
+- Edit the `pythonScript` variable in `terminalProvider.ts`
+- After compiling, reload the extension
 
-#### フロントエンド（HTML/JavaScript）の修正
-- `_getHtmlForWebview()` メソッド内の HTML/CSS/JavaScript を編集
-- xterm.js の設定変更
-- ターミナルサイズ計算ロジックの調整
+#### Modifying the frontend (HTML/JavaScript)
+- Edit the HTML/CSS/JavaScript in the `_getHtmlForWebview()` method
+- Change xterm.js settings
+- Adjust the terminal size calculation logic
 
-#### UI の変更
-- `package.json` の `contributes` セクションでアイコンやメニューを変更
-- VSCode API の追加機能実装
+#### UI changes
+- Change icons and menus in the `contributes` section of `package.json`
+- Implement additional VSCode API features
 
-#### 設定項目の追加・変更 (日英対応)
-- 設定の説明文は VSCode 標準の NLS 機構で日英対応している (PR #15 以降)
-- `package.json` の `description` には `%configuration.<key>.description%` プレースホルダを書く
-- 実際の文言は `package.nls.json` (英語・デフォルト) と `package.nls.ja.json` (日本語) に書く。
-  **設定を追加・変更するときは必ず両ファイルにキーを追加すること** (片方に無いとキー名がそのまま表示される)
-- README.md の Settings テーブル (英語) にも同じ設定の行を追記すること
+#### Adding or changing settings (Japanese/English)
+- Setting descriptions are localized into Japanese and English with VSCode's standard NLS mechanism (since PR #15)
+- In `package.json`, write a `%configuration.<key>.description%` placeholder in `description`
+- Write the actual text in `package.nls.json` (English, default) and `package.nls.ja.json` (Japanese).
+  **When adding or changing a setting, always add the key to both files** (if one is missing, the key name is displayed as-is)
+- Also add a row for the same setting to the Settings table (English) in README.md
 
-### トラブルシューティング
+### Troubleshooting
 
-#### 拡張機能が認識されない
+#### The extension is not recognized
 ```bash
-# package.json の構文確認
+# Check the package.json syntax
 npm run compile
-# エラーがないか確認
+# Check for errors
 ```
 
-#### ターミナルが起動しない
-- 開発者ツールのコンソールでエラー確認
-- Python 3.x がインストールされているか確認
-- PTY 関連のエラーメッセージを確認
+#### The terminal does not start
+- Check for errors in the developer tools console
+- Check that Python 3.x is installed
+- Check PTY-related error messages
 
-#### 文字化けや入力エラー
-- UTF-8 エンコーディングの確認
-- Python スクリプトの非ブロッキング I/O 設定確認
+#### Garbled characters or input errors
+- Check the UTF-8 encoding
+- Check the non-blocking I/O settings of the Python script
 
-#### 描画の崩れ (フォント・字間・アイコンが □)
-WebView の DevTools (`Help > Toggle Developer Tools`) の Console で、実行コンテキストを
-Secondary Terminal の `active-frame` に切り替えて調べる (リロード後は `top` に戻る)。
-`tabState` / `fontSettings` はトップレベルの変数なので Console から触れる。
+#### Rendering glitches (font, letter spacing, icons shown as □)
+In the Console of the WebView DevTools (`Help > Toggle Developer Tools`), switch the execution context to
+Secondary Terminal's `active-frame` and investigate (it goes back to `top` after a reload).
+`tabState` / `fontSettings` are top-level variables, so they can be accessed from the Console.
 
-- フォントが WebView から見えているか: `document.fonts.check()` は `@font-face` で登録していない
-  ローカルフォントには存在しなくても `true` を返すので使えない。canvas の `measureText` で、
-  対象フォントと存在しないフォント名の幅を比べる
-- xterm が使っているセル寸法: `tabState.terminals.get(tabState.activeTabId)._core._renderService.dimensions`
-- レンダラーの切り分け: `tabState.terminalStates.get(tabState.activeTabId).webgl.dispose()` で DOM レンダラーに
-  落として表示が変わるか見る
+- Whether the font is visible to the WebView: `document.fonts.check()` returns `true` for local fonts not registered via `@font-face`
+  even if they do not exist, so it cannot be used. Use canvas `measureText` to compare the width of
+  the target font against a nonexistent font name
+- Cell dimensions used by xterm: `tabState.terminals.get(tabState.activeTabId)._core._renderService.dimensions`
+- Isolating the renderer: drop to the DOM renderer with `tabState.terminalStates.get(tabState.activeTabId).webgl.dispose()`
+  and see whether the display changes
 
-パネル上部のアイコンは、パレット (`$(symbol-color)`) が Refresh Renderer、丸い矢印 (`$(refresh)`) が
-Restart Terminal (シェルを再起動する)。
+Of the icons at the top of the panel, the palette (`$(symbol-color)`) is Refresh Renderer, and the circular arrow (`$(refresh)`) is
+Restart Terminal (restarts the shell).
 
-## 関連技術・参考資料
+## Related Technologies and References
 
 - [VSCode Extension API](https://code.visualstudio.com/api)
 - [xterm.js](https://xtermjs.org/)
 - [Python pty module](https://docs.python.org/3/library/pty.html)
 - [Linux PTY documentation](https://man7.org/linux/man-pages/man7/pty.7.html)
 
-## 絵文字表示幅問題の調査結果
+## Investigation of the Emoji Display Width Problem
 
-### 問題の概要
-- ターミナルで絵文字が半角幅でしか表示されない（VSCode 標準ターミナルでは全角幅で正常表示）
-- xterm.js の `wcwidth` パラメーターが Canvas レンダラーで無視される
+### Overview of the problem
+- Emoji are displayed only at half width in the terminal (the standard VSCode terminal displays them correctly at full width)
+- xterm.js's `wcwidth` parameter is ignored by the Canvas renderer
 
-### 調査した解決方法と結果
+### Approaches investigated and results
 
-#### 1. `wcwidth` パラメーターによる文字幅指定
+#### 1. Specifying character width with the `wcwidth` parameter
 ```javascript
-// ❌ 効果なし
+// ❌ No effect
 wcwidth: (codepoint) => {
-    // 絵文字を全角幅(2)として指定
-    if (/* 絵文字の範囲 */) return 2;
+    // Treat emoji as full width (2)
+    if (/* emoji range */) return 2;
     return 1;
 }
 ```
-**結果**: Canvas レンダラーでは完全に無視される
+**Result**: Completely ignored by the Canvas renderer
 
-#### 2. Unicode 11 アドオンの使用
+#### 2. Using the Unicode 11 addon
 ```javascript
-// ❌ 部分的効果のみ
+// ❌ Only a partial effect
 const unicode11 = new Unicode11Addon.Unicode11Addon();
 term.loadAddon(unicode11);
 unicode11.activate(term);
 ```
-**結果**: アドオンは読み込まれるが、Canvas レンダラーの文字幅計算には影響しない
+**Result**: The addon loads, but it does not affect the Canvas renderer's character width calculation
 
-#### 3. VSCode 互換設定
+#### 3. VSCode-compatible settings
 ```javascript
-// ❌ 効果なし
+// ❌ No effect
 rescaleOverlappingGlyphs: true,
 customGlyphs: true
 ```
-**結果**: xterm.js v5.5.0 ではこれらのオプションが認識されない
+**Result**: These options are not recognized by xterm.js v5.5.0
 
-### 問題の根本原因
-- xterm.js v5.5.0 + Canvas レンダラーは独自の文字幅計算を使用
-- `wcwidth` オプションやアドオンによる文字幅指定を無視
-- Canvas レンダラーは DOM レンダラーと異なる文字幅処理を実装
+### Root cause of the problem
+- xterm.js v5.5.0 + the Canvas renderer uses its own character width calculation
+- It ignores character widths specified through the `wcwidth` option or addons
+- The Canvas renderer implements character width handling differently from the DOM renderer
 
-### 今後の解決方向性
-1. **Canvas レンダラーの内部 API ハック**: `_charAtlas._ctx.measureText` 等の内部実装を直接操作
-2. **DOM レンダラーへの切り替え**: パフォーマンスを犠牲にして文字幅精度を優先
-3. **xterm.js のバージョン変更**: 絵文字対応が改善されたバージョンへの更新
-4. **代替ライブラリの検討**: xterm.js 以外のターミナルエミュレーターライブラリの採用
+### Possible future directions
+1. **Hacking the Canvas renderer's internal API**: Directly manipulate internals such as `_charAtlas._ctx.measureText`
+2. **Switching to the DOM renderer**: Prioritize character width accuracy at the cost of performance
+3. **Changing the xterm.js version**: Update to a version with improved emoji support
+4. **Considering alternative libraries**: Adopt a terminal emulator library other than xterm.js
 
-### 保持したもの
-- Unicode 11 アドオンのインストールと基本設定
-- Canvas アドオンの読み込み
-- 将来の解決に向けた基盤コード
+### What was kept
+- Installation and basic configuration of the Unicode 11 addon
+- Loading of the Canvas addon
+- Groundwork code for a future solution
 
 ---
 
-**開発者**: ytyng
-**作成日**: 2025年6月28日
-**最終更新**: 2026年1月30日
+**Developer**: ytyng
+**Created**: June 28, 2025
+**Last updated**: January 30, 2026
